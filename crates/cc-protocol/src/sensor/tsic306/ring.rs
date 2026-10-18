@@ -1,14 +1,13 @@
 //! A fixed-size, lock-free, single-producer/single-consumer edge ring.
 //!
-//! Owner: **R3-07**.
-//!
 //! # This is the whole of what the interrupt does
 //!
 //! The app note recommends a falling-edge ISR that measures `Tstrobe` and then
-//! *waits* for the next nine edges, sampling after each (app note §1.4). That is
-//! a bit-sampling ISR, and [04 §3.1](../../../../../docs/history/target-architecture.md)
-//! constrains this firmware's ISRs to "nothing beyond one GPIO write". The two
-//! cannot both be satisfied, and the constraint wins, so the split is:
+//! *waits* for the next nine edges, sampling after each (app note §1.4): a
+//! bit-sampling ISR. [target-architecture.md
+//! §3.1](../../../../../docs/history/target-architecture.md) constrains this
+//! firmware's ISRs to "nothing beyond one GPIO write", so the two cannot both be
+//! satisfied. The constraint wins, and the work is split:
 //!
 //! | | where | what it does |
 //! | --- | --- | --- |
@@ -215,10 +214,8 @@ impl<const N: usize> EdgeRing<N> {
 
     /// How many edges have been refused because the ring was full.
     ///
-    /// The C++'s equivalent is the fact that it has no equivalent: `ZACwire`
-    /// never runs out of room because its buffer is two `uint16_t`s that it
-    /// overwrites, so a missed edge is silently decoded as a bit. This counter is
-    /// the thing that makes the alternative visible.
+    /// An overwriting ring would decode a missed edge as a bit without a trace, so this count is
+    /// what keeps the refusal visible instead.
     #[must_use]
     pub fn dropped(&self) -> usize {
         self.dropped.load(Ordering::Relaxed)
@@ -265,11 +262,10 @@ pub struct RingFull;
 ///
 /// # Why this exists instead of returning a `Vec`
 ///
-/// `cc-domain` is `no_std` **and** `no_alloc` in library code (04 §1), and the
-/// reason is the target: the ESP32 has roughly 320 KB of RAM in total and
-/// AGENTS.md's heap rules are about not spending it. A `ZACwire` transmission is
-/// 40 edges, so a `[Edge; 96]` is 768 bytes of stack — the decode task's 8 KB
-/// stack has it — against a heap allocation on every 100 ms tick forever, which
+/// `cc-domain` is `no_std` **and** `no_alloc` in library code, and the reason is the target: the
+/// ESP32 has roughly 320 KB of RAM in total, and AGENTS.md's heap rules are about not spending it.
+/// A `ZACwire` transmission is 40 edges, so a `[Edge; 96]` is 768 bytes of stack — the decode
+/// task's 8 KB stack has it — against a heap allocation on every 100 ms tick forever, which
 /// fragments and is never the thing you want to have found at 3 a.m.
 ///
 /// The buffer is *not* zeroed on construction beyond what the array

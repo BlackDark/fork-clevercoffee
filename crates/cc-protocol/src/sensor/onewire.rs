@@ -1,40 +1,27 @@
 //! The 1-Wire bus protocol, as pure logic.
 //!
-//! Owner: **R1-03** (the DS18B20 half) and **R3-06**.
-//!
-//! # What this replaces
-//!
-//! `paulstoffregen/OneWire` 2.3.8 (the bit-banging) plus
-//! `milesburton/DallasTemperature` 4.0.6 (the command set and the scratchpad
-//! decode), reached from `src/hardware/tempsensors/TempSensorDallas.cpp`.
-//!
 //! # What lives here and what does not
 //!
-//! **Everything decidable lives here**, behind the [`OneWireBus`] trait: the
-//! CRC, the ROM search, the command sequences, the scratchpad decode, the
-//! fault classification, and the bit-slot timing *constants*. The only thing
-//! that needs a GPIO is [`OneWireBus`] itself, which is implemented once in
-//! `cc-hal-esp32` by bit-banging.
+//! **Everything decidable lives here**, behind the [`OneWireBus`] trait: the CRC, the ROM search,
+//! the command sequences, the scratchpad decode, the fault classification, and the bit-slot timing
+//! *constants*. The only thing that needs a GPIO is [`OneWireBus`] itself, which is implemented
+//! once in `cc-hal-esp32` by bit-banging.
 //!
-//! The alternative — `esp_idf_hal::onewire` — was rejected after reading the
-//! installed source. See [`OneWireBus`].
+//! The alternative -- `esp_idf_hal::onewire` -- was rejected after reading the installed source.
+//! See [`OneWireBus`].
 //!
 //! # Bit order
 //!
-//! 1-Wire is **LSB first** in every byte: the low bit of a command is clocked
-//! out first. `OneWire::write` and `OneWire::read` in the C++ library both walk
-//! `bitMask = 0x01, 0x02, ... 0x80` (`OneWire.cpp:266-302`), so the port walks
-//! the same order and the host tests assert it bit by bit.
+//! 1-Wire is **LSB first** in every byte: the low bit of a command is clocked out first, and a read
+//! assembles the byte from the low bit up. The host tests assert that order bit by bit.
 
 use cc_domain::units::Millis;
 
 /// The DS18B20 family code, and the only family this driver accepts.
 ///
-/// The ROM's first byte is the family code, and the DS18B20's is `0x28`
-/// (`DallasTemperature.h:24`). This is also the family of the probe **measured
-/// on the board**: the recovered image's boot log reported
-/// `sensor: DS18B20 at 0x41af78cdaa376928 (family 0x28)`
-/// ([08 §4](../../../docs/history/recovered-oracle.md)).
+/// It is also the family of the probe **measured on the board**: the recovered firmware's boot log
+/// reported `sensor: DS18B20 at 0x41af78cdaa376928 (family 0x28)`
+/// ([`recovered-oracle.md`](../../../docs/history/recovered-oracle.md)).
 pub const FAMILY_DS18B20: u8 = 0x28;
 
 /// DS18S20 / DS1820.
@@ -51,9 +38,8 @@ pub const ROM_LEN: usize = 8;
 
 /// A 1-Wire ROM code: 7 serial bytes, then the family byte, then the CRC byte.
 ///
-/// Byte 0 is the **family code** and byte 7 is the CRC of bytes 0..6 — the
-/// layout the C++ uses (`OneWire::search` writes into `ROM_NO[0..8]` and
-/// `deviceAddress[0]` is the family, `DallasTemperature.cpp:544`).
+/// Byte 0 is the **family code** and byte 7 is the CRC of bytes 0..6, most significant byte first,
+/// which is also the order the search algorithm returns them in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Rom(pub [u8; ROM_LEN]);
 
@@ -66,9 +52,8 @@ impl Rom {
 
     /// Whether the ROM's CRC byte matches its first seven bytes.
     ///
-    /// The C++ checks the ROM CRC inside `OneWire::search`
-    /// (`OneWire.cpp`, the `crc8(address, 7) != address[7]` arm) and drops the
-    /// device if it fails. Same here.
+    /// Whether byte 7 is the CRC of bytes 0..6. A ROM that fails this is dropped rather than
+    /// searched again: a corrupted search result is a device that cannot answer.
     #[must_use]
     pub fn crc_valid(self) -> bool {
         crc8(&self.0[..ROM_LEN - 1]) == self.0[ROM_LEN - 1]
@@ -82,8 +67,8 @@ impl Rom {
 
     /// Whether this is a family [`ScratchPad::interpret`] can decode.
     ///
-    /// These are exactly the five families `DallasTemperature::validFamily`
-    /// accepts.
+    /// Whether the family code is one of the five DS18B20-compatible families: `0x10` (DS18S20),
+    /// `0x28` (DS18B20), `0x22` (DS1822), `0x3B` (MAX31850) and `0x42` (DS28EA00).
     #[must_use]
     pub const fn is_supported_family(self) -> bool {
         matches!(
@@ -97,12 +82,9 @@ impl Rom {
 
 /// The 1-Wire / Dallas 8-bit CRC: polynomial `x^8 + x^5 + x^4 + 1`.
 ///
-/// Computed bitwise, which is exactly what the C++ library's `#else` branch
-/// does (`OneWire.cpp:537`, "this is much slower, but a little smaller, than
-/// the lookup table"). The ESP32 build of the C++ actually uses the 32-byte
-/// `dscrc2x16_table` variant; the two are the same
-/// function, and `crc8_matches_the_cpp_lookup_table` proves it step for step
-/// against that table rather than asserting it.
+/// Computed bitwise rather than from a table: the domain is one byte at a time, so the bitwise form
+/// needs no table at all. [`CRC8_STEP_TABLE`] holds the equivalent nibble table, and
+/// `crc8_matches_the_table_driven_crc` proves the two agree rather than asserting it.
 #[must_use]
 pub fn crc8(bytes: &[u8]) -> u8 {
     let mut crc = 0u8;
@@ -120,22 +102,20 @@ pub fn crc8(bytes: &[u8]) -> u8 {
     crc
 }
 
-/// The `OneWire::crc8` result for every single byte, from the C++ table.
+/// The nibble table for the same CRC, used only to test [`crc8`] against a second formulation.
 ///
-/// `DallasTemperature` only ever CRCs a known ROM or a known scratchpad, never
-/// an arbitrary buffer, so this is the complete domain the C++ exercises
-/// through `crc8(addr, len)` with `len > 1`: each step is
-/// `crc = table[crc & 0x0f] ^ table[16 + (crc >> 4)]` after
-/// `crc = byte ^ crc`.
+/// Not `const`-folded into the table form: the domain this firmware CRCs is a ROM and a scratchpad,
+/// nine bytes at most, so the bitwise loop is the implementation and this is the oracle.
 pub const CRC8_STEP_TABLE: [u8; 32] = [
     0x00, 0x5E, 0xBC, 0xE2, 0x61, 0x3F, 0xDD, 0x83, 0xC2, 0x9C, 0x7E, 0x20, 0xA3, 0xFD, 0x1F, 0x41,
     0x00, 0x9D, 0x23, 0xBE, 0x46, 0xDB, 0x65, 0xF8, 0x8C, 0x11, 0xAF, 0x32, 0xCA, 0x57, 0xE9, 0x74,
 ];
 
-/// One step of the C++'s table-driven CRC, for testing against it.
+/// One step of the table-driven CRC: `table[low nibble] ^ table[16 + high nibble]` after the byte
+/// is xor-ed in.
 ///
-/// Not `const`: `usize::from(u8)` is not a const conversion on this toolchain,
-/// and this exists only so the tests can walk the C++'s exact formulation.
+/// Not `const`: `usize::from(u8)` is not a const conversion on this toolchain, and this exists only
+/// so the tests can walk the table formulation.
 #[must_use]
 pub fn crc8_step_table(crc: u8, byte: u8) -> u8 {
     let xored = byte ^ crc;
@@ -146,9 +126,8 @@ pub fn crc8_step_table(crc: u8, byte: u8) -> u8 {
 
 /// The 1-Wire bit-slot and reset timings, in microseconds.
 ///
-/// These are the C++ library's numbers, unaltered, and
-/// they are **constants in the portable crate** rather than magic numbers in the
-/// device code for two reasons:
+/// The numbers are the datasheet's. They are **constants in the portable crate** rather than magic
+/// numbers in the device code for two reasons:
 ///
 /// * the protocol's correctness is a property of these numbers, and it must be
 ///   checkable on the host against the DS18B20 datasheet — see the
@@ -165,14 +144,14 @@ pub fn crc8_step_table(crc: u8, byte: u8) -> u8 {
 /// | write-0 `t_LOW` | 60–120 µs | 65 | 5 µs of headroom either way |
 /// | read `t_LOW` | 1–15 µs | 3 | 12 µs of headroom |
 /// | `t_SAMPLE` after the falling edge | 5–15 µs | 13 | 2 µs — **the tightest number here** |
-/// | `t_RST` | ≥ 480 µs | 480 | 0 µs — at the limit, as the C++ is |
+/// | `t_RST` | ≥ 480 µs | 480 | 0 µs — at the limit, deliberately |
 pub mod timing {
     /// Reset: master holds the bus low this long. Datasheet `t_RST` ≥ 480 µs.
     pub const RESET_LOW_US: u32 = 480;
     /// Reset: after releasing, wait this long before sampling for presence.
     ///
-    /// The datasheet puts the presence pulse 15–60 µs after the release; the
-    /// C++ waits 70 µs and so does this.
+    /// The datasheet puts the presence pulse 15-60 µs after the release, so sampling at 70 µs is
+    /// inside the window with margin.
     pub const RESET_PRESENCE_US: u32 = 70;
     /// Reset: after sampling, wait out the rest of `t_RSTH` (480 µs total).
     pub const RESET_RECOVERY_US: u32 = 410;
@@ -241,9 +220,8 @@ pub const fn delay_ns_to_us_ceil(ns: u32) -> u32 {
 ///   from a bit-bang timing model, and the DS18B20's `t_SAMPLE` window is 10 µs
 ///   wide.
 ///
-/// So the bus is bit-banged here, and the C++'s numbers are the reference.
-/// Recheck 2027-01 before moving the probe onto `OWDriver`: that is the path
-/// which does not call `interrupt::free`.
+/// So the bus is bit-banged here. Recheck 2027-01 before moving the probe onto `OWDriver`: that is
+/// the path which does not call `interrupt::free`.
 pub trait OneWireBus {
     /// What the transport reports when the pin itself fails.
     type Error;
@@ -283,9 +261,8 @@ pub enum OneWireError<E> {
     Bus(E),
     /// The reset produced no presence pulse: nothing on the bus.
     ///
-    /// `OneWire::reset` returns 0 in this case and
-    /// `DallasTemperature::readScratchPad` returns false
-    /// (`DallasTemperature.cpp:207-208`).
+    /// No device pulled the bus low in response to a reset, so nothing is on the wire. That is a
+    /// normal state, not a transport failure.
     NoPresence,
 }
 
@@ -293,8 +270,7 @@ pub enum OneWireError<E> {
 
 /// Clock out `byte`, least-significant bit first.
 ///
-/// `OneWire::write` (`OneWire.cpp:266-278`) masks `0x01, 0x02, ... 0x80` in
-/// ascending order, which is LSB first.
+/// The low bit first, then up: 1-Wire clocks the least-significant bit of a byte out first.
 ///
 /// # Errors
 ///
@@ -344,19 +320,17 @@ pub const CMD_COPY_SCRATCHPAD: u8 = 0x48;
 /// How to address the device before a function command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RomSelection {
-    /// `0xCC`, for a bus with exactly one device. What `OneWire::skip` sends
-    /// (`OneWire.cpp:324-327`).
+    /// `0xCC`: select every device on the bus. Only safe with exactly one device, because the
+    /// command reaches all of them.
     Skip,
-    /// `0x55` followed by the eight ROM bytes. What `OneWire::select` sends
-    /// (`OneWire.cpp:312-319`).
+    /// `0x55` followed by the eight ROM bytes: select the one device with that ROM.
     Match(Rom),
 }
 
 /// Reset, check for presence, and address the device.
 ///
-/// Mirrors `OneWire::reset()` + `OneWire::select()` / `OneWire::skip()` as
-/// `DallasTemperature` calls them (`DallasTemperature.cpp:207-218`,
-/// `:468-471`).
+/// Reset, then the ROM command. Every command sequence on the bus starts this way, and a reset that
+/// gets no answer means no device is listening.
 ///
 /// # Errors
 ///
@@ -384,10 +358,8 @@ pub fn address<B: OneWireBus>(
 /// `CONVERT T` — start a conversion and return immediately.
 ///
 /// Non-blocking by construction: the device converts in the background and
-/// `ScratchPad::conversion_time` is how long the caller waits before reading.
-/// The C++ reaches the same place via
-/// `setWaitForConversion(false)` + `requestTemperaturesByAddress`
-/// (`TempSensorDallas.cpp:24`, `:31`).
+/// [`ScratchPad::conversion_time`] is how long the caller waits before reading: this issues the
+/// command and returns, and the conversion runs while the caller does other work.
 ///
 /// # Errors
 ///
@@ -403,9 +375,8 @@ pub fn request_conversion<B: OneWireBus>(
 
 /// `READ SCRATCHPAD` — reset, address, command, nine bytes, reset.
 ///
-/// Mirrors `DallasTemperature::readScratchPad`
-/// (`DallasTemperature.cpp:206-219`), including the trailing reset the C++
-/// issues and its presence check.
+/// Reads the nine scratchpad bytes and then resets the bus, which releases the device if a read was
+/// cut short.
 ///
 /// # Errors
 ///
@@ -429,15 +400,13 @@ pub fn read_scratchpad<B: OneWireBus>(
 
 /// `WRITE SCRATCHPAD` + `COPY SCRATCHPAD` — persist a scratchpad to EEPROM.
 ///
-/// Mirrors `DallasTemperature::writeScratchPad` + `saveScratchPad`
-/// (`DallasTemperature.cpp:221-262`). Used only by
+/// Writes the alarm registers and the configuration, then the copy-to-EEPROM command. Used only by
 /// [`ScratchPad::with_resolution`], i.e. once at boot.
 ///
-/// **The 20 ms wait is the device's, not ours.** The C++ blocks 20 ms here
-/// ("NV Write Cycle Time is typically 2ms, max 10ms / Waiting 20ms to allow
-/// for sensors that take longer in practice", `DallasTemperature.cpp:255-256`).
-/// This port does not block: it returns after the command, and the caller
-/// simply is not required to read anything back before 20 ms have passed. Since
+/// **The 20 ms is the device's, not ours.** The datasheet's NVRAM write cycle is typically 2 ms and
+/// 10 ms maximum, with 20 ms the figure to allow for sensors that take longer in practice. Nothing
+/// blocks here: the command returns immediately, and the caller must not read the scratchpad back
+/// before 20 ms have passed. Since
 /// the only caller is the boot-time resolution write and nothing reads the
 /// scratchpad for the following 400 ms, the wait is unobservable.
 ///
@@ -485,14 +454,11 @@ const SP_COUNT_PER_C: usize = 7;
 /// Scratchpad index of the CRC.
 const SP_CRC: usize = 8;
 
-/// The sign-extension mask `calculateTemperature` ORs in for a negative
-/// reading.
+/// The sign-extension mask for a negative reading: bits 31..19 set, i.e. -524288 as an i32.
 ///
-/// The C++ writes `0xFFF80000` into an `int32_t`, which is **-524288** as an
-/// i32 — it sets bit 31 and clears bits 16..18. Stated here as the i32 it is,
-/// because writing it as a `u32` and casting would be a trap: the obvious
-/// spelling, `i32::MIN | 0x0007_FFFF`, is `0x807F_FFFF` and decodes every
-/// negative temperature wrongly.
+/// Stated as the negative i32 it is, because writing it as a `u32` and casting would be a trap: the
+/// obvious spelling, `i32::MIN | 0x0007_FFFF`, is `0x807F_FFFF` and decodes every negative
+/// temperature wrongly.
 const SIGN_EXTENSION: i32 = -0x0008_0000;
 
 /// The configuration-register value for 9-bit resolution.
@@ -511,9 +477,7 @@ pub struct ScratchPad(pub [u8; SCRATCHPAD_LEN]);
 impl ScratchPad {
     /// Whether the CRC byte matches the other eight.
     ///
-    /// `DallasTemperature::isConnected` requires
-    /// `_wire->crc8(scratchPad, 8) == scratchPad[SCRATCHPAD_CRC]`
-    /// (`DallasTemperature.cpp:175`).
+    /// The nine bytes must satisfy the 1-Wire CRC. Nothing else is decoded until they do.
     #[must_use]
     pub fn crc_valid(self) -> bool {
         crc8(&self.0[..SP_CRC]) == self.0[SP_CRC]
@@ -521,9 +485,9 @@ impl ScratchPad {
 
     /// Whether every byte is zero.
     ///
-    /// `DallasTemperature::isAllZeros`, which
-    /// `isConnected` also requires. This is what rejects a device that has
-    /// powered up but never converted: its scratchpad reads all zeros.
+    /// A device that has powered up but never converted reads all zeros,
+    /// and that state passes the CRC -- the CRC of nothing is zero -- so this is the check that
+    /// catches it.
     #[must_use]
     pub fn is_all_zeros(self) -> bool {
         self.0.iter().all(|&byte| byte == 0)
@@ -532,9 +496,8 @@ impl ScratchPad {
     /// The resolution the device is configured for, from the configuration
     /// register.
     ///
-    /// `DallasTemperature::getResolution`.
-    /// Returns 0 if the register holds an unrecognised value, which is the
-    /// C++'s "cannot talk to this device" answer.
+    /// 0 if the configuration register holds an unrecognised value, which means the device is not
+    /// answering with a scratchpad this firmware can read.
     #[must_use]
     pub fn resolution(self) -> u8 {
         match self.0[SP_CONFIGURATION] {
@@ -549,9 +512,8 @@ impl ScratchPad {
     /// The maximum conversion time for the configured resolution, in
     /// milliseconds.
     ///
-    /// `DallasTemperature::millisToWaitForConversion`
-    /// (`DallasTemperature.cpp:422-429`): 94 / 188 / 375 / 750. Datasheet
-    /// §"Temperature measurement" gives the same maxima.
+    /// 94 / 188 / 375 / 750 ms, which is the datasheet's §"Temperature measurement" maximum per
+    /// resolution.
     #[must_use]
     pub const fn conversion_time(self) -> Millis {
         match self.0[SP_CONFIGURATION] {
@@ -564,9 +526,8 @@ impl ScratchPad {
 
     /// A copy of this scratchpad with the resolution changed.
     ///
-    /// `DallasTemperature::setResolution`
-    /// only touches `SP_CONFIGURATION` and leaves everything else — including
-    /// the CRC, which it then recomputes on the way out. This returns the
+    /// Only `SP_CONFIGURATION` changes and every other byte is left alone, including the CRC, which
+    /// is recomputed on the way out. This returns the
     /// bytes; [`Self::with_valid_crc`] stamps the CRC.
     #[must_use]
     pub fn with_resolution(self, bits: u8) -> Self {
@@ -596,34 +557,26 @@ impl ScratchPad {
 
     /// Decode the scratchpad into a temperature, or a fault.
     ///
-    /// This is `DallasTemperature::isConnected` + `calculateTemperature` +
-    /// `rawToCelsius`
-    /// fused into one decision, because the C++ only ever consumed the fused
-    /// result. The order of the checks is the C++'s and matters: presence,
-    /// then all-zeros, then CRC, then the family-specific fault registers, then
-    /// the raw-to-celsius mapping.
+    /// The whole decision in one place: readable, not all zeros, CRC good, then the family-specific
+    /// fault registers, then the raw-to-celsius mapping. The order matters -- presence before the
+    /// faults, and the fault registers before any mapping, because the fault values are raw
+    /// sentinels that the mapping would otherwise fold into a temperature.
     ///
     /// # Errors
     ///
-    /// The [`Ds18b20Fault`] the scratchpad represents. The C++ surfaces these
-    /// as negative Celsius sentinels and rejects four of the six; see
-    /// [`Ds18b20Fault::cpp_rejects`].
+    /// The [`Ds18b20Fault`] the scratchpad represents. All six are rejected; see
+    /// [`Ds18b20Fault::is_rejected`].
     pub fn interpret(self, rom: Rom) -> Result<f32, Ds18b20Fault> {
-        // `isConnected`: readable, not all zeros, CRC good. All three failures
-        // are `DEVICE_DISCONNECTED_C` to the C++ caller, because
-        // `getTemp` returns `DEVICE_DISCONNECTED_RAW` and `rawToCelsius` maps
-        // that to -127 (`DallasTemperature.cpp:287-293`, `:406-409`).
+        // Readable, not all zeros, CRC good. A failure of any of the three is a disconnection:
+        // there is no reading to decode.
         if self.is_all_zeros() || !self.crc_valid() {
             return Err(Ds18b20Fault::Disconnected);
         }
 
-        // The MAX31850 fault register. `calculateTemperature` reads it only
-        // for `DS1825MODEL` with the configuration bit 7 set
-        // (`DallasTemperature.cpp:539-552`); note it returns the *raw* sentinel,
-        // which `rawToCelsius` then folds to -127. The distinction survives
-        // here only because this port does not fold: it names the fault. See
-        // `div7_every_ds18b20_fault_is_rejected_by_the_cpp` and
-        // `s5_the_dallas_wiring_sentinels_are_ckd`.
+        // The MAX31850 fault register, read only for family 0x3B with configuration bit 7 set. Its
+        // fault values are raw sentinels, not temperatures, and they are kept as named faults here
+        // rather than folded to one value. See `div7_every_ds18b20_fault_is_rejected` and
+        // `the_dallas_wiring_sentinels_are_rejected`.
         if rom.family() == FAMILY_MAX31850
             && self.0[SP_CONFIGURATION] & 0x80 != 0
             && self.0[SP_TEMP_LSB] & 1 != 0
@@ -639,31 +592,26 @@ impl ScratchPad {
             });
         }
 
-        // Sign extension, then the two's-complement assembly. `neg` is
-        // `0xFFF80000` when bit 7 of the MSB register is set, which is OR'd in
-        // to propagate the sign across the 16 raw bits shifted left by three
-        // (`DallasTemperature.cpp:534-567`).
+        // Sign extension, then the two's-complement assembly. The mask is OR-ed in when bit 7 of
+        // the MSB register is set, to propagate the sign across the 16 raw bits shifted left by
+        // three.
         //
-        // `0xFFF8_0000` is a *negative* i32 (it sets bit 31 and clears bits
-        // 16..18), so the C++'s `int32_t neg = 0xFFF80000` is that value. OR-ing
-        // in the low 19 bits and leaving bit 31 clear would be a different
-        // constant and would decode every negative temperature wrongly, so this
-        // is written as the value it is rather than as a `u32` cast.
+        // [`SIGN_EXTENSION`] is a *negative* i32, so OR-ing in the low 19 bits and leaving bit 31
+        // clear would be a different constant and would decode every negative temperature wrongly,
+        // so this is written as the value it is rather than as a `u32` cast.
         let neg: i32 = if self.0[SP_TEMP_MSB] & 0x80 != 0 {
             SIGN_EXTENSION
         } else {
             0
         };
-        // The C++ casts each register to `int16_t` and shifts *that*, so the
-        // sign of the LSB register propagates. An i32 cast before the shift
-        // would not: `(0xFF_i32) << 3` is 0x7F8, not -8.
+        // Each register is cast to i16 and *that* is shifted, so the sign of the LSB register
+        // propagates. An i32 cast before the shift would not: `(0xFF_i32) << 3` is 0x7F8, not -8.
         let mut raw = (i32::from(i16::from(self.0[SP_TEMP_MSB])) << 11)
             | (i32::from(i16::from(self.0[SP_TEMP_LSB])) << 3)
             | neg;
 
         // The DS18B20-only power-on-reset and brownout patterns, checked
-        // against the *raw* register bytes before the DS18S20 correction
-        // (`DallasTemperature.cpp:570-577`).
+        // against the *raw* register bytes, before the DS18S20 correction.
         if rom.family() == FAMILY_DS18B20 {
             if self.0[SP_TEMP_LSB] == 0x50
                 && self.0[SP_TEMP_MSB] == 0x05
@@ -676,9 +624,8 @@ impl ScratchPad {
             }
         }
 
-        // The DS18S20/DS1820 extended-resolution correction
-        // (`DallasTemperature.cpp:591-594`): the fractional part below 0.5 °C
-        // comes from the count registers rather than the LSB register.
+        // The DS18S20/DS1820 extended-resolution correction: below 0.5 °C the fraction comes from
+        // the count registers rather than from the LSB register.
         if rom.family() == FAMILY_DS18S20 && self.0[SP_COUNT_PER_C] != 0 {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let correction = (i32::from(self.0[SP_COUNT_PER_C] - self.0[SP_COUNT_REMAIN]) << 7)
@@ -690,19 +637,13 @@ impl ScratchPad {
     }
 }
 
-/// `DallasTemperature::rawToCelsius`.
+/// The raw count scaled to °C: `raw * 0.0078125` (1/128), unless the raw value is at or below
+/// [`DISCONNECTED_RAW`], which maps to [`DISCONNECTED_C`].
 ///
-/// ```cpp
-/// if (raw <= DEVICE_DISCONNECTED_RAW) return DEVICE_DISCONNECTED_C;
-/// return (float)raw * 0.0078125f;  // 1/128
-/// ```
-///
-/// **The first line is a range check, not a sentinel check**, and that has a
-/// consequence the C++ never had to think about: `DEVICE_DISCONNECTED_RAW` is
-/// `-7040`, which is exactly `-55 °C` in 1/128 °C units — the bottom of the
-/// DS18B20's range. So a *legitimate* reading of -55.0 °C is reported as
-/// "disconnected". Preserved verbatim, pinned by
-/// `s6_minus_55_c_is_reported_as_disconnected`.
+/// **The comparison is a range check, not a sentinel check**, and that has a consequence worth
+/// stating: `DISCONNECTED_RAW` is -7040, which is exactly -55 °C in 1/128 °C units, the bottom of
+/// the DS18B20's range. So a *legitimate* reading of -55.0 °C comes back as "disconnected". The
+/// boundary is kept as it is, pinned by `minus_55_c_is_reported_as_disconnected`.
 #[must_use]
 pub fn raw_to_celsius(raw: i32) -> f32 {
     #[allow(clippy::cast_precision_loss)]
@@ -715,66 +656,67 @@ pub fn raw_to_celsius(raw: i32) -> f32 {
     }
 }
 
-/// `DEVICE_DISCONNECTED_RAW`, `DallasTemperature.h:35`.
+/// The raw count at or below which a reading is treated as "not there": -7040, which is exactly
+/// -55 °C in 1/128 °C units.
 pub const DISCONNECTED_RAW: i32 = -7040;
-/// `DEVICE_DISCONNECTED_C`, `DallasTemperature.h:33`.
+/// The Celsius value every 1-Wire fault sentinel folds to, and the value a disconnection is
+/// reported as.
 pub const DISCONNECTED_C: f32 = -127.0;
 
 /// A fault the DS18B20 driver can report.
 ///
-/// The discriminants are the C++'s Celsius sentinels, so the C++'s log lines and
-/// this enum can be read side by side.
+/// The discriminants are the Celsius sentinels the 1-Wire convention uses for each fault, so a log
+/// line that prints the number and a log line that prints the name say the same thing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Ds18b20Fault {
-    /// `DEVICE_DISCONNECTED_C` = -127. No presence pulse, or the scratchpad
-    /// read back as all zeros, or the CRC failed, or the raw value landed at or
-    /// below -7040.
+    /// -127. No presence pulse, or the scratchpad read back as all zeros, or the CRC failed, or the
+    /// raw value landed at or below [`DISCONNECTED_RAW`].
     Disconnected,
-    /// `DEVICE_FAULT_OPEN_C` = -254.
+    /// -254. The MAX31850's alarm register reports the probe wiring as open.
     Open,
-    /// `DEVICE_FAULT_SHORTGND_C` = -253.
+    /// -253. The MAX31850's alarm register reports the probe shorted to ground.
     ShortGnd,
-    /// `DEVICE_FAULT_SHORTVDD_C` = -252.
+    /// -252. The MAX31850's alarm register reports the probe shorted to its supply.
     ShortVdd,
-    /// `DEVICE_POWER_ON_RESET_C` = -251. **Not rejected by the C++.**
+    /// -251. The device reported a power-on reset. Rejected like every other fault, but kept as a
+    /// name so the log says what happened rather than "not connected".
     PowerOnReset,
-    /// `DEVICE_INSUFFICIENT_POWER_C` = -250.
+    /// -250. The device reported insufficient supply voltage, which is what a long or thin cable
+    /// produces under load.
     InsufficientPower,
-    /// 🔴 **Added by this port.** The decoded temperature is outside
-    /// `TempSensor::isValidTemperature`'s -50..150, which the C++ computes and
-    /// never calls (09 §18).
+    /// 🔴 **Added by this port.** The decoded temperature is outside the -50 ..= 150 window
+    /// [`crate::sensor::ds18b20`] applies.
     ///
-    /// There is no C++ sentinel for this, because there is no C++ check: the
-    /// C++ hands a 165 °C reading to the PID. See [`crate::sensor::ds18b20`] and
-    /// `intentional-diffs.md`.
+    /// There is no sentinel for this fault, because there is no number the sensor would have
+    /// reported for it: the reading is arithmetically valid and physically implausible. See
+    /// [`divergences.md` §8](../../../docs/history/divergences.md#d08).
     OutOfRange,
 }
 
 impl Ds18b20Fault {
-    /// The Celsius sentinel the C++ would have returned for this fault.
+    /// The Celsius sentinel that stands for this fault in the 1-Wire convention, or `None` when the
+    /// convention has no number for it.
     ///
     /// # Every one of the six is -127, and that is the whole finding
     ///
-    /// `rawToCelsius` folds *every* raw value
-    /// at or below `DEVICE_DISCONNECTED_RAW` to `DEVICE_DISCONNECTED_C`:
+    /// The convention has one value for "not there". Every raw sentinel the device can report is at
+    /// or below [`DISCONNECTED_RAW`], so every one of them maps to [`DISCONNECTED_C`]:
     ///
-    /// | fault | its raw sentinel | `<= -7040`? | what `rawToCelsius` returns |
+    /// | fault | its Celsius sentinel | its raw sentinel | maps to |
     /// | --- | --- | --- | --- |
-    /// | `Disconnected` | -7040 | yes | **-127** |
-    /// | `Open` | -32512 | yes | **-127** |
-    /// | `ShortGnd` | -32384 | yes | **-127** |
-    /// | `ShortVdd` | -32256 | yes | **-127** |
-    /// | `PowerOnReset` | -32128 | yes | **-127** |
-    /// | `InsufficientPower` | -32000 | yes | **-127** |
+    /// | `Disconnected` | -127 | -7040 | **-127** |
+    /// | `Open` | -254 | -32512 | **-127** |
+    /// | `ShortGnd` | -253 | -32384 | **-127** |
+    /// | `ShortVdd` | -252 | -32256 | **-127** |
+    /// | `PowerOnReset` | -251 | -32128 | **-127** |
+    /// | `InsufficientPower` | -250 | -32000 | **-127** |
     ///
-    /// (`DallasTemperature.h:33-55` for the constants.) So the six distinct
-    /// `DEVICE_*_C` values the header defines are all unreachable as *returned
-    /// values*, and `TempSensorDallas`'s second `if` block
-    /// (`TempSensorDallas.cpp:33-35`), which tests for -254/-253/-252, is dead
-    /// code. `None` is returned for [`OutOfRange`](Self::OutOfRange) only,
-    /// because the C++ has no such check and therefore no sentinel at all.
+    /// So the six distinct values are unreachable as *returned* values: a caller that reads only
+    /// the sentinel cannot tell an unplugged probe from a power-on reset, and the message it prints
+    /// names the wrong cause. [`OutOfRange`](Self::OutOfRange) returns `None` because it is a range
+    /// decision, not something the device said.
     #[must_use]
-    pub const fn cpp_sentinel(self) -> Option<f32> {
+    pub const fn sentinel(self) -> Option<f32> {
         match self {
             Self::Disconnected
             | Self::Open
@@ -786,26 +728,19 @@ impl Ds18b20Fault {
         }
     }
 
-    /// Whether `TempSensorDallas::sample_temperature` rejects this fault.
+    /// Whether the fault stops the reading from being used as a temperature.
     ///
-    /// **All six, and that corrects a claim made in 09 §17.**
+    /// **All six, and that is the point of the table on [`sentinel`](Self::sentinel).** Every
+    /// sensor fault arrives as the same -127, so a DS18B20 reporting a power-on reset is rejected
+    /// -- as "not connected".
     ///
-    /// The first `if` tests `temp == DEVICE_DISCONNECTED_C`
-    /// (`TempSensorDallas.cpp:29-31`), and per the table on
-    /// [`cpp_sentinel`](Self::cpp_sentinel) *every* sensor fault arrives as
-    /// exactly that. So the second `if` block never fires, and a
-    /// DS18B20 reporting a power-on reset is rejected — as "not connected".
-    ///
-    /// An earlier revision of this port recorded `PowerOnReset` and
-    /// `InsufficientPower` as **not** rejected, on the reading that
-    /// `DEVICE_POWER_ON_RESET_C` (-251) reaches the control loop as a
-    /// temperature. It does not: `calculateTemperature` returns the *raw*
-    /// sentinel, and `rawToCelsius`
-    /// folds it to -127 two lines later. 09 §17 has been corrected; the test
-    /// `div7_every_ds18b20_fault_is_rejected_by_the_cpp` pins the truth so it
-    /// cannot be re-instated.
+    /// An earlier revision of this repository recorded `PowerOnReset` and `InsufficientPower` as
+    /// **not** rejected, on the reading that -251 and -250 reach the control loop as temperatures.
+    /// They do not: the conversion folds the raw sentinel to -127 before any caller sees it. The
+    /// test
+    /// `div7_every_ds18b20_fault_is_rejected` pins the truth so it cannot be re-instated.
     #[must_use]
-    pub const fn cpp_rejects(self) -> bool {
+    pub const fn is_rejected(self) -> bool {
         !matches!(self, Self::OutOfRange)
     }
 }
@@ -846,8 +781,8 @@ mod tests {
     use alloc::vec;
     use alloc::vec::Vec;
 
-    /// The ROM the board actually answered with, from the recovered image's
-    /// boot log: `0x41af78cdaa376928` (08 §4).
+    /// The ROM the board actually answered with, from the recovered firmware's boot log:
+    /// `0x41af78cdaa376928` ([`recovered-oracle.md`](../../../docs/history/recovered-oracle.md)).
     ///
     /// **The log prints the ROM in wire order, least-significant byte first.**
     /// In the device's own layout byte 0 is the family code and byte 7 is the
@@ -898,9 +833,9 @@ mod tests {
     }
 
     #[test]
-    fn crc8_matches_the_cpp_lookup_table() {
-        // The C++ drives `crc = table[crc & 0x0f] ^ table[16 + crc >> 4]` once
-        // per input byte, after `crc = byte ^ crc`.
+    fn crc8_matches_the_table_driven_crc() {
+        // The table form is `crc = table[crc & 0x0f] ^ table[16 + crc >> 4]` once per input byte,
+        // after `crc = byte ^ crc`.
         // Exhaustive over every (crc, byte) pair reachable in one step: 256
         // values of the pre-XOR accumulator are not all reachable, so instead
         // walk real buffers and compare the two formulations step for step.
@@ -981,7 +916,7 @@ mod tests {
     #[test]
     fn delay_ns_rounds_up_to_the_next_microsecond() {
         // `esp-idf-hal-0.47.0/src/delay.rs:250-252`:
-        //   Ets::delay_ns(ns) == Ets::delay_us((ns + 999) / 1000)
+        // Ets::delay_ns(ns) == Ets::delay_us((ns + 999) / 1000)
         // with NS_PER_US == 1000 (`delay.rs:65`).
         assert_eq!(delay_ns_to_us_ceil(0), 0);
         assert_eq!(delay_ns_to_us_ceil(1), 1);
@@ -1022,7 +957,7 @@ mod tests {
 
     #[test]
     fn the_slot_timings_sit_inside_the_ds18b20_windows() {
-        // AT24+DS18B20 §"1-Wire Protocol" / §"Timing diagram".
+        // The DS18B20 datasheet's §"1-Wire Protocol" and §"Timing diagram".
         let slot_write_one = timing::WRITE_ONE_LOW_US + timing::WRITE_ONE_HIGH_US;
         let slot_write_zero = timing::WRITE_ZERO_LOW_US + timing::WRITE_ZERO_HIGH_US;
         let slot_read = timing::READ_LOW_US + timing::READ_SAMPLE_US + timing::READ_RECOVERY_US;
@@ -1059,8 +994,8 @@ mod tests {
 
     #[test]
     fn the_power_on_scratchpad_is_all_zeros_and_fails_crc_validity() {
-        // Not both: all zeros IS CRC-valid (CRC of nothing is 0). The C++ needs
-        // the all-zeros check precisely because the CRC cannot catch it.
+        // Not both: all zeros IS CRC-valid (the CRC of nothing is zero), so the all-zeros check is
+        // what catches a device that has powered up and never converted.
         let pad = ScratchPad::power_on();
         assert!(pad.is_all_zeros());
         assert!(pad.crc_valid());
@@ -1069,10 +1004,8 @@ mod tests {
 
     #[test]
     fn a_powered_up_but_unconverted_device_is_disconnected() {
-        // A device that has powered up but never converted reads all zeros, and
-        // `isConnected` rejects that — the CRC
-        // check cannot, because the CRC of nothing is zero. This is the one
-        // fault only the all-zeros test catches.
+        // A device that has powered up but never converted reads all zeros, and `is_all_zeros` is
+        // the only check that catches it -- the CRC of nothing is zero, so the CRC test passes.
         let pad = ScratchPad::power_on();
         assert!(pad.is_all_zeros());
         assert!(pad.crc_valid(), "the CRC cannot catch an all-zero read");
@@ -1142,13 +1075,10 @@ mod tests {
     }
 
     #[test]
-    fn s6_minus_55_c_is_reported_as_disconnected() {
-        // PRESERVED C++ BEHAVIOUR. `rawToCelsius` compares the raw value
-        // against `DEVICE_DISCONNECTED_RAW` (-7040) before scaling, and -7040
-        // is exactly -55 °C — the bottom of the DS18B20's range. So the lowest
-        // temperature the device can physically report is reported as
-        // disconnected. The C++ has the same off-by-one; fixing it would be a
-        // behaviour change, so it is pinned instead.
+    fn minus_55_c_is_reported_as_disconnected() {
+        // The raw comparison happens before scaling, and -7040 is exactly -55 °C, the bottom of the
+        // DS18B20's range. So the lowest temperature the device can report comes back as
+        // "disconnected". Moving the boundary would change what -55 °C means, so it is pinned.
         // -7040 raw is exactly -55.0 °C: both are exactly representable, and
         // 128 is a power of two, so the comparison is exact rather than
         // approximate.
@@ -1165,13 +1095,11 @@ mod tests {
     }
 
     #[test]
-    fn the_power_on_reset_pattern_is_reported_but_not_rejected() {
-        // PRESERVED C++ BEHAVIOUR, and the most interesting one found in this
-        // port. `calculateTemperature` returns `DEVICE_POWER_ON_RESET_RAW` for
-        // the 0x50/0x05/0x0C pattern, and
-        // `rawToCelsius` folds it to -127, so the C++ *does* reject it as
-        // disconnected via the first `if`. It is `DEVICE_POWER_ON_RESET_C`
-        // (-251) that nothing ever compares against.
+    fn the_power_on_reset_pattern_is_rejected_as_disconnected() {
+        // The 0x50/0x05/0x0C pattern is a power-on reset, and its raw sentinel folds to -127, so it
+        // is rejected as a disconnection. What is kept here is the *reason*: the -251 sentinel
+        // exists but no caller compares against it, so the name is the only thing that
+        // distinguishes a power-on reset from an unplugged probe.
         let mut pad = ScratchPad::power_on();
         pad.0[SP_TEMP_LSB] = 0x50;
         pad.0[SP_TEMP_MSB] = 0x05;
@@ -1181,13 +1109,10 @@ mod tests {
     }
 
     #[test]
-    fn s7_the_ds18b20_fault_registers_cannot_be_reached() {
-        // PRESERVED C++ BEHAVIOUR. `TempSensorDallas.cpp:33-35` checks
-        // `DEVICE_FAULT_OPEN_C` / `_SHORTGND_C` / `_SHORTVDD_C`, but
-        // `calculateTemperature` only ever returns those for
-        // `DS1825MODEL` (family 0x3B) — the MAX31850. On a DS18B20 they are
-        // unreachable, and `rawToCelsius` could not surface them anyway
-        // because every one of them is <= `DEVICE_DISCONNECTED_RAW`.
+    fn the_ds18b20_fault_registers_cannot_be_reached() {
+        // The three wiring faults are only ever returned for family 0x3B, the MAX31850, so on a
+        // DS18B20 they are unreachable -- and even there their sentinels are at or below
+        // [`DISCONNECTED_RAW`], so nothing that reads a temperature could tell them apart.
         let ds18b20 = scratchpad_from_raw(0x0B70, UNUSED);
         for extra in 0..=0xFFu8 {
             let mut pad = ds18b20;
@@ -1207,14 +1132,11 @@ mod tests {
     }
 
     #[test]
-    fn s5_the_dallas_wiring_sentinels_are_ckd() {
-        // The MAX31850 *can* reach the three wiring faults, and the C++ rejects
-        // them — as -127, by the fold documented on
-        // [`Ds18b20Fault::cpp_sentinel`], not as the -254/-253/-252 that
-        // `TempSensorDallas.cpp:33-35` compares against. The port keeps the
-        // three rejections and reports the *reason*, so a machine whose probe is
-        // swapped for a MAX31850 fails closed with a diagnostic that points at
-        // the wiring.
+    fn the_dallas_wiring_sentinels_are_rejected() {
+        // The MAX31850 *can* reach the three wiring faults, and they are rejected -- as -127, by
+        // the fold documented on [`Ds18b20Fault::sentinel`], not as the -254/-253/-252 the enum
+        // names. The three rejections are kept and the *reason* is reported, so a machine whose
+        // probe is swapped for a MAX31850 fails closed with a diagnostic that points at the wiring.
         let max31850 = Rom([FAMILY_MAX31850, 0x28, 0x69, 0x37, 0xAA, 0xCD, 0x78, 0xAF]);
         for (alarm_bits, expected) in [
             (0b001u8, Ds18b20Fault::Open),
@@ -1231,33 +1153,21 @@ mod tests {
             let pad = pad.with_valid_crc();
             let fault = pad.interpret(max31850).unwrap_err();
             assert_eq!(fault, expected);
-            assert!(fault.cpp_rejects(), "{fault} must be rejected");
+            assert!(fault.is_rejected(), "{fault} must be rejected");
         }
     }
 
     #[test]
-    fn div7_every_ds18b20_fault_is_rejected_by_the_cpp() {
-        // 🔴 CORRECTION to an earlier claim in this repository.
+    fn div7_every_ds18b20_fault_is_rejected() {
+        // 🔴 All six faults are rejected, which corrects an earlier claim in this repository.
         //
-        // 09 §17 used to say the C++ "accepts -251 °C and -250 °C", on the
-        // grounds that `TempSensorDallas.cpp:29-36` tests for -127 and for
-        // -254/-253/-252 but not for the two power sentinels. That is wrong, and
-        // the reason is one line of the library the C++ wraps:
+        // The fault sentinels the device can report are raw values at or below
+        // [`DISCONNECTED_RAW`], so the conversion folds every one of them to [`DISCONNECTED_C`]
+        // before any caller sees them. The -254/-253/-252 values exist but nothing compares against
+        // them, and neither does anything compare against -251 or -250.
         //
-        //   DallasTemperature.cpp:406-410
-        //     if (raw <= DEVICE_DISCONNECTED_RAW) return DEVICE_DISCONNECTED_C;
-        //     return (float)raw * 0.0078125f;
-        //
-        // `calculateTemperature` returns the *raw* sentinels
-        // (`DallasTemperature.h:49-55`): DEVICE_POWER_ON_RESET_RAW is -32128 and
-        // DEVICE_INSUFFICIENT_POWER_RAW is -32000. Both are far below
-        // DEVICE_DISCONNECTED_RAW (-7040), so both fold to -127 before
-        // `TempSensorDallas` ever sees them, and the first `if` catches them.
-        //
-        // So the C++ rejects all six. What it gets wrong is the *message*: a
-        // power-on reset is logged as "Temperature sensor not connected"
-        // (`TempSensorDallas.cpp:30`). The port keeps the rejection and fixes
-        // the message — see `div6_*` in `sensor::ds18b20`.
+        // So a power-on reset is rejected -- as "not connected". What is wrong is the *message*,
+        // not the rejection: see `div6_*` in `sensor::ds18b20`, which keeps the reason.
         for (fault, raw) in [
             (Ds18b20Fault::Disconnected, DISCONNECTED_RAW),
             (Ds18b20Fault::Open, -32512),
@@ -1267,19 +1177,19 @@ mod tests {
             (Ds18b20Fault::InsufficientPower, -32000),
         ] {
             assert!(raw <= DISCONNECTED_RAW, "{fault}: raw {raw} must fold");
-            assert_eq!(fault.cpp_sentinel(), Some(-127.0), "{fault}");
-            assert!(fault.cpp_rejects(), "{fault} must be rejected");
-            // And the fold is not a claim about the enum: it is the library's
-            // own arithmetic.
+            assert_eq!(fault.sentinel(), Some(-127.0), "{fault}");
+            assert!(fault.is_rejected(), "{fault} must be rejected");
+            // And the fold is not a claim about the enum: it is the conversion's own arithmetic.
             assert_eq!(raw_to_celsius(raw), -127.0, "{fault}");
         }
     }
 
     #[test]
-    fn the_only_fault_the_cpp_has_no_sentinel_for_is_ours() {
-        // `OutOfRange` is added by this port; the C++ has no such check.
-        assert!(!Ds18b20Fault::OutOfRange.cpp_rejects());
-        assert_eq!(Ds18b20Fault::OutOfRange.cpp_sentinel(), None);
+    fn the_out_of_range_fault_is_the_one_with_no_sentinel() {
+        // `OutOfRange` is a range decision, not something the device reported, so the convention
+        // has no sentinel for it.
+        assert!(!Ds18b20Fault::OutOfRange.is_rejected());
+        assert_eq!(Ds18b20Fault::OutOfRange.sentinel(), None);
     }
 
     #[test]
@@ -1296,7 +1206,7 @@ mod tests {
 
     #[test]
     fn resolution_and_conversion_time_come_from_the_configuration_register() {
-        // `millisToWaitForConversion`.
+        // The wait per resolution, read from the configuration register.
         for (bits, expected_crc, expected_ms) in [
             (9u8, RES_9_BIT, 94u32),
             (10, RES_10_BIT, 188),
@@ -1315,9 +1225,8 @@ mod tests {
 
     #[test]
     fn eleven_bit_is_what_the_firmware_configures() {
-        // `TempSensorDallas.cpp:22`:
-        //   dallasSensor_->setResolution(sensorDeviceAddress_, 11);
-        //   // should match with sensor timings 10 -> 180ms, 11 -> 380ms
+        // 11-bit is the resolution the firmware configures at boot, and 375 ms is its conversion
+        // maximum from the configuration register.
         let mut pad = ScratchPad::power_on();
         pad.0[SP_TEMP_LSB] = 0x00;
         pad.0[SP_TEMP_MSB] = 0x05;
@@ -1346,15 +1255,14 @@ mod tests {
 
     #[test]
     fn the_ds18s20_correction_uses_the_count_registers() {
-        // `DallasTemperature.cpp:591-594`:
-        //   TEMPERATURE = TEMP_READ - 0.25 + (COUNT_PER_C - COUNT_REMAIN) / COUNT_PER_C
+        // The DS18S20 correction: `TEMP_READ - 0.25 + (COUNT_PER_C - COUNT_REMAIN) / COUNT_PER_C`.
         // 0.5 °C raw with COUNT_PER_C == 0x10 and COUNT_REMAIN == 0x0E is
         // 0.5 - 0.25 + 2/16 = 0.375 °C.
         let ds18s20 = Rom([FAMILY_DS18S20, 0x28, 0x69, 0x37, 0xAA, 0xCD, 0x78, 0xAF]);
         // The DS18S20's raw register holds 9 bits at 0.5 °C, so raw 0x40 is
         // 0.5 °C and the sub-0.5 °C fraction comes from the count registers.
-        // The C++ computes
-        //   ((raw & 0xfff0) << 3) - 32 + ((COUNT_PER_C - COUNT_REMAIN) << 7) / COUNT_PER_C
+        // As an integer expression:
+        // ((raw & 0xfff0) << 3) - 32 + ((COUNT_PER_C - COUNT_REMAIN) << 7) / COUNT_PER_C
         // = (0x40 << 3) - 32 + ((0x10 - 0x0E) << 7) / 0x10
         // = 512 - 32 + 16 = 496  ->  496 / 128 = 3.875 °C.
         let mut pad = scratchpad_from_raw(0x0040, [0x00, 0x00, 0x00, 0x0E, 0x10]);
@@ -1416,8 +1324,7 @@ mod tests {
 
     #[test]
     fn bytes_go_out_least_significant_bit_first() {
-        // `OneWire::write` masks 0x01, 0x02, ... 0x80 in ascending order
-        // (`OneWire.cpp:266-270`), so the first bit on the wire is bit 0.
+        // The low bit goes out first, so bit 0 is the first bit on the wire.
         let mut bus = FakeBus::new(true);
         write_byte(&mut bus, 0b1000_0001).unwrap_or(());
         assert_eq!(
@@ -1428,8 +1335,7 @@ mod tests {
 
     #[test]
     fn bytes_come_in_least_significant_bit_first() {
-        // `OneWire::read` accumulates with the same ascending mask
-        // (`OneWire.cpp:294-301`).
+        // Bits come back in the same order they went out: low bit first.
         let mut bus = FakeBus::new(true);
         // `read_bit` pops from the *back*, so the first element of the script
         // is the eighth bit on the wire. Setting both ends makes the byte
@@ -1443,8 +1349,7 @@ mod tests {
 
     #[test]
     fn match_rom_sends_the_command_then_the_eight_rom_bytes() {
-        // `OneWire::select` writes 0x55 then the eight ROM bytes
-        // (`OneWire.cpp:312-319`).
+        // `Match` writes 0x55, then the eight ROM bytes least-significant byte first.
         let mut bus = FakeBus::new(true);
         address(&mut bus, RomSelection::Match(LIVE_ROM)).unwrap_or(());
         assert_eq!(bus.written_bytes(), {
@@ -1456,8 +1361,7 @@ mod tests {
 
     #[test]
     fn skip_rom_sends_only_the_command() {
-        // `OneWire::skip` writes 0xCC and nothing else
-        // (`OneWire.cpp:324-327`).
+        // `Skip` writes 0xCC and nothing else.
         let mut bus = FakeBus::new(true);
         address(&mut bus, RomSelection::Skip).unwrap_or(());
         assert_eq!(bus.written_bytes(), vec![CMD_SKIP_ROM]);
@@ -1486,8 +1390,8 @@ mod tests {
 
     #[test]
     fn a_missing_device_is_no_presence_not_a_bus_error() {
-        // `OneWire::reset` returns 0 and `readScratchPad` returns false
-        // (`OneWire.cpp:190-194`, `DallasTemperature.cpp:207-208`).
+        // No presence pulse is reported as such, not as a bus error: an empty bus is a normal state
+        // rather than a transport failure.
         let mut bus = FakeBus::new(false);
         assert_eq!(
             address(&mut bus, RomSelection::Skip),
@@ -1507,9 +1411,8 @@ mod tests {
 
     #[test]
     fn writing_the_scratchpad_sends_three_registers_then_copies() {
-        // `writeScratchPad` sends 0x4E and the high-alarm, low-alarm and
-        // configuration bytes, then `saveScratchPad` sends 0x48
-        // (`DallasTemperature.cpp:221-238`, `:240-262`).
+        // `WriteScratchpad` sends 0x4E and the three register bytes, then `CopyScratchpad` sends
+        // 0x48.
         let pad = scratchpad_from_raw(0x0B70, [0xAA, 0x55, 0x11, 0x22, 0x33]).with_resolution(11);
         let mut bus = FakeBus::new(true);
         write_scratchpad(&mut bus, RomSelection::Skip, &pad).unwrap_or(());

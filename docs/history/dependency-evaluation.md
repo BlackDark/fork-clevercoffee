@@ -236,7 +236,7 @@ to stop glitches from tripping emergency stop — **both behaviours are safety-r
 must be preserved**). Spike R1-03.
 
 **STATUS 2026-09-28 (R3-07): implemented, and 🔴 unverified on hardware.**
-`cc_domain::sensor::tsic306` implements the app note's §1.3 decoder — strobe measured
+`cc_protocol::sensor::tsic306` implements the app note's §1.3 decoder — strobe measured
 from the start bit, `pulse > strobe` per bit, even parity per packet, the stop-bit gap
 checked as a two-window interval between falling edges — and is host-tested against a
 waveform synthesised from the spec's own duty cycles.

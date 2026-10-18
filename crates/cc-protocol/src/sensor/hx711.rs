@@ -1,73 +1,37 @@
-//! The HX711 load-cell amplifier: the bit protocol, the moving average, the
-//! tare, and the bounded wait that replaces the C++'s unbounded spin.
+//! The HX711 load-cell amplifier: the bit protocol, the moving average, the tare, and a bounded
+//! wait in place of an unbounded spin.
 //!
-//! Owner: **R3-17**.
+//! # What there is to match
 //!
-//! # What this replaces, and what there is to match
+//! The arithmetic follows the amplifier's own reference implementation, so a calibration factor
+//! derived the usual way means what it says: the 24 data bits plus the gain-select clocks, the
+//! sign-bit flip that turns the amplifier's two's-complement output into offset binary, the
+//! drop-highest-and-lowest moving average, the round-down-to-a-power-of-two division, and
+//! `(smoothed - tare) / calibration` as the weight. Each is documented where it is implemented.
 //!
-//! `src/hardware/scales/HX711Scale.cpp` wraps `olkal/HX711_ADC`
-//! (`platformio.ini:44`) in a `Scale` and an `ISensor`. **The C++ never
-//! constructs one** — nothing calls `HardwareContext::setScale`
-//! (`include/clevercoffee/context/HardwareContext.h:143`), so `scale_` is
-//! always `nullptr` and the scale contributes nothing to any state. `09 §23`
-//! has the full analysis. There is therefore **no C++ behaviour to match**:
-//! this is new, working functionality, and every number below is a decision
-//! made here rather than a number transcribed.
+//! # Bounded waits
 //!
-//! What *is* transcribed is the library's arithmetic, because it is
-//! arithmetic rather than behaviour: the `24 + GAIN` clock count
-//! (`HX711_ADC.cpp:340`), the sign-bit flip (`:365`), the drop-highest-and-
-//! lowest moving average, the `>> divBit` division
-//! (`setSamplesInUse`, `:469-490`), and `getData`'s
-//! `(smoothed - tare) / calFactor`. Those are reproduced so a
-//! calibration factor derived against the C++'s averaging means the same thing
-//! here.
+//! Nothing in this driver spins. Cells are clocked from a caller-driven poll, so a slow or absent
+//! amplifier costs one tick rather than the control task: every wait has a deadline the caller
+//! owns, and the deadline is armed when the driver starts rather than when the first sample
+//! arrives. See [`SignalWatchdog`] for the timing and [`Scale`] for the dual-cell alternation.
 //!
-//! # Why the C++'s spin loops are not copied
+//! # Offset binary
 //!
-//! `HX711Scale.cpp:44` and `:51` are `while (!startMultiple(...))` — unbounded.
-//! Two things are wrong with that, and only the first is obvious:
+//! The amplifier reports two's complement and the sign bit is flipped on read, so `0x800000` is the
+//! electrical zero of the amplifier and a count above it is a load. That convention is reproduced
+//! exactly, because the tare, the calibration and the persisted offsets are all expressed in it.
 //!
-//! 1. A machine with no scale attached spins forever at boot, inside
-//!    `app_main`, and never reaches the control task.
-//! 2. `startMultiple`'s own timeout is a **`static` local**
-//!    (`HX711_ADC.cpp:135`): `static unsigned long timeout = millis() +
-//!    tareTimeOut;`. It is initialised on the *first* call and never reset, so
-//!    the deadline belongs to when the function was first reached rather than
-//!    to the call. A second `startMultiple` — which is exactly what the
-//!    dual-cell branch at `HX711Scale.cpp:53` and `:57` does — inherits a
-//!    deadline that may already be past and fails on its first iteration.
+//! # The one quirk kept deliberately
 //!
-//! So there is no timeout here at all: a read is a *query*
-//! ([`read_raw`]) that reports "not ready", and whether the cell is answering
-//! is a separate question ([`SignalWatchdog`]) with an explicit deadline. The
-//! caller decides how long to wait, and every caller has a reason to be
-//! bounded.
-//!
-//! # Why the raw value is offset binary and not two's complement
-//!
-//! The C++ flips the sign bit (`HX711_ADC.cpp:365`, `data = data ^ 0x800000`)
-//! and then treats the result as an unsigned 24-bit quantity
-//! (`HX711_ADC.cpp:378-397`, `if (data > 0) { ... }`). That converts the
-//! HX711's two's-complement output into **offset binary**, where `0x800000` is
-//! the electrical zero of the amplifier. Reproduced exactly, because the
-//! calibration factor is only meaningful against that zero, and re-deriving it
-//! would make every stored factor wrong by a factor of two.
-//!
-//! # The one C++ quirk reproduced rather than fixed
-//!
-//! [`Cell::push`] **discards a raw sample of exactly zero**
-//! (`HX711_ADC.cpp:378`). Offset-binary zero is `0x800000` on the wire, the
-//! HX711's most-negative full-scale input — a real reading, and one a reversed
-//! load cell produces routinely. The C++ treats it as "no data" and silently
-//! keeps the previous average. It is kept because it doubles as the
-//! plausibility filter for a data line held low, and because removing a filter
-//! that changes every weight on a reversed cell is not a change to make while
-//! bringing a driver up for the first time. [`Cell::push`] returns whether the
-//! sample was accepted and [`Cell::rejected_samples`] counts the refusals,
-//! which the C++ does not have — a driver that reports its own health needs to
-//! distinguish "the weight has not moved" from "every sample is being
-//! rejected".
+//! [`Cell::push`] **discards a raw sample of exactly zero**. Offset-binary zero is `0x800000` on
+//! the wire: the amplifier's most-negative full-scale input, a real reading, and one a reversed
+//! load cell produces routinely. It is kept because it doubles as the plausibility filter for a
+//! data line held low, and because removing a filter that changes every weight on a reversed cell
+//! is not a change to make while bringing a driver up for the first time. [`Cell::push`] returns
+//! whether the sample was accepted and [`Cell::rejected_samples`] counts the refusals, so a driver
+//! that reports its own health can distinguish "the weight has not moved" from "every sample is
+//! being rejected".
 
 use cc_domain::units::Millis;
 
@@ -86,17 +50,13 @@ pub const SIGN_FLIP: u32 = 0x0080_0000;
 /// The largest offset-binary value, `0xFFFFFF`.
 pub const MAX_RAW: u32 = 0x00FF_FFFF;
 
-/// The most samples a cell will average, matching the C++'s `SAMPLES 32`
-/// override.
+/// The most samples a cell will average. A configured count above this is clamped, not refused.
 pub const MAX_SAMPLES: u8 = 32;
 
 /// How long DOUT may stay high before the cell counts as not answering.
 ///
-/// `SIGNAL_TIMEOUT`, 100 ms — exactly one 10 SPS conversion
-/// with no margin, so a cell that is late by even a little is declared absent.
-/// Reproduced because it is the number that makes the C++'s
-/// `getSignalTimeoutFlag()` mean the same thing, and because a *larger* number
-/// would only delay the fault.
+/// Exactly one 10 SPS conversion, with no margin, so a cell that is late by even a little is
+/// declared absent. A *larger* number would only delay the fault.
 pub const SIGNAL_TIMEOUT: Millis = Millis::new(100);
 
 /// The gain and rate combination, which is also the clock count.
@@ -108,23 +68,21 @@ pub const SIGNAL_TIMEOUT: Millis = Millis::new(100);
 pub enum Rate {
     /// Gain 32, 40 SPS, 26 clocks. Amplifier channel B.
     ///
-    /// `setGain(32)` → two extra clocks.
+    /// Two extra clocks after the 24 data bits.
     Gain32,
     /// Gain 64, 40 SPS, 27 clocks. Amplifier channel A.
     ///
-    /// `setGain(64)` → three extra clocks.
+    /// Three extra clocks.
     Gain64,
-    /// Gain 128, 10 SPS, 25 clocks. Amplifier channel A.
+    /// Gain 128, 10 SPS, 25 clocks. Amplifier channel A, and the rate this driver configures.
     ///
-    /// `setGain(128)` → one extra clock, and the value
-    /// `begin()` uses. **This is the C++'s rate**: gain
-    /// 128 is the most sensitive setting and a scale wants sensitivity more
+    /// One extra clock. Gain 128 is the most sensitive setting, and a scale wants sensitivity more
     /// than it wants sample rate.
     Gain128,
 }
 
 impl Default for Rate {
-    /// [`Rate::Gain128`], the C++'s `setGain(128)` from `begin()`.
+    /// [`Rate::Gain128`], the rate this driver configures at startup.
     fn default() -> Self {
         Self::Gain128
     }
@@ -142,8 +100,7 @@ impl Rate {
     }
 
     /// The clocks sent *after* the 24 data bits, which is what selects the
-    /// gain. The C++ calls this `GAIN` and adds it to 24 when counting
-    /// (`HX711_ADC.cpp:340`).
+    /// gain. Added to 24 for the total clock count.
     #[must_use]
     pub const fn extra_clocks(self) -> u8 {
         match self {
@@ -187,10 +144,8 @@ impl Rate {
 pub enum Fault {
     /// The shifted-out word is not a 24-bit reading.
     ///
-    /// The C++ sets a `dataOutOfRange` flag here and
-    /// then **never reads it** — no getter, no use anywhere in the library or
-    /// in `HX711Scale`. This port surfaces it, because a cell that has stopped
-    /// producing valid words otherwise reports its last good average forever.
+    /// The shifted-out word was not a 24-bit reading. Surfaced as a fault, because a cell that has
+    /// stopped producing valid words would otherwise report its last good average forever.
     OutOfRange,
 }
 
@@ -201,9 +156,8 @@ pub enum ReadError<E> {
     Fault(Fault),
     /// The bus itself failed — a pin that could not be written.
     ///
-    /// The C++ has no equivalent: `digitalWrite` returns `void`, so a pin that
-    /// fails is indistinguishable from one that worked and a partial word
-    /// enters the dataset as if it were a reading.
+    /// A write that fails is an error rather than a silent no-op: a partial word must not enter the
+    /// dataset as if it were a reading.
     Bus(E),
 }
 
@@ -230,8 +184,7 @@ pub trait Hx711Bus {
 
     /// One SCK cycle, returning the DOUT level sampled after the falling edge.
     ///
-    /// The C++'s order is high, delay, low, **then** read
-    /// (`HX711_ADC.cpp:341-352`); this is that order.
+    /// The order is high, delay, low, **then** read, which is what the amplifier expects.
     ///
     /// # Errors
     ///
@@ -247,9 +200,8 @@ pub trait Hx711Bus {
     /// This is the whole of the interface, and it is the only thing a
     /// caller needs in order to wait for a conversion: poll this, and sleep
     /// between polls. There is deliberately **no** "wait for ready" method,
-    /// because a method that waited would have to take a timeout, and the whole
-    /// point of R3-17 is that no layer of this driver owns a deadline it cannot
-    /// account for. `read_raw` calls this once and returns; the caller decides
+    /// A method that waited would have to own a timeout, and no layer of this driver owns a
+    /// deadline it cannot account for. [`read_raw`] calls this once and returns; the caller decides
     /// whether that is "not yet" or "never".
     fn data_high(&mut self) -> bool;
 }
@@ -260,8 +212,7 @@ pub trait Hx711Bus {
 /// fault. This function never waits on the bus: the only loop is the
 /// fixed-length clock count, which terminates by construction. How long a
 /// caller is prepared to wait for DOUT is the caller's decision, and every
-/// caller here has a deadline — that is the whole of the difference from
-/// `HX711Scale.cpp:44` and `:51`.
+/// caller here has a deadline, so an absent amplifier costs a tick rather than the task.
 ///
 /// # Errors
 ///
@@ -305,37 +256,22 @@ pub fn read_raw<B: Hx711Bus>(bus: &mut B, rate: Rate) -> Result<Option<u32>, Rea
         return Err(ReadError::Fault(Fault::OutOfRange));
     }
 
-    // Offset binary, as the C++.
+    // Offset binary: the sign bit flipped, so 0x800000 is the amplifier's electrical zero.
     Ok(Some(word ^ SIGN_FLIP))
 }
 
 /// Tracks whether the cell is answering, and declares it absent if it stops.
 ///
-/// This is the C++'s `signalTimeoutFlag` (`HX711_ADC.cpp:245-252`,
-/// `:550-553`) as a query rather than as a side effect, with **one deliberate
-/// difference that is the whole acceptance criterion**: the deadline is armed
-/// from the moment the driver starts, not from the first conversion.
+/// The deadline a cell's silence is measured against, as a query rather than a side effect. The
+/// whole acceptance criterion for this driver is that **the deadline is armed at [`Self::armed_at`]
+/// and not at the arrival of the first sample**.
 ///
-/// The C++ gets this right by accident. `startMultiple` sets
-/// `lastDoutLowTime = millis()` before its first `update()`
-/// (`HX711_ADC.cpp:129`) and `lastDoutLowTime` is a `static`-scope initialiser
-/// evaluated at that point, so the silence clock starts at boot whether or not a
-/// scale is present. A machine with no scale therefore gets
-/// `signalTimeoutFlag = 1` about 100 ms in, and `HX711Scale::init` returns
-/// `false` — which is correct, and is the only reason
-/// the C++'s `init` can return at all.
+/// Arming it on the first sample would defeat it: a cell that never converts never produces one, so
+/// a watchdog armed that way stays silent forever and the machine reports a healthy scale while
+/// measuring nothing. The deadline must start at [`Self::armed_at`], and a cell that never converts
+/// then faults like any other silent cell.
 ///
-/// An earlier revision of this port armed the watchdog on the **first**
-/// conversion instead, reasoning that "a cell that has never spoken has not yet
-/// been late". That is wrong, and it was caught on hardware: with no scale
-/// fitted, `note_ready` is never called, `is_faulted` is permanently `false`,
-/// and the machine reports a healthy scale forever while measuring nothing —
-/// which is the C++'s exact defect (09 §23) reproduced in new code. The deadline
-/// must start at [`Self::armed_at`], and a cell that never converts faults like
-/// any other silent cell.
-///
-/// The deadline runs from the last time DOUT was seen low, which is what the
-/// C++ measures from.
+/// The deadline runs from the last time DOUT was seen low.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SignalWatchdog {
     last_low: Millis,
@@ -369,8 +305,7 @@ impl SignalWatchdog {
         }
     }
 
-    /// Start the silence clock at `now`, as the C++'s `lastDoutLowTime =
-    /// millis()` does before its first read.
+    /// Start the silence clock at `now`, from before the first read rather than after it.
     ///
     /// **Call this when the driver starts, not when the first sample arrives.**
     /// A cell that has never converted is the case that most needs reporting.
@@ -418,35 +353,29 @@ const MAX_DATASET: usize = MAX_SAMPLES as usize + 2;
 /// The calibration factor this firmware ships with.
 ///
 /// `hardware.sensors.scale.calibration` defaults to 1.0 (`cc-config`,
-/// `HardwareSensorsScale::default`), which is also the C++'s `HX711_ADC`
-/// default. At 1.0 the reported weight is the raw count,
-/// which is a nonsense number in grams — so a factor has to be calibrated
-/// before the scale means anything, and that is what
+/// `HardwareSensorsScale::default`). At 1.0 the weight is the raw count, which is a nonsense number
+/// in grams, so a factor has to be calibrated before the scale means anything -- that is what
 /// `hardware.sensors.scale.known_weight` is for.
 pub const DEFAULT_CALIBRATION: f64 = 1.0;
 
 /// One load cell: the moving-average dataset, the tare offset and the
 /// calibration factor.
 ///
-/// Reproduces `HX711_ADC`'s dataset arithmetic (`HX711_ADC.cpp:305-327`,
-/// `:469-490`, `:290-299`) rather than inventing a filter.
+/// The dataset and the arithmetic it averages, chosen so that a calibration factor derived against
+/// the amplifier's reference implementation means the same thing here.
 #[derive(Clone, Debug)]
 pub struct Cell {
     /// The dataset, `samples_in_use + 2` entries, written cyclically.
     ///
-    /// The two extra entries are `IGN_HIGH_SAMPLE` and `IGN_LOW_SAMPLE`, both
-    /// 1: the C++ keeps them in the set and discards
-    /// the largest and smallest before averaging.
+    /// The two extra entries are the guards: the largest and the smallest of the set are discarded
+    /// before averaging, so a set of `n + 2` entries yields `n` averaged samples.
     dataset: [u32; MAX_DATASET],
 
     /// Where the next sample goes.
     read_index: usize,
 
-    /// How many entries are averaged, the C++'s `samplesInUse`.
-    ///
-    /// Always a power of two, because the C++ derives both this and `divBit`
-    /// from one shift and the division is that
-    /// shift.
+    /// How many entries are averaged. Always a power of two: [`normalise_samples`] rounds a request
+    /// down to the largest power of two that is `<=` it, and the average is then a shift.
     samples_in_use: u8,
 
     /// The tare, in raw offset-binary counts.
@@ -468,12 +397,8 @@ impl Default for Cell {
 impl Cell {
     /// A cell with a calibration factor and a sample count.
     ///
-    /// `samples` is rounded **down** to a power of two and clamped to
-    /// `1..=MAX_SAMPLES`, which is what `setSamplesInUse` does
-    /// (`HX711_ADC.cpp:469-490`): it shifts the request right until it reaches
-    /// zero and uses the bit position both as the sample count (`1 << divBit`)
-    /// and as the division. So `samples = 3` becomes 2 and `samples = 20`
-    /// becomes 16.
+    /// `samples` is rounded **down** to the largest power of two that is `<=` it and clamped to
+    /// `1..=MAX_SAMPLES`. So `samples = 3` becomes 2 and `samples = 20` becomes 16.
     #[must_use]
     pub fn new(calibration: f64, samples: u8) -> Self {
         Self {
@@ -481,9 +406,8 @@ impl Cell {
             read_index: 0,
             samples_in_use: normalise_samples(samples),
             tare: 0,
-            // A factor of zero would make every weight infinite, and the C++
-            // divides by it unchecked. The config API can
-            // set it to zero, so it is refused here rather than producing a NaN
+            // A factor of zero would make every weight infinite, and the config API can set it to
+            // zero, so it is refused here rather than producing a NaN
             // that would flow into the display and onto MQTT.
             calibration: if calibration.is_finite() && calibration != 0.0 {
                 calibration
@@ -529,9 +453,8 @@ impl Cell {
     /// Set the calibration factor, refusing one that would make the weight
     /// undefined.
     ///
-    /// `getData` divides by the factor with no check, so
-    /// this is the only place the check can live. Returns whether it was
-    /// accepted.
+    /// The only place the check can live: [`Cell::weight`] divides by this factor. Returns whether
+    /// it was accepted.
     pub fn set_calibration(&mut self, calibration: f64) -> bool {
         if calibration.is_finite() && calibration != 0.0 {
             self.calibration = calibration;
@@ -543,8 +466,8 @@ impl Cell {
 
     /// How many samples have been refused as implausible.
     ///
-    /// The C++ has no such count: `if (data > 0)` drops
-    /// the sample and says nothing.
+    /// Counted because a rejected sample is otherwise invisible: a cell whose every sample is
+    /// refused would look like a cell whose weight is not moving.
     #[must_use]
     pub const fn rejected_samples(&self) -> u32 {
         self.rejected
@@ -574,9 +497,8 @@ impl Cell {
     /// The moving average: the sum of the set less its largest and smallest
     /// member, divided by the sample count.
     ///
-    /// `smoothedData`. A set that is still filling
-    /// averages the zeros in it, which is what the C++ does too, and is why
-    /// [`Cell::has_data`] exists.
+    /// A set that is still filling averages the zeros in it, which is why [`Cell::has_data`]
+    /// exists.
     #[must_use]
     pub fn smoothed(&self) -> u32 {
         let (mut sum, mut low, mut high) = (0u64, u32::MAX, 0u32);
@@ -603,9 +525,8 @@ impl Cell {
 
     /// Whether the cell has any sample to average.
     ///
-    /// `false` means the moving average is a division of zeroes and the
-    /// reported weight would be `-tare / calibration`, a number with no
-    /// physical meaning. The C++ reports it anyway.
+    /// `false` means the moving average is a division of zeroes, so the weight would be
+    /// `-tare / calibration`: a number with no physical meaning.
     #[must_use]
     pub fn has_data(&self) -> bool {
         self.smoothed() != 0
@@ -613,18 +534,14 @@ impl Cell {
 
     /// The weight in grams: `(smoothed - tare) / calibration`.
     ///
-    /// `getData`, same order and the same
-    /// subtraction of the tare *before* the division — which is what makes a
-    /// tare independent of the calibration factor.
+    /// The tare is subtracted *before* the division, which is what makes a tare independent of the
+    /// calibration factor.
     #[must_use]
     pub fn weight(&self) -> f64 {
         (f64::from(self.smoothed()) - f64::from(self.tare)) / self.calibration
     }
 
-    /// Tare against the current average, as `HX711_ADC::tare` does when it
-    /// completes (`HX711_ADC.cpp:390`, `tareOffset = smoothedData()`).
-    ///
-    /// Returns the offset stored, so a caller can persist it.
+    /// Tare against the current average. Returns the offset stored, so a caller can persist it.
     pub fn tare_now(&mut self) -> u32 {
         self.tare = self.smoothed();
         self.tare
@@ -632,10 +549,9 @@ impl Cell {
 
     /// A new calibration factor for a known mass on the pan.
     ///
-    /// `getNewCalibration`: the current weight is
-    /// scaled by the current factor and divided by the known mass, which
-    /// algebraically is `(smoothed - tare) / known_mass`. Returned as well as
-    /// stored, because the C++'s caller persists it and so does this one.
+    /// The current weight is divided by the known mass, which algebraically is
+    /// `(smoothed - tare) / known_mass`. Returned as well as stored, because the caller persists
+    /// it.
     ///
     /// # Errors
     ///
@@ -660,19 +576,9 @@ impl Cell {
 
 /// Round a requested sample count down to a power of two in `1..=MAX_SAMPLES`.
 ///
-/// `setSamplesInUse` does this by shifting the
-/// request right until it reaches zero and counting the shifts:
-///
-/// ```cpp
-/// samples >>= 1;
-/// for (divBit = 0; samples != 0; samples >>= 1, divBit++);
-/// samplesInUse = 1 << divBit;
-/// ```
-///
-/// which is a round *down* to the largest power of two that is `<= samples`.
-/// `0` is the C++'s "restore the compiled-in default"
-/// (`HX711_ADC.cpp:472-474`); this firmware has no compiled-in default worth
-/// restoring, so it becomes 1.
+/// A round *down* to the largest power of two that is `<= samples`: 3 becomes 2 and 20 becomes 16.
+/// An input of 0 becomes 1, because there is no compiled-in default worth restoring and a
+/// zero-sample average is a division by zero.
 #[must_use]
 pub const fn normalise_samples(samples: u8) -> u8 {
     if samples == 0 {
@@ -702,12 +608,8 @@ pub const TARE_RECORD_BYTES: usize = 10;
 /// version field of its own and gets a magic byte plus a cell count.
 const TARE_MAGIC: u8 = 0xA5;
 
-/// A tare that survives a reboot.
-///
-/// The C++ keeps the tare in a `long tareOffset` member,
-/// so it is lost on every reset and the machine has to be re-tared by hand
-/// after a power cut. This is the persisted form: the two raw offsets and how
-/// many cells they describe, in ten bytes.
+/// A tare that survives a reboot: the raw offsets and how many cells they describe, in ten bytes,
+/// so a power cut does not cost a re-tare.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TareRecord {
     /// The first cell's offset. Always written, even on a single cell.
@@ -760,13 +662,10 @@ pub fn decode_tare(bytes: &[u8]) -> Option<TareRecord> {
 
 /// The scale: one cell or two, sharing a clock.
 ///
-/// `HX711Scale` holds one or two `HX711_ADC`s. The
-/// dual case alternates which cell is read (`readSecondScale`,
-/// `HX711Scale.cpp:89-99`) because one SCK line cannot clock two amplifiers'
-/// data lines independently: the shared clock shifts out *both*, and the
-/// firmware chooses which DOUT it samples. That alternation is reproduced,
-/// including its cost — each cell is read at half the rate, so a dual cell's
-/// reported weight updates at 5 Hz at 10 SPS.
+/// A scale holds one or two cells, and a dual scale alternates which one it reads: one SCK line
+/// serves both amplifiers, so a clock edge shifts out both and only the DOUT that is sampled
+/// matters. The alternation costs rate -- each cell is read every other sample, so a dual scale's
+/// weight updates at 5 Hz when the amplifier runs at 10 SPS.
 #[derive(Clone, Debug, Default)]
 pub struct Scale {
     /// The first cell, or the only cell.
@@ -903,11 +802,10 @@ impl Scale {
         self.cell_2.as_mut()
     }
 
-    /// The reported weight in grams.
+    /// The weight in grams.
     ///
-    /// A dual scale **sums** the two cells (`HX711Scale.cpp:104`,
-    /// `currentWeight = weight1 + weight2`), which is what two load cells under
-    /// one pan mean. A single cell reports its own.
+    /// A dual scale **sums** the two cells, which is what two load cells under one pan mean. A
+    /// single cell reports its own.
     #[must_use]
     pub fn weight(&self) -> f64 {
         match &self.cell_2 {
@@ -984,9 +882,8 @@ mod tests {
         /// A bus with a conversion ready and a scripted 24-bit `word`.
         ///
         /// The bits are emitted the way the part emits them: the 24 data bits
-        /// first, most significant first, then don't-care for the gain-select
-        /// clocks (`HX711_ADC.cpp:340-352`, which samples DOUT for the first
-        /// `24` iterations and only clocks for the rest).
+        /// first, most significant first, then don't-care for the gain-select clocks: DOUT is
+        /// sampled for the first 24 iterations and only clocked for the rest.
         ///
         /// The don't-care clocks emit **ones** on purpose. The real part leaves
         /// them at whatever they were, and ones are the value that would
@@ -1052,7 +949,7 @@ mod tests {
 
     #[test]
     fn the_rate_is_the_clock_count_and_the_conversion_time() {
-        // Datasheet 5.3, and setGain/conversion24bit (HX711_ADC.cpp:14-19, :340).
+        // Datasheet §5.3: 24 data bits plus the gain-select clocks.
         assert_eq!(Rate::Gain128.extra_clocks(), 1);
         assert_eq!(Rate::Gain128.clocks(), 25);
         assert_eq!(Rate::Gain128.gain(), 128);
@@ -1072,7 +969,7 @@ mod tests {
 
     #[test]
     fn the_default_rate_is_the_gain_begin_uses() {
-        // HX711_ADC.cpp:32, begin() -> setGain(128).
+        // The startup configuration: gain 128 at 10 SPS.
         assert_eq!(Rate::default(), Rate::Gain128);
     }
 
@@ -1097,7 +994,7 @@ mod tests {
     #[test]
     fn the_sign_bit_is_flipped_to_offset_binary() {
         // All ones on the wire is full scale in two's complement and
-        // 0x7FFFFF in offset binary (HX711_ADC.cpp:365).
+        // 0x7F_FFFF in offset binary.
         let mut bus = FakeBus::with_word(0x00FF_FFFF);
         assert_eq!(read_raw(&mut bus, Rate::Gain128), Ok(Some(0x007F_FFFF)));
     }
@@ -1112,9 +1009,8 @@ mod tests {
         let mut zero = FakeBus::with_word(0x0080_0000);
         assert_eq!(read_raw(&mut zero, Rate::Gain128), Ok(Some(0)));
 
-        // A load pushes the count *up* from the zero point, which is the
-        // opposite of the two's-complement reading and is what makes the C++'s
-        // sign flip load-bearing rather than cosmetic.
+        // A load pushes the count *up* from the offset-binary zero point, which is the opposite of
+        // the two's-complement reading, so the sign flip is load-bearing rather than cosmetic.
         let mut loaded = FakeBus::with_word(0x0080_0064);
         assert_eq!(read_raw(&mut loaded, Rate::Gain128), Ok(Some(100)));
 
@@ -1132,10 +1028,9 @@ mod tests {
     #[test]
     fn the_gain_clocks_are_discarded_from_the_word() {
         // The clocks after the 24 data bits select the gain and are don't-care
-        // on read-back (datasheet 5.3). `HX711_ADC.cpp:344-350` clocks without
-        // sampling for them, so they must not shift into the word. The fake
-        // emits ones for them; if they leaked in, the result would be
-        // 0x7FFFFF shifted rather than the plain reading.
+        // on read-back (datasheet §5.3): DOUT is not sampled for them, so they must not shift into
+        // the word. The fake emits ones for them; if they leaked in, the result would be 0x7F_FFFF
+        // shifted rather than the plain reading.
         let mut bus = FakeBus::with_word(0x00FF_FFFF);
         assert_eq!(read_raw(&mut bus, Rate::Gain128), Ok(Some(0x007F_FFFF)));
         assert_eq!(
@@ -1146,8 +1041,7 @@ mod tests {
 
     #[test]
     fn a_bus_that_cannot_be_written_produces_no_partial_sample() {
-        // The C++ has no equivalent: digitalWrite returns void, so a partial
-        // word is shifted into the dataset as if it were a reading.
+        // A write failure produces no sample at all, so a partial word cannot enter the dataset.
         let mut bus = FakeBus::failing(5);
         assert_eq!(read_raw(&mut bus, Rate::Gain128), Err(ReadError::Bus(())));
     }
@@ -1167,11 +1061,10 @@ mod tests {
 
     /// 🔴 The acceptance criterion, as a host test.
     ///
-    /// An absent scale — DOUT held high forever, which is exactly what an
-    /// unconnected data line does — must be reported as a fault, and must be
-    /// reported *without a single conversion having arrived*. A watchdog armed
-    /// only on the first reading would stay silent here forever, which is the
-    /// C++'s defect reproduced in new code; this is the test that says so.
+    /// An absent scale -- DOUT held high forever, which is exactly what an unconnected data line
+    /// does -- must fault, and *without a single conversion having arrived*. A
+    /// watchdog armed only on the first reading would stay silent here forever, so this test pins
+    /// the arming point.
     #[test]
     fn a_cell_that_never_converts_is_faulted_from_the_moment_the_driver_starts() {
         let boot = Millis::new(500);
@@ -1223,9 +1116,8 @@ mod tests {
 
     #[test]
     fn the_watchdog_survives_the_millisecond_clock_wrapping() {
-        // `Millis::since` wraps by design (units.rs:168-176) because the C++
-        // relies on it across the 49.7-day rollover, so the deadline has to be
-        // computed the same way or a machine up for 49 days reports every cell
+        // `Millis::since` wraps by design (units.rs), and a machine up for 49 days crosses that
+        // rollover, so the deadline is computed the same way or every cell would report a fault
         // as absent.
         let mut watchdog = SignalWatchdog::new();
         watchdog.armed_at(Millis::new(u32::MAX - 10));
@@ -1240,7 +1132,7 @@ mod tests {
 
     #[test]
     fn the_sample_count_is_rounded_down_to_a_power_of_two() {
-        // setSamplesInUse, HX711_ADC.cpp:479-483.
+        // Round down to a power of two: 3 becomes 2.
         assert_eq!(normalise_samples(1), 1);
         assert_eq!(normalise_samples(2), 2);
         assert_eq!(normalise_samples(3), 2);
@@ -1252,8 +1144,8 @@ mod tests {
 
     #[test]
     fn a_sample_count_above_the_maximum_is_clamped_not_rejected() {
-        // The compiled-in maximum is 32 (HX711Scale.h:13); a config blob can
-        // hold anything, and refusing to sample would stop the scale.
+        // A config blob can hold any count, and refusing to sample would stop the scale, so an
+        // oversized count is clamped rather than rejected.
         assert_eq!(normalise_samples(200), 32);
         assert_eq!(normalise_samples(0), 1, "the C++'s 'reset to default'");
     }
@@ -1262,10 +1154,8 @@ mod tests {
 
     #[test]
     fn the_average_drops_the_highest_and_the_lowest() {
-        // smoothedData, HX711_ADC.cpp:305-327, with IGN_HIGH_SAMPLE and
-        // IGN_LOW_SAMPLE both 1 (HX711Scale.h:14-15). Two samples averaged
-        // means a set of four, so a run of four 10s followed by four 20s
-        // averages to 10 once the set is full of 20s.
+        // A two-sample average means a set of four entries with the two guards discarded, so a run
+        // of four 10s followed by four 20s averages to 10 once the set is full of 20s.
         let mut cell = Cell::new(1.0, 2);
         for _ in 0..8 {
             cell.push(10);
@@ -1290,7 +1180,7 @@ mod tests {
 
     #[test]
     fn a_zero_sample_is_refused_and_counted() {
-        // `if (data > 0)` (HX711_ADC.cpp:378), with no count in the C++.
+        // A raw zero is dropped and counted.
         let mut cell = Cell::new(1.0, 1);
         // A window of three (one averaged sample plus the two guards). The
         // refused samples must not enter the set: fill it with real readings
@@ -1312,12 +1202,10 @@ mod tests {
 
     #[test]
     fn a_partly_filled_dataset_averages_the_empty_slots_in() {
-        // The C++ does not track how much of `dataSampleSet` has been written
-        // (`HX711_ADC.cpp:389-397`): the array is zero-initialised and the
-        // first averages are taken over a set that is mostly zeroes. That is
-        // reproduced, and it is why [`Cell::has_data`] exists — a caller that
-        // reports a weight before the set has filled would publish a number
-        // made of the zero slots.
+        // The dataset is zero-initialised and the first averages are taken over a set that is
+        // mostly zeroes, so a partly filled dataset averages the empty slots in. That is why
+        // [`Cell::has_data`] exists -- a caller that reports a weight before the set has filled
+        // would publish a number made of the zero slots.
         let cell = Cell::new(1.0, 4);
         assert!(!cell.has_data());
         assert_eq!(cell.smoothed(), 0);
@@ -1340,7 +1228,7 @@ mod tests {
 
     #[test]
     fn the_weight_is_the_tare_corrected_count_divided_by_the_factor() {
-        // getData, HX711_ADC.cpp:290-299.
+        // The weight is the tare-corrected count divided by the factor.
         let mut cell = Cell::new(2.0, 1);
         for _ in 0..3 {
             cell.push(1000);
@@ -1379,8 +1267,8 @@ mod tests {
                   came back as 3.0000000000000004"
     )]
     fn a_zero_or_non_finite_calibration_is_refused() {
-        // getData divides by it unchecked (HX711_ADC.cpp:296), and the config
-        // API can set it to zero, so the check has to live here.
+        // The factor is divided by unchecked at the weight, and the config API can set it to zero,
+        // so the check has to live here.
         let mut cell = Cell::new(3.0, 1);
         assert!(!cell.set_calibration(0.0));
         assert!(!cell.set_calibration(f64::NAN));
@@ -1412,7 +1300,8 @@ mod tests {
                   would be a defect, not a rounding artefact to tolerate"
     )]
     fn calibrating_against_a_known_mass_gives_counts_per_gram() {
-        // getNewCalibration, HX711_ADC.cpp:538-547.
+        // (smoothed - tare) / known_mass is the factor that makes the current reading equal the
+        // mass.
         let mut cell = Cell::new(1.0, 1);
         for _ in 0..3 {
             cell.push(267_000);
@@ -1458,7 +1347,7 @@ mod tests {
 
     #[test]
     fn a_dual_cell_scale_sums_both_cells() {
-        // HX711Scale.cpp:104, `currentWeight = weight1 + weight2`.
+        // A dual scale sums both cells.
         let mut scale = Scale::dual(1.0, 1.0, 1);
         assert_eq!(scale.cells(), 2);
         for _ in 0..3 {
@@ -1472,7 +1361,7 @@ mod tests {
 
     #[test]
     fn a_dual_scale_alternates_which_cell_it_reads() {
-        // readSecondScale, HX711Scale.cpp:89-99.
+        // A dual scale alternates which cell it reads.
         let mut scale = Scale::dual(1.0, 1.0, 1);
         let mut bus = FakeBus::with_word(0);
         assert_eq!(scale.next_cell(), 0);

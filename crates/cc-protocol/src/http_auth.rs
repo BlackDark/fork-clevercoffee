@@ -1,8 +1,6 @@
 //! HTTP Basic authentication: header parsing, base64, constant-time compare.
 //!
-//! Owner: the `/api/config/upload` + auth work on the Rust HTTP surface.
-//!
-//! # Why this is in `cc-domain` and not `cc-hal-esp32`
+//! # Why this is in `cc-protocol` and not `cc-hal-esp32`
 //!
 //! **Because it is the only way to test it.** `cc-hal-esp32` names
 //! `esp_idf_hal`, so it cannot be built for a host target and its `#[test]`
@@ -14,48 +12,25 @@
 //! machine's web interface. Here they are `no_std`, allocation-free and covered
 //! by `just test` on the host.
 //!
-//! # What the C++ does, and what is therefore the same here
+//! # The two decisions the caller has to know about
 //!
-//! `WebServerManager::setupMiddleware`
-//! installs `ESPAsyncWebServer`'s `AsyncAuthenticationMiddleware` when
-//! `system.auth.enabled` is set, with the realm `"CleverCoffee"`:
+//! Both are deliberate, and both are recorded in
+//! [`divergences.md`](../../../docs/history/divergences.md):
 //!
-//! ```cpp
-//! if (Config::getInstance().systemAuthEnabled.get()) {
-//!     String username = Config::getInstance().systemAuthUsername.get();
-//!     String password = Config::getInstance().systemAuthPassword.get();
-//!     if (!username.isEmpty() && !password.isEmpty()) {
-//!         authMiddleware_ = std::make_unique<AsyncAuthenticationMiddleware>();
-//!         authMiddleware_->setRealm("CleverCoffee");
-//!         server_->addMiddleware(authMiddleware_.get());
-//!     } else {
-//!         LOG(WARNING, "Web authentication enabled but credentials not set");
-//!     }
-//! }
-//! ```
-//!
-//! Two properties of that block are reproduced rather than improved, and both
-//! are decisions the caller has to know about:
-//!
-//! * **The middleware is installed once, at `WebServerManager::initialize`.**
-//!   Enabling `system.auth.enabled` therefore protects nothing until the next
-//!   boot. `cc_hal_esp32::web::needs_reboot` says so in the
-//!   `POST /api/parameters` answer for the same reason.
-//! * **Empty credentials mean no middleware at all** — the C++ logs a warning
-//!   and serves the whole API unauthenticated. That is fail-open, and it is
-//!   preserved because it is the C++'s behaviour and because the alternative
-//!   (locking an operator out of their own machine because they enabled auth and
-//!   then did not finish) is worse on a device whose only other console is a
-//!   UART. It is called out in `docs/history/divergences.md`.
+//! * **Authentication is armed once, at web-server start.** Enabling
+//!   `system.auth.enabled` therefore protects nothing until the next boot, and
+//!   `cc_hal_esp32::web::needs_reboot` says so in the `POST /api/parameters` answer.
+//! * **Empty credentials mean no authentication at all** — the whole API is served
+//!   unauthenticated. That is fail-open, and it is chosen because the alternative
+//!   (locking an operator out of their own machine because they enabled auth and then
+//!   did not finish) is worse on a device whose only other console is a UART.
 //!
 //! # Why there is no ESP-IDF auth hook to use instead
 //!
-//! There is not one. `esp-idf-svc` 0.53.0's `src/http/server.rs` has no
-//! `auth`, `realm` or `WWW-Authenticate` anywhere, and neither does ESP-IDF
-//! v5.5.5's `components/esp_http_server` — `esp_http_server` has no
-//! authentication concept at all, which is why the C++ needed a middleware at
-//! all. So this is hand-rolled, and hand-rolled credential handling is exactly
-//! the code that must be constant-time and must be tested.
+//! There is not one. `esp-idf-svc` 0.53.0's `src/http/server.rs` has no `auth`, `realm` or
+//! `WWW-Authenticate` anywhere, and neither does ESP-IDF v5.5.5's `components/esp_http_server`:
+//! `esp_http_server` has no authentication concept at all. So this is hand-rolled, and hand-rolled
+//! credential handling is exactly the code that must be constant-time and must be tested.
 //!
 //! # What this deliberately does NOT do
 //!
@@ -66,11 +41,11 @@
 //!   fixed-width compare would mean padding a credential to a size an attacker
 //!   chooses.
 //! * **No TLS, and no digest.** Basic auth over plain HTTP sends the credential
-//!   base64-encoded, which is encoding, not encryption. That is the C++'s
-//!   posture (there is no HTTPS listener in `WebServerManager` either) and it
-//!   is why this is "the C++'s control, implemented", not "a secure interface".
+//!   base64-encoded, which is encoding, not encryption. There is no HTTPS listener on this
+//!   firmware either, so Basic auth here is a control against a casual visitor on the local
+//!   network, not a secure interface.
 
-/// The realm the C++ challenges with.
+/// The realm this firmware challenges with.
 ///
 /// The whole header rather than the realm, because the realm is a constant and
 /// this crate is `no_std` + no `alloc`: a `fn realm() -> String` would be the
@@ -81,8 +56,8 @@ pub const WWW_AUTHENTICATE: &str = "Basic realm=\"CleverCoffee\"";
 ///
 /// A bound, because the decode target is a caller-supplied buffer and the
 /// header length is attacker-controlled. 256 is far above any credential a
-/// person sets (`MAX_TEXT_LEN` in `cc-config` is 4096, and the C++ checks no
-/// length at all) and far below the point where a request could make the
+/// person sets (`MAX_TEXT_LEN` in `cc-config` is 4096) and far below the point where a request
+/// could make the
 /// httpd task do meaningful work — the decode is O(n) in the *header*, which
 /// `CONFIG_HTTPD_MAX_URI_LEN`'s sibling, `CONFIG_HTTPD_MAX_HEADER_LEN`,
 /// already bounds at 512.
@@ -139,9 +114,8 @@ pub fn authorized(
 /// caller's and not a local: `no_std` + no `alloc` means there is nowhere else
 /// for the bytes to land.
 fn decode_basic<'a>(header: Option<&str>, scratch: &'a mut [u8]) -> Option<(&'a str, &'a str)> {
-    // RFC 7235 §2.1: the scheme is case-insensitive. `ESPAsyncWebServer` is
-    // case-sensitive, so accepting `basic` is a superset of the C++ — a client
-    // that the C++ would reject is one that works here, never the reverse.
+    // RFC 7235 §2.1: the scheme is case-insensitive, so both `Basic` and `basic` are accepted. A
+    // client that sends the lower-case spelling works rather than being refused.
     let rest = header?.strip_prefix_ignore_ascii_case("Basic")?;
     let rest = rest.strip_prefix(' ')?;
 
@@ -204,10 +178,9 @@ fn base64_decode(input: &str, out: &mut [u8]) -> Option<usize> {
 
 /// The six-bit value of one base64 character, or `None` if it is not one.
 ///
-/// `encode64` (`esp_http_server`'s own, and therefore the C++'s) is
-/// `A-Za-z0-9+/`; RFC 4648 §4 also permits `-_` as the URL-safe alphabet, and
-/// that is **not** accepted here. Accepting both would make `a+b` and `a-b` two
-/// spellings of one credential, and the C++ accepts only the first.
+/// The alphabet is `A-Za-z0-9+/`, which is what `esp_http_server`'s own encoder emits. RFC 4648 §4
+/// also permits `-_` as the URL-safe alphabet, and that is **not** accepted here: accepting both
+/// would make `a+b` and `a-b` two spellings of one credential.
 const fn base64_value(byte: u8) -> Option<u32> {
     match byte {
         b'A'..=b'Z' => Some((byte - b'A') as u32),
@@ -273,7 +246,7 @@ pub mod tests_support {
     extern crate alloc;
     use alloc::string::String;
 
-    /// Standard base64 (`encode64`, RFC 4648 §4).
+    /// Standard base64: `A-Za-z0-9+/` (RFC 4648 §4).
     #[must_use]
     pub fn encode(plain: &[u8]) -> String {
         const ALPHABET: &[u8; 64] =
@@ -369,7 +342,7 @@ mod tests {
 
     #[test]
     fn the_scheme_is_case_insensitive() {
-        // RFC 7235 §2.1. A superset of the C++, deliberately: see
+        // RFC 7235 §2.1, and the lower-case spelling is accepted deliberately: see
         // `decode_basic`.
         let mut scratch = [0u8; MAX_CREDENTIAL_BYTES];
         assert!(authorized(
@@ -652,7 +625,7 @@ mod tests {
 
     #[test]
     fn the_challenge_is_the_cpp_realm() {
-        // `WebServerManager.cpp:286` — `authMiddleware_->setRealm("CleverCoffee")`.
+        // The realm this firmware challenges with.
         assert_eq!(WWW_AUTHENTICATE, "Basic realm=\"CleverCoffee\"");
     }
 }

@@ -465,7 +465,7 @@ Recorded here so the file is complete; each was decided in its own task.
 | --- | --- |
 | **Task** | R1-03, R3-06, R3-07 |
 | **Decision** | 2026-09-28. A previous revision of this entry recorded the opposite — `TSIC_306` was **refused** and the compiled-in default was moved to `DALLAS_DS18B20`. **That is reversed.** The TSIC-306 / ZACwire driver now exists, so there is nothing left to refuse. |
-| **Tests** | `cc_domain::sensor::ds18b20::*`, `cc_domain::sensor::tsic306::*`, `cc_domain::sensor::onewire::div7_*`; `cc-safety::tests::safety_paths.rs::both_temperature_sensor_types_are_accepted`, `::the_compiled_in_default_is_the_cpps_tsic_306`, `::a_stored_tsic_306_config_is_loaded_not_discarded`; `cc-config::tests::config_schema.rs::the_default_temperature_sensor_is_the_cpps_tsic_306` |
+| **Tests** | `cc_protocol::sensor::ds18b20::*`, `cc_protocol::sensor::tsic306::*`, `cc_protocol::sensor::onewire::div7_*`; `cc-safety::tests::safety_paths.rs::both_temperature_sensor_types_are_accepted`, `::the_compiled_in_default_is_the_cpps_tsic_306`, `::a_stored_tsic_306_config_is_loaded_not_discarded`; `cc-config::tests::config_schema.rs::the_default_temperature_sensor_is_the_cpps_tsic_306` |
 
 ### What the C++ does
 
@@ -481,11 +481,11 @@ refusing it
 
 ### What the Rust does
 
-1. **Both drivers are implemented.** `cc_domain::sensor::ds18b20` over
-   `cc_domain::sensor::onewire` for the DS18B20, and
-   `cc_domain::sensor::tsic306` (protocol, edge ring, frame decoder, driver) for
+1. **Both drivers are implemented.** `cc_protocol::sensor::ds18b20` over
+   `cc_protocol::sensor::onewire` for the DS18B20, and
+   `cc_protocol::sensor::tsic306` (protocol, edge ring, frame decoder, driver) for
    the TSIC-306, with `cc_hal_esp32::onewire` and `cc_hal_esp32::zacwire` as the
-   only device-side code. `cc_domain::sensor::probe::TemperatureProbe` is the one
+   only device-side code. `cc_protocol::sensor::probe::TemperatureProbe` is the one
    interface, so the state machine is not generic over both.
 2. **The compiled-in default is `TSIC_306`**, the C++'s value, in both
    `cc-config` (`HardwareSensorsTemperature::default`) and `cc-safety`
@@ -521,7 +521,7 @@ TSIC-306 machine unrunnable.
 been.** There are two separate gaps and both are open:
 
 * **The pure logic is host-tested against a synthesised waveform.**
-  `cc_domain::sensor::tsic306::simulator` generates a GPIO level function from the
+  `cc_protocol::sensor::tsic306::simulator` generates a GPIO level function from the
   IST AG app note's own duty cycles and timings, and `edges()` *scans* it at 1 µs
   to discover the transitions, so the decoder never sees the encoder's intent.
   That proves the arithmetic, the bit ordering, the parity, the rejection of
@@ -529,7 +529,7 @@ been.** There are two separate gaps and both are open:
   real sensor. A real TSIC-306's clock tolerance, its 31.25 µs pulses through a
   pull-up and a cable, its behaviour when brownout, and the EMI the app note's
   parity bit exists for, are all outside what a synthesiser can produce. See
-  `cc_domain::sensor::tsic306`'s module docs, which say the same thing.
+  `cc_protocol::sensor::tsic306`'s module docs, which say the same thing.
 * **The device side has never executed.**
   `cc_hal_esp32::zacwire` is implemented and is **not brought up**, because the
   pin it would capture (GPIO16, `pinmapping.h:27`) is carrying 1-Wire traffic
@@ -546,7 +546,7 @@ unachievable without the hardware.
 
 | | C++ | Rust | Test |
 | --- | --- | --- | --- |
-| **The no-signal timeout** | 100 ms (`ZACwire.h:29`) against a **10 Hz** sensor, i.e. one transmission period with zero margin | 250 ms (2.5 periods) | `protocol::tests::the_no_signal_timeout_is_longer_than_the_cpps_and_says_why` |
+| **The no-signal timeout** | 100 ms (`ZACwire.h:29`) against a **10 Hz** sensor, i.e. one transmission period with zero margin | 250 ms (2.5 periods) | `protocol::tests::the_no_signal_timeout_is_more_than_one_transmission_period` |
 | **The rate-limit latch** | `static bool validTemps` in a `const` member function — process-global, never reset, shared between instances | per-instance state, so a reconnect starts permissive | `tsic306::tests::the_latch_is_per_instance_not_process_global` |
 
 The 100 ms timeout is a false negative on a safety input: a single missed or
@@ -579,7 +579,7 @@ the module** and it is unresolved for want of hardware.
   [`09 §17`](./cpp-findings.md#cf17) — corrected in this pass), and the C++
   reports all six as *"Temperature sensor not connected"*. The **decision** is
   identical; the diagnostic is not. Tests:
-  `onewire::div7_every_ds18b20_fault_is_rejected_by_the_cpp`,
+  `onewire::div7_every_ds18b20_fault_is_rejected`,
   `ds18b20::div6_every_ds18b20_fault_is_rejected_and_named`.
 * **The dead range check is now applied** — see below.
 
@@ -590,7 +590,7 @@ the module** and it is unresolved for want of hardware.
 | | |
 | --- | --- |
 | **Finding** | [09 §18](./cpp-findings.md#cf18) — `TempSensor::isValidTemperature` is dead and the DS18B20 path has no range check |
-| **Test** | `cc_domain::sensor::ds18b20::div8_the_dallas_path_applies_the_range_check_it_never_applied`, `::div8_the_two_ranges_overlap_only_between_zero_and_a_hundred_and_fifty`, `::div8_only_the_cold_end_of_the_ds18b20s_range_is_now_refused`, `::div8_a_reading_outside_the_range_is_a_read_failure_not_a_hot_temperature` |
+| **Test** | `cc_protocol::sensor::ds18b20::div8_the_dallas_path_applies_a_range_check`, `::div8_the_two_ranges_overlap_only_between_zero_and_a_hundred_and_fifty`, `::div8_only_the_cold_end_of_the_ds18b20s_range_is_now_refused`, `::div8_a_reading_outside_the_range_is_a_read_failure_not_a_hot_temperature` |
 
 ### What the C++ does
 
@@ -608,7 +608,7 @@ The TSIC driver, by contrast, has its own reject at `temp <= 0.0 || temp >= 180.
 
 ### What the Rust does
 
-`cc_domain::sensor::ds18b20::Driver::poll` applies `isValidTemperature`'s own
+`cc_protocol::sensor::ds18b20::Driver::poll` applies `isValidTemperature`'s own
 range, and a reading outside it is a **rejected read**
 (`Ds18b20Fault::OutOfRange`) rather than a temperature.
 
@@ -799,7 +799,7 @@ measurement against a dummy load is still **not** done and **R1-07 stays open**.
 | | |
 | --- | --- |
 | **Task** | R3-05 |
-| **Tests** | `cc_domain::abp2::tests::div1_a_short_read_is_an_error_not_a_stale_sample`, `::div2_a_nack_on_the_command_is_an_error`, `::the_first_poll_writes_the_command_and_returns_immediately`, `::the_cpp_would_have_slept_twenty_percent_of_the_loop` |
+| **Tests** | `cc_protocol::abp2::tests::div1_a_short_read_is_an_error_not_a_stale_sample`, `::div2_a_nack_on_the_command_is_an_error`, `::the_first_poll_writes_the_command_and_returns_immediately`, `::the_old_read_was_asleep_for_twenty_percent_of_the_loop` |
 
 ### What the C++ does
 
@@ -869,7 +869,7 @@ transcriptions:
 * **The spin loops are gone entirely.** `HX711Scale.cpp:44` and `:51` are
   `while (!startMultiple(...))` — unbounded, and with a `static` deadline
   (`HX711_ADC.cpp:135`) that a second call inherits already-expired. There is no
-  timeout loop here at all: a read is a query (`cc_domain::sensor::hx711::
+  timeout loop here at all: a read is a query (`cc_protocol::sensor::hx711::
   read_raw`) and presence is `SignalWatchdog`, a type that owns its deadline.
 * **Presence is armed at driver start, not at the first conversion.** The C++
   arms by accident (`lastDoutLowTime = millis()` before the first `update()`);

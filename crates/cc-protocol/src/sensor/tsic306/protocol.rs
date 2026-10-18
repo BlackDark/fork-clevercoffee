@@ -1,20 +1,16 @@
 //! `ZACwire` timings and frame layout, as the IST AG app note states them.
 //!
-//! Owner: **R3-07**.
-//!
 //! # Source, and what "as the app note states them" excludes
 //!
-//! Everything in this file is transcribed from `ATTSic_E2.3.0.pdf` §1.1–§1.4
-//! (summarised in [02 §6](../../../docs/history/dependency-evaluation.md))
-//! and cross-read against the two implementations that existed at the time:
-//! the `ZACwire` 2.0.0 library `TempSensorTSIC` wrapped (PlatformIO-fetched,
-//! no longer vendored here) and the app note's own worked example, which the C++
-//! does not implement and which is the only published ground truth for the
+//! Everything in this file is transcribed from `ATTSic_E2.3.0.pdf` §1.1-§1.4
+//! (summarised in [dependency-evaluation.md
+//! §6](../../../docs/history/dependency-evaluation.md)) and cross-read against the
+//! app note's own worked example, which is the only published ground truth for the
 //! frame's *content*.
 //!
-//! The tolerances in [`tolerances`] are the exception and are flagged as such:
-//! the app note publishes no clock-tolerance figure, so they are this port's
-//! choice, derived in that module's docs.
+//! The tolerances in [`tolerances`] are the exception and are flagged as such: the
+//! app note publishes no clock-tolerance figure, so they are this port's choice,
+//! derived in that module's docs.
 //!
 //! # The waveform, in one paragraph
 //!
@@ -25,28 +21,23 @@
 //! accumulate down the packet. This is the app note's model and it is what
 //! [`decode`](super::decode) implements.
 //!
-//! # What the C++ does instead, and why this is not a port of `ZACwire`
+//! # Why the decoder is the app note's
 //!
-//! `ZACwire::read` is an interrupt on the **rising**
-//! edge that measures the **interval** between consecutive rising edges and
-//! compares it against a learned threshold, with a "add half a threshold if the
-//! previous bit was 0" normalisation and a run of "first 4 bits are always 0"
-//! skipped at the top of every frame. That is a *different decoder for the same
-//! waveform*, and it works. This port implements the app note's decoder instead
-//! because:
+//! A different decoder for the same waveform is possible, and it works: interrupt on the **rising**
+//! edge, measure the **interval** between consecutive rising edges, and compare it against a
+//! learned threshold, with an "add half a threshold if the previous bit was 0" normalisation and a
+//! run of "the first 4 bits are always 0" skipped at the top of every frame. This module implements
+//! the app note's decoder instead because:
 //!
-//! * it is **specified**, so it can be reviewed against a document rather than
-//!   against index arithmetic in a third-party library;
-//! * it needs only a falling-edge reference and a measured strobe, so the
-//!   decoder consumes a list of edge timestamps and nothing else — which is what
-//!   makes it host-testable at all;
-//! * its one hard requirement (a measured `Tstrobe`) is measurable from the
-//!   waveform itself, so a wrong clock is a rejected frame rather than a
-//!   plausible temperature.
+//! * it is **specified**, so it can be reviewed against a document rather than against index
+//!   arithmetic;
+//! * it needs only a falling-edge reference and a measured strobe, so the decoder consumes a list
+//!   of edge timestamps and nothing else -- which is what makes it host-testable at all;
+//! * its one hard requirement (a measured `Tstrobe`) is measurable from the waveform itself, so a
+//!   wrong clock is a rejected frame rather than a plausible temperature.
 //!
-//! What the port keeps from `ZACwire` is its *policy*, not its arithmetic: the
-//! 221/222 sentinels, the adaptive change rate, the backup-buffer retry and the
-//! heartbeat timeout all live in [`super`], not here.
+//! The 221/222 sentinels, the adaptive change rate, the backup-buffer retry and the heartbeat
+//! timeout are *policy* rather than arithmetic, and live in [`super`], not here.
 
 /// The nominal bit window, in microseconds.
 ///
@@ -123,63 +114,54 @@ pub const RANGE_MIN_C: f32 = -50.0;
 /// The denominator: `2047`, i.e. one more than the 11-bit maximum.
 pub const RANGE_STEPS: f32 = 2047.0;
 
-/// The sentinel `ZACwire` returns when the probe is not transmitting.
+/// The sentinel for a probe that is not transmitting: 221.
 ///
-/// `ZACwire.h:30`, `errorNotConnected {221}`. `TempSensorTSIC.cpp:51-54` logs
-/// `"Temperature sensor not connected"` and returns false.
+/// A sentinel rather than a separate error channel, because the driver's output is a temperature
+/// everywhere else. It sits above [`ACCEPT_MAX_C`], so a fault can never pass the range check as a
+/// reading.
 pub const ERROR_NOT_CONNECTED: f32 = 221.0;
 
-/// The sentinel `ZACwire` returns when a frame did not decode or was rate-limited.
+/// The sentinel for a frame that did not decode, or that arrived too fast to be believed: 222.
 ///
-/// `ZACwire.h:31`, `errorMisreading {222}`. `TempSensorTSIC.cpp:46-49` logs
-/// `"Temperature reading failed"` and returns false.
+/// The second of the two values that stand outside the accepted range, and the reason the range
+/// check rejects anything above [`ACCEPT_MAX_C`].
 pub const ERROR_MISREADING: f32 = 222.0;
 
-/// The maximum change allowed per reading before the signal is suspected.
+/// The change rate the driver applies before the signal has been seen to settle.
 ///
-/// `INITIAL_CHANGERATE`, passed to
-/// `ZACwire::getTemp(maxChangeRate)`.
+/// Wide on purpose: a probe that has just powered up has no history to compare against, so this
+/// admits every reading the range check allows. [`RUNTIME_CHANGE_RATE_C`] takes over after a run of
+/// consecutive readings that agree.
 pub const INITIAL_CHANGE_RATE_C: f32 = 200.0;
 
-/// The change rate the driver latches onto once the signal has settled.
+/// The change rate the driver applies once the signal has settled, in °C per reading.
 ///
-/// `RUNTIME_CHANGERATE`.
+/// A reading further than this from the previous one is treated as suspect, which is what stops a
+/// corrupted frame from walking the temperature one step at a time.
 pub const RUNTIME_CHANGE_RATE_C: f32 = 5.0;
 
-/// The physical range the C++ accepts, exclusive at both ends.
+/// The bottom of the accepted range, exclusive: a reading of exactly 0.0 °C is rejected.
 ///
-/// `temp <= 0.0 || temp >= 180.0`.
-///
-/// **Inclusive rejection**: a reading of exactly 0.00 °C is rejected, and so is
-/// one of exactly 180.0 °C. The TSIC-306 can legitimately report both (its span
-/// is −50..+150, so 0.0 is squarely inside it), so this rejects a real reading
-/// at the bottom of the range. Preserved verbatim, and flagged: it is a
-/// deliberate, documented trade in the C++ — see [`super`].
+/// The probe can legitimately report 0.0 °C (its span is -50..+150), so the bottom of the range
+/// costs a real reading. It buys the fault sentinels: 221 and 222 both sit far above
+/// [`ACCEPT_MAX_C`], so no fault can be read as a temperature.
 pub const ACCEPT_MIN_C: f32 = 0.0;
 /// See [`ACCEPT_MIN_C`].
 pub const ACCEPT_MAX_C: f32 = 180.0;
 
-/// The heartbeat timeout after which the probe counts as not connected, in
-/// microseconds.
+/// The heartbeat timeout after which the probe counts as not connected, in microseconds.
 ///
-/// # 🔴 Deliberately not the C++'s 100 ms
+/// # 🔴 Two and a half transmission periods, not one
 ///
-/// `ZACwire.h:29` is `const uint8_t timeout {100}`, and
-/// `ZACwire::connectionCheck` returns false — the 221
-/// path — when no completed frame has arrived for longer than that.
+/// The sensor transmits **at 10 Hz** (app note §1.4: "The update rate of the `TSic` is programmed
+/// to 10Hz"), so one transmission period is 100 ms. A timeout of exactly one period has no margin:
+/// any scheduling jitter, any frame lost to a transient, and the driver reports a probe that is
+/// present and working as disconnected -- a false negative on a safety input.
 ///
-/// The sensor transmits **at 10 Hz** (app note §1.4: "The update rate of the
-/// `TSic` is programmed to 10Hz"). A 100 ms no-frame timeout is therefore *one
-/// transmission period*, with zero margin: any scheduling jitter, any frame lost
-/// to a transient, and the driver reports a probe that is present and working as
-/// disconnected. It is a real fragility in the C++ and it is a false negative on
-/// a safety input.
-///
-/// This port uses **2.5 transmission periods**. That is long enough that a single
-/// missed or corrupted frame cannot be mistaken for a missing probe, and short
-/// enough that a genuinely unplugged probe is still reported inside the
-/// temperature path's own 400 ms cadence (`Timing::TEMPERATURE_SENSOR_INTERVAL_MS`)
-/// plus S1's ten-read debounce. Recorded in `intentional-diffs.md`.
+/// 250 ms is long enough that a single missed or corrupted frame cannot be mistaken for a missing
+/// probe, and short enough that a genuinely unplugged probe is still reported inside the
+/// temperature path's own 400 ms cadence (`Timing::TEMPERATURE_SENSOR_INTERVAL_MS`) plus S1's
+/// ten-read debounce. Recorded in [`divergences.md` §7](../../../docs/history/divergences.md#d07).
 pub const NO_SIGNAL_TIMEOUT_US: u32 = 250_000;
 
 /// The sensor's own update period, in microseconds. 10 Hz (app note §1.4).
@@ -214,35 +196,6 @@ pub const UPDATE_PERIOD_US: u32 = 100_000;
 /// mis-framed frame through as a plausible temperature. That is why every
 /// rejection in [`super::decode`] is tested against a waveform that was
 /// deliberately damaged rather than only against a good one.
-/// The tolerance windows, which the app note does not publish.
-///
-/// # Why these numbers, stated as an argument rather than as a constant
-///
-/// The app note gives nominal timings and a mechanism but **no** tolerance
-/// figures, so the windows below are this port's choice. They are not arbitrary
-/// and they are not generous:
-///
-/// * **The strobe window** exists to answer one question: *is this falling edge
-///   the start of a packet, or is it a data bit?* A data bit's low pulse is
-///   31.25 µs (`0`) or 93.75 µs (`1`) against a 62.5 µs start pulse. Any window
-///   that contains 62.5 and excludes both 31.25 and 93.75 answers the question
-///   correctly for an *undistorted* pulse. [`tolerances::STROBE_MIN_US`] = 45 and
-///   [`tolerances::STROBE_MAX_US`] = 80 do that with 13 µs of clearance on each
-///   side, and they also admit a sensor running ±28 % off nominal — far more than
-///   any real TSIC, which is specified to a few per cent.
-/// * **The bit-period window** answers *did an edge go missing, or arrive twice?*
-///   A missing edge doubles a period (250 µs) and a spurious one halves it
-///   (62 µs); both are far outside [`tolerances::BIT_PERIOD_MIN_US`] ..
-///   [`tolerances::BIT_PERIOD_MAX_US`] = 94 .. 156, which is 125 µs ±25 %.
-/// * **The stop gap** is checked exactly, not with a tolerance: it is
-///   [`STOP_GAP_WINDOWS`] bit windows, and the only uncertainty is the same
-///   per-bit clock error, so the window is the bit-period window widened by half
-///   a period in each direction.
-///
-/// A window that is *too wide* here is the dangerous direction, because it lets a
-/// mis-framed frame through as a plausible temperature. That is why every
-/// rejection in `decode` is tested against a waveform that was deliberately
-/// damaged rather than only against a good one.
 pub mod tolerances {
     /// Lowest plausible measured start-bit low-pulse width, in microseconds.
     pub const STROBE_MIN_US: u32 = 45;

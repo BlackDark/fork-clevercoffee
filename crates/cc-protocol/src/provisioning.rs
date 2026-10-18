@@ -1,12 +1,11 @@
 //! The UART Wi-Fi provisioning line protocol: the parser and its state machine.
 //!
-//! Owner: **R3-12** (task C).
-//!
 //! # Why UART and not a captive portal
 //!
-//! The chip has no USB peripheral (01 §1), so provisioning over a serial console is
-//! the one mechanism that always works. The recovered oracle firmware implemented
-//! exactly this (08 §5.2) and its log line is the specification:
+//! The chip has no USB peripheral (AG-REPO-10), so provisioning over a serial console is the one
+//! mechanism that always works. The recovered firmware implemented exactly this
+//! ([`recovered-oracle.md`](../../../docs/history/recovered-oracle.md) §5.2), and the log line it
+//! left in the boot log is the specification:
 //!
 //! ```text
 //! cc_firmware::serial_wifi: serial: WiFi commands available.
@@ -37,10 +36,9 @@
 //!
 //! # What this type is and is not
 //!
-//! A **pure state machine**: bytes in, [`Reply`] out, no I/O, no clock of its own,
-//! **no `alloc`** — `cc-domain` has none, and a parser that must allocate to hold a
-//! 32-byte SSID can fail where a stack buffer cannot. The caller (in
-//! `cc-hal-esp32`) owns the UART, the line reader, the NVS write, and the
+//! A **pure state machine**: bytes in, [`Reply`] out, no I/O, no clock of its own, **no `alloc`**.
+//! A parser that must allocate to hold a 32-byte SSID can fail where a stack buffer cannot. The
+//! caller (in `cc-hal-esp32`) owns the UART, the line reader, the NVS write, and the
 //! `alloc::string::String` the credential ends up in.
 //!
 //! That split makes the whole protocol — every rejection path included — a host
@@ -48,10 +46,8 @@
 //!
 //! # A credential cannot be printed, because the type cannot print it
 //!
-//! [`Reply`] deliberately does **not** implement `Debug`. A `Debug` on a type that
-//! can hold a password is an argument waiting to be forgotten at a log site, and
-//! the C++ prints the SSID on every connection attempt
-//! (`CleverCoffeeWiFiManager.cpp:96-98`). Instead:
+//! [`Reply`] deliberately does **not** implement `Debug`. A derived `Debug` on a type that can
+//! hold a password is one that prints it, and a log site is one `{:?}` away. Instead:
 //!
 //! * [`Reply`] and [`Accepted`] have hand-written `Debug` impls printing the command
 //!   *name* and never the argument, so `{:?}` is safe at a log site and
@@ -177,11 +173,9 @@ pub enum Accepted<'a> {
     /// The password that followed `wifi set <ssid>`, and the SSID it belongs
     /// to. Copy both into `Secret<String>`s on the spot and never print either.
     ///
-    /// The SSID comes back with the password because the parser has just
-    /// disarmed and there is no later point at which the caller could ask for
-    /// it. It is not a secret in the way a password is, but it is half of a
-    /// credential pair and the C++ prints it on every connection attempt, so it
-    /// is handled the same way.
+    /// The SSID comes back with the password because the parser has just disarmed and there is no
+    /// later point at which the caller could ask for it. It is not a secret in the way a password
+    /// is, but it is half of a credential pair, so it is handled the same way.
     Password {
         /// The password, verbatim, borrowed from the parser.
         password: &'a str,
@@ -405,9 +399,8 @@ impl Parser {
         };
 
         if rest == "pass" {
-            // Same reasoning as the `set` arm below: a typed-but-empty keyword
-            // is a typo with an obvious fix, so it is reported rather than
-            // answered with "unknown wifi subcommand".
+            // Same reasoning as the `set` arm below: a typed-but-empty keyword is a typo with an
+            // obvious fix, so it gets its own answer rather than "unknown wifi subcommand".
             return Reply::Rejected("`wifi pass` needs the password on the same line");
         }
         if let Some(password) = rest.strip_prefix("pass ") {
@@ -532,7 +525,7 @@ mod tests {
 
     #[test]
     fn the_oracle_sequence_parses_end_to_end() {
-        // 08 §5.2, verbatim.
+        // `recovered-oracle.md` §5.2, verbatim.
         let mut parser = Parser::new();
         assert_eq!(
             parser.feed("wifi status"),

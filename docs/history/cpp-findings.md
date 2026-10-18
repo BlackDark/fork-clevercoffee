@@ -257,7 +257,7 @@ replaces.
 > draws the wrong conclusion from it. Read
 > [the correction in [§18](divergences.md#d18)](#18-🔴-corrected-2026-09-28-the-ds18b20s-power-sentinels-are-rejected)
 > instead; it is short, it is right, and it has a test that stops it being re-inverted
-> (`cc_domain::sensor::onewire::div7_every_ds18b20_fault_is_rejected_by_the_cpp`).
+> (`cc_protocol::sensor::onewire::div7_every_ds18b20_fault_is_rejected`).
 >
 > **What survives from the original finding**, and is the part worth keeping: the C++
 > rejects all six faults but reports all six as *"Temperature sensor not connected"*,
@@ -317,10 +317,10 @@ than reading a fault code as a temperature. All six faults are reported as a
 typed [`Ds18b20Fault`] rather than as Celsius sentinels, so the diagnostic is
 right and the *decision* is bit-identical to the C++'s.
 
-Pinned by `cc_domain::onewire::tests::s5_the_dallas_fault_sentinels_are_ckd`,
-`s7_the_ds18b20_fault_registers_cannot_be_reached` and
-`s8_only_four_of_the_six_faults_are_rejected`, and by
-`cc_domain::ds18b20::tests::s8_only_four_of_the_six_faults_are_rejected`.
+Pinned by `cc_protocol::sensor::onewire::the_dallas_wiring_sentinels_are_rejected`,
+`the_ds18b20_fault_registers_cannot_be_reached` and
+`div7_every_ds18b20_fault_is_rejected`, and by
+`cc_protocol::sensor::ds18b20::div6_every_ds18b20_fault_is_rejected_and_named`.
 
 ### Also found: `rawToCelsius` cannot read −55 °C
 
@@ -330,7 +330,7 @@ the bottom of the DS18B20's range. The `raw <= DEVICE_DISCONNECTED_RAW` test in
 temperature the device can physically report is reported as disconnected.** A
 real off-by-one in the C++; harmless on a coffee machine, and preserved in the
 port because changing it would be a behaviour change. Pinned by
-`s6_minus_55_c_is_reported_as_disconnected`.
+`minus_55_c_is_reported_as_disconnected`.
 
 ---
 
@@ -359,7 +359,7 @@ So on the Dallas path a reading of, say, 165 °C is accepted, cached, folded int
 the 15-sample moving average, and passed to the PID — and only trips S1's
 deferred over-temperature path. The TSIC driver rejects it outright.
 
-**Preserved.** `cc_domain::ds18b20::PLAUSIBLE_RANGE` is a *query*, not a
+**Preserved.** `cc_protocol::sensor::ds18b20::PLAUSIBLE_RANGE` is a *query*, not a
 filter, and the driver returns the reading unfiltered; S1 remains the thing that
 acts. Filtering here would convert a latched emergency stop into a silently-held
 last-good value, which is strictly worse. Pinned by
@@ -563,11 +563,11 @@ to look at the wiring when the fault is on the probe.
 * `rawToCelsius` cannot read **-55 °C**. `DEVICE_DISCONNECTED_RAW` is -7040, which is
   exactly -55 °C in 1/128 units, so the bottom of the DS18B20's range is reported as
   disconnected. A genuine off-by-one in the library; preserved and pinned
-  (`cc_domain::sensor::onewire::s6_minus_55_c_is_reported_as_disconnected`).
+  (`cc_protocol::sensor::onewire::minus_55_c_is_reported_as_disconnected`).
 * The three MAX31850 wiring faults are unreachable on a DS18B20, so on *this* machine the
   second `if` block is dead — but it is kept in the port, so a swapped probe fails closed.
 
-Pinned by `cc_domain::sensor::onewire::div7_every_ds18b20_fault_is_rejected_by_the_cpp`,
+Pinned by `cc_protocol::sensor::onewire::div7_every_ds18b20_fault_is_rejected`,
 whose test name exists specifically so this correction cannot be re-inverted.
 
 See also [§17](divergences.md#d17) above, which is the long-form version of the same finding and carries the
@@ -585,7 +585,7 @@ so there is no `-50..150 °C` validation on the DS18B20 reading. A 165 °C readi
 therefore cached, averaged and handed to the PID.
 
 **🔴 CLOSED 2026-09-28 (R1-03/R3-07).** The check is now applied, in
-`cc_domain::sensor::ds18b20::Driver::poll`, as a rejected read rather than a temperature.
+`cc_protocol::sensor::ds18b20::Driver::poll`, as a rejected read rather than a temperature.
 The reachable cost is small and was measured rather than assumed: the DS18B20's own
 range is **-55..+125 °C**, so the only real readings the new check refuses are the
 **-55..-50 °C** band, and the upper bound is inert because the sensor cannot report above
@@ -593,7 +593,7 @@ range is **-55..+125 °C**, so the only real readings the new check refuses are 
 150..200 °C: it now arrives as a *sensor read failure*, so the machine reaches
 `SENSOR_ERROR` rather than `EMERGENCY_STOP`. The heater is off either way.
 
-Tests: `cc_domain::sensor::ds18b20::div8_the_dallas_path_applies_the_range_check_it_never_applied`,
+Tests: `cc_protocol::sensor::ds18b20::div8_the_dallas_path_applies_a_range_check`,
 `::div8_the_two_ranges_overlap_only_between_zero_and_a_hundred_and_fifty`,
 `::div8_only_the_cold_end_of_the_ds18b20s_range_is_now_refused`,
 `::div8_a_reading_outside_the_range_is_a_read_failure_not_a_hot_temperature`.
@@ -611,7 +611,7 @@ The original "combined with [§18](divergences.md#d18), a sentinel value can rea
   DS18B20 faults are in fact rejected** by the C++. The three MAX31850-only checks are
   still dead here, but for a different reason: `rawToCelsius` cannot produce
   −254/−253/−252. What the C++ gets wrong is the **message** — a power-on reset is logged
-  as "not connected". Pinned by `div7_every_ds18b20_fault_is_rejected_by_the_cpp`.
+  as "not connected". Pinned by `div7_every_ds18b20_fault_is_rejected`.
 - **`TempSensorTSIC::validTemps` is a function-local `static` inside a `const` member
   function** — process-global, never reset, shared between instances. Per-instance state
   in the port.
