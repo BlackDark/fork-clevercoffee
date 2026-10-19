@@ -3,12 +3,12 @@
 //!
 //! The unit tests in `src/diff.rs` prove the classifier's logic. These prove the
 //! thing that actually matters, which is that `scripts/parity/run.sh` consults
-//! `intentional-diffs.md` and exits non-zero on anything the ledger does not
+//! `divergences.md` and exits non-zero on anything the ledger does not
 //! cover. A classifier that is correct but not wired to the runner is not a
 //! gate.
 //!
 //! Both cases are run through the real binary, with a real ledger extracted from
-//! the real `intentional-diffs.md`.
+//! the real `divergences.md`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -64,8 +64,8 @@ fn run_diff(cpp: &Path, rust: &Path) -> (bool, String) {
 
 /// The headline requirement: an undeclared difference fails the run.
 ///
-/// The synthetic difference is a state the C++ never reached and the Rust one
-/// did — exactly the shape of a real regression, and not something any ledger
+/// The synthetic difference is a state the reference never reached and the Rust
+/// one did — exactly the shape of a real regression, and not something any ledger
 /// entry claims.
 #[test]
 fn a_synthetic_undeclared_diff_fails_the_runner() {
@@ -99,9 +99,9 @@ fn a_synthetic_undeclared_diff_fails_the_runner() {
 /// The other half: a difference the ledger *does* declare is reported as
 /// expected, counted, and **does not** fail the run.
 ///
-/// It uses the real `intentional-diffs.md`, so this also proves the runner reads
-/// the document rather than a fixture. The declared difference is divergence #1
-/// — the pump watchdogs the C++ never arms — which is the entry R1-08 seeds.
+/// It uses the real `divergences.md`, so this also proves the runner reads the
+/// document rather than a fixture. The declared difference is divergence #1 —
+/// the pump watchdogs the reference never arms.
 #[test]
 fn a_declared_divergence_is_reported_and_does_not_fail() {
     let dir = scratch("declared");
@@ -170,7 +170,7 @@ fn a_divergence_does_not_excuse_a_diff_in_an_unscoped_scenario() {
     assert!(output.contains("UNEXPLAINED"), "{output}");
 }
 
-/// The ledger is read from `intentional-diffs.md` itself, and the runner
+/// The ledger is read from `divergences.md` itself, and the runner
 /// refuses if it has drifted from the prose.
 #[test]
 fn the_runner_reads_the_real_divergence_ledger() {
@@ -201,8 +201,8 @@ fn the_runner_reads_the_real_divergence_ledger() {
     }
 }
 
-/// A scenario with no C++ baseline is reported as a missing baseline, not as a
-/// pass. The runner's own exit code is checked in `run.sh`; what is provable
+/// A scenario with no reference baseline is reported as a missing baseline, not as
+/// a pass. The runner's own exit code is checked in `run.sh`; what is provable
 /// here is that the ledger and the scenario set agree on the names, so a
 /// baseline cannot be silently orphaned.
 #[test]

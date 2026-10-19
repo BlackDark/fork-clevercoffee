@@ -2,9 +2,9 @@
 //!
 //! # The rule the whole task turns on
 //!
-//! 06 §Definitions says parity is behavioural equivalence *"excluding the
-//! divergences listed in `intentional-diffs.md`"*, and that `run.sh` "exits
-//! non-zero on any diff not explained by `intentional-diffs.md`". So the
+//! Parity is behavioural equivalence *"excluding the divergences listed in
+//! `divergences.md`"*, and `run.sh` "exits non-zero on any diff not explained
+//! by `divergences.md`". So the
 //! classification is not a convenience: it is the definition of the gate.
 //!
 //! # Declared, not ignored
@@ -19,7 +19,7 @@
 //!
 //! # The ledger format
 //!
-//! A ledger is a JSON file, or a fenced block inside `intentional-diffs.md`.
+//! A ledger is a JSON file, or a fenced block inside `divergences.md`.
 //! Each entry declares a heading (so a reader can find the prose), and a set of
 //! matchers. A matcher is a substring or a regular expression over the diff
 //! line. There is deliberately no "match everything" entry: an entry with an
@@ -38,7 +38,7 @@ use crate::observe::Observation;
 pub struct Divergence {
     /// A short stable id, e.g. `div1`. Used in the report.
     pub id: String,
-    /// The heading in `intentional-diffs.md` this entry is the machine-readable
+    /// The heading in `divergences.md` this entry is the machine-readable
     /// form of. The runner checks that the heading is present in the document,
     /// so a ledger cannot drift away from the prose it claims to encode.
     pub heading: String,
@@ -89,7 +89,7 @@ impl Ledger {
 /// Whether a matcher matches a diff line.
 ///
 /// A matcher is either `/regex/` or a plain substring. The regex form exists
-/// because the prose in `intentional-diffs.md` is about *patterns* ("the pump
+/// because the prose in `divergences.md` is about *patterns* ("the pump
 /// watchdogs fire") and a substring of `PumpTimeoutFired` would be enough for
 /// that one but not for the general case.
 fn matcher_matches(matcher: &str, line: &str) -> bool {
@@ -171,7 +171,7 @@ impl Verdict {
     }
 }
 
-/// Diff `rust` against `cpp` under `ledger`.
+/// Diff the Rust capture against the reference capture under `ledger`.
 ///
 /// The comparison is over the three fields that are comparable across the two
 /// firmwares: the state sequence, the effect-name sequence, and the final
@@ -285,7 +285,7 @@ fn render_bool(b: bool) -> &'static str {
 ///
 /// LCS rather than a set difference on purpose: **order is the observation.**
 /// `CloseWaterValve` before `DisablePump` and the reverse are the same set and
-/// different behaviour, and 09 §15 is a one-loop ordering bug that a set
+/// different behaviour, and the one-loop ordering bug is one that a set
 /// comparison would report as identical.
 fn diff_seq<'a>(
     label: &str,
@@ -375,7 +375,7 @@ pub fn parse_ledger(text: &str) -> Result<Ledger, String> {
     Ok(ledger)
 }
 
-/// Extract the fenced ```ledger blocks from `intentional-diffs.md`.
+/// Extract the fenced ```ledger blocks from `divergences.md`.
 ///
 /// The ledger lives *in* the prose document rather than beside it, so it cannot
 /// drift: adding a divergence means writing the reasoning and the matchers in
@@ -629,7 +629,7 @@ mod tests {
 
     #[test]
     fn order_is_observed_not_just_the_set() {
-        // 09 §15 is a one-loop ordering bug. A set comparison would call these
+        // The one-loop ordering bug is one a set comparison would call these
         // equal.
         let cpp = obs("s", &[], &["DisablePump", "SafeHardwareShutdown"]);
         let rust = obs("s", &[], &["SafeHardwareShutdown", "DisablePump"]);

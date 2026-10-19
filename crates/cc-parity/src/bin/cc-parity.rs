@@ -3,7 +3,7 @@
 //! ```text
 //! cc-parity list
 //! cc-parity run <scenario.yaml>...          # dry_run, to stdout as JSON
-//! cc-parity ledger <intentional-diffs.md>
+//! cc-parity ledger <divergences.md>
 //! cc-parity diff <cpp.json> <rust.json> <ledger.md> [--scenario NAME]
 //! ```
 //!

@@ -32,7 +32,7 @@
 //! Steps 2-5 are one event each, front to back, which is `cc_machine::lib`'s
 //! documented loop shape. The safety reduce happens **before** the tick so the
 //! verdict the tick's `apply_pid_output` reads is the one for *this* sample,
-//! not the previous one's — which is 01 §6 S1's "same loop" requirement.
+//! not the previous one's — which is S1's "same loop" requirement.
 
 use std::collections::BTreeMap;
 
@@ -114,7 +114,7 @@ impl Actuators for Recorder {
         self.calls.push("emergency_shutdown");
     }
     fn safe_hardware_shutdown(&mut self) {
-        // Deliberately does NOT latch. 06 §Definitions: a routine shutdown must
+        // Deliberately does NOT latch: a routine shutdown must
         // leave the machine recoverable.
         self.state.pump = false;
         self.state.water_valve = false;
@@ -820,8 +820,8 @@ pub fn check_assertions(scenario: &Scenario, obs: &Observation) -> Vec<String> {
                 }
             }
             Assertion::ActuatorSafe | Assertion::NoFluidFlow => {
-                // The two differ only on the heater duty. `actuator_safe` is
-                // 06 §Definitions' known-safe state and requires the duty to be
+                // The two differ only on the heater duty. `actuator_safe` is the
+                // known-safe state and requires the duty to be
                 // zero; `no_fluid_flow` is for a machine that is legitimately
                 // heating, where a non-zero duty is the machine working.
                 let require_zero_duty = matches!(a, Assertion::ActuatorSafe);
@@ -845,8 +845,8 @@ pub fn check_assertions(scenario: &Scenario, obs: &Observation) -> Vec<String> {
                     bad.push("the heater duty is not zero");
                 }
                 if a.emergency_latched {
-                    // Latching is not an actuator, but 06 §Definitions excludes
-                    // it from a routine shutdown, so a scenario that ends latched
+                    // Latching is not an actuator, but a routine shutdown excludes
+                    // it, so a scenario that ends latched
                     // has done something a normal run does not.
                     bad.push("the emergency latch is set");
                 }
@@ -1020,10 +1020,10 @@ mod tests {
         assert!(ran >= 10, "only {ran} dry_run scenarios ran");
     }
 
-    /// Every safety path S1-S11 in 01 §6 has at least one scenario.
+    /// Every safety path S1-S11 has at least one scenario.
     ///
-    /// The coverage requirement is from 06 §R1-08 step 2, and it is checked
-    /// here rather than trusted to a reviewer's memory. S6 and S9 are covered
+    /// The coverage requirement is checked here rather than trusted to a
+    /// reviewer's memory. S6 and S9 are covered
     /// by scenarios that assert the *reducer-side* property; the arithmetic
     /// (S6's counter) and the Wi-Fi watchdog suspension (S9) are outside the
     /// reducer, and both say so in their scenario's `why`.
@@ -1128,8 +1128,8 @@ assert:
             .collect();
         assert!(late.is_empty(), "EnablePump after the abort at {late:?}");
         // And the release tick itself is the last one with the pump on: the
-        // request is consumed by the *next* `checkTransitions`, and
-        // `BrewRunningState::update` re-asserts in the loop before that.
+        // request is consumed by the next reducer pass, and the brew-running
+        // state re-asserts its pump before that.
         assert_eq!(
             obs.occurrences("EnablePump")
                 .last()

@@ -46,10 +46,10 @@ pub struct Scenario {
     pub mode: Mode,
     /// The safety paths this scenario exercises, e.g. `["S1", "S4"]`.
     ///
-    /// Free-form on purpose: the S-numbering is 01 §6's and a scenario may
-    /// legitimately cover a path that is not in it. The runner does not
-    /// validate the set, because a closed list here would make adding a safety
-    /// path a two-file change.
+    /// Free-form on purpose: the S-numbering belongs to the architecture, not to
+    /// this field, and a scenario may legitimately cover a path the usual list
+    /// omits. The runner does not validate the set, because a closed list here
+    /// would make adding a safety path a two-file change.
     #[serde(default)]
     pub covers: Vec<String>,
     /// Why this scenario exists, in prose.
@@ -314,8 +314,8 @@ pub enum Assertion {
         /// An [`cc_machine::Effect`] name.
         after: String,
     },
-    /// The machine ended in 06 §Definitions' *known-safe state*: heater duty
-    /// 0, pump off, both valves closed, emergency latch **not** set.
+    /// The machine ended in the *known-safe state*: heater duty 0, pump off,
+    /// both valves closed, emergency latch **not** set.
     ActuatorSafe,
     /// The pump is off and both valves are closed, and the latch is not set.
     ///
