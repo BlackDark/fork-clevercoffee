@@ -122,7 +122,7 @@ pub trait IntEnum: Copy {
 ///
 /// Applied per field with `#[serde(with = "crate::as_int")]`, which keeps
 /// `cc-domain` free of `serde` while leaving the `Config` field types as the
-/// real Rust enums — so `config.hardware.relays.heater.trigger_type` is a
+/// real Rust enums — so `hardware.relays.heater.trigger_type` is a
 /// `RelayTriggerType` in Rust code, and an integer only on the wire.
 pub mod as_int {
     use serde::{Deserialize, Deserializer, Serializer};

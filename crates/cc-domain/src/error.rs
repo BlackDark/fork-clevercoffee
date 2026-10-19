@@ -151,7 +151,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn discriminants_match_the_implicit_cpp_enum() {
+    fn the_discriminants_follow_declaration_order() {
         // The variants are declared in order with no explicit values, so the ids are
         // 0..=11.
         for (i, code) in ErrorCode::ALL.iter().enumerate() {
@@ -160,7 +160,7 @@ mod tests {
     }
 
     #[test]
-    fn code_strings_match_the_cpp_switch() {
+    fn every_error_code_has_a_string() {
         for code in ErrorCode::ALL {
             assert_ne!(code.code_string(), "");
             assert_eq!(code.code_string(), code.code_string().to_uppercase());

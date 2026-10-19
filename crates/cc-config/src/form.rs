@@ -209,8 +209,8 @@ mod tests {
 
     #[test]
     fn a_name_with_no_value_is_an_empty_value() {
-        // What a browser sends for a valueless input, and what
-        // `AsyncWebServerRequest::hasParam` reports.
+        // What a browser sends for a valueless input: the name is present, with
+        // an empty value.
         assert_eq!(fields("flag"), vec![("flag", "")]);
     }
 

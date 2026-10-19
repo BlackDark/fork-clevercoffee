@@ -516,7 +516,7 @@ mod tests {
     }
 
     #[test]
-    fn the_state_and_command_topics_have_no_separator_the_cpp_does_not_have() {
+    fn the_state_and_command_topics_have_no_separator() {
         let b = builder();
         assert_eq!(
             b.state_topic("temperature"),

@@ -197,9 +197,9 @@ fn enabling_auth_is_reported_as_needing_a_reboot() {
 }
 
 #[test]
-fn the_upload_body_is_bounded_and_the_cap_is_the_cpps() {
-    // `MAX_CONFIG_UPLOAD_SIZE = 16384`, passed to
-    // `setMaxContentLength` at `:762`.
+fn the_upload_body_is_bounded_and_the_cap_is_the_wire_limit() {
+    // The wire cap is 16 KB. It is a different question from the configuration's
+    // own 8 KB policy limit, and a body between them gets the clearer answer.
     assert_eq!(MAX_CONFIG_UPLOAD_BYTES, 16 * 1024);
     // The policy limit underneath it is `cc_config`'s own 8 KB; the two are
     // different questions ("how much will I read off the wire" and "how big a

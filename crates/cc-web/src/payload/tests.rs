@@ -331,10 +331,9 @@ fn the_refused_url_route_says_what_is_missing() {
 // ================================================ POST /api/config/upload
 
 #[test]
-fn the_upload_response_is_the_cpp_shape() {
-    // `sendConfigUploadResponse`: three keys,
-    // `restart` mirrors `success`: the device does not reboot itself — it sets a
-    // flag and the browser calls `/api/restart`.
+fn the_upload_response_has_three_keys() {
+    // Three keys, and `restart` mirrors `success`: the device does not reboot
+    // itself — it sets a flag and the browser calls `/api/restart`.
     assert_eq!(
         upload_response(true, "Configuration validated and applied successfully."),
         "{\"success\":true,\"message\":\"Configuration validated and applied successfully.\",\"restart\":true}"

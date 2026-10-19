@@ -23,9 +23,9 @@
 //! # Two deliberate differences from coercion-on-parse
 //!
 //! **1. A value that does not parse is a rejection, not a zero.** A permissive
-//! scalar parser turns anything it does not recognise into a default: a bool from
-//! `equalsIgnoreCase("true")` where every other string is `false`, an integer from
-//! a `to_int()` that reads `"12abc"` as 12 and `"abc"` as 0. Such a writer answers
+//! scalar parser turns anything it does not recognise into a default: a bool that
+//! is true only for the exact string `"true"`, an integer that reads `"12abc"` as
+//! 12 and `"abc"` as 0. Such a writer answers
 //! `200 {"success":true}` for `POST /api/parameters?pid.regular.kp=hello` whenever
 //! 0 is in range, so an operator who fat-fingers a PID gain is told it worked.
 //! Here `hello` is [`AssignError::Rejected`] carrying

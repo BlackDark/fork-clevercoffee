@@ -465,7 +465,7 @@ Recorded here so the file is complete; each was decided in its own task.
 | --- | --- |
 | **Task** | R1-03, R3-06, R3-07 |
 | **Decision** | 2026-09-28. A previous revision of this entry recorded the opposite — `TSIC_306` was **refused** and the compiled-in default was moved to `DALLAS_DS18B20`. **That is reversed.** The TSIC-306 / ZACwire driver now exists, so there is nothing left to refuse. |
-| **Tests** | `cc_protocol::sensor::ds18b20::*`, `cc_protocol::sensor::tsic306::*`, `cc_protocol::sensor::onewire::div7_*`; `cc-safety::tests::safety_paths.rs::both_temperature_sensor_types_are_accepted`, `::the_compiled_in_default_is_the_cpps_tsic_306`, `::a_stored_tsic_306_config_is_loaded_not_discarded`; `cc-config::tests::config_schema.rs::the_default_temperature_sensor_is_the_cpps_tsic_306` |
+| **Tests** | `cc_protocol::sensor::ds18b20::*`, `cc_protocol::sensor::tsic306::*`, `cc_protocol::sensor::onewire::div7_*`; `cc-safety::tests::safety_paths.rs::both_temperature_sensor_types_are_accepted`, `::the_compiled_in_default_is_tsic_306`, `::a_stored_tsic_306_config_is_loaded_not_discarded`; `cc-config::tests::config_schema.rs::the_default_temperature_sensor_is_tsic_306` |
 
 ### What the C++ does
 
@@ -1493,8 +1493,8 @@ different failure. The oracle and the UI agree, so the oracle won.
 `an_every_pair_from_an_upload_is_accepted_by_the_one_writer` (the two validators
 cannot disagree) and `an_oversized_document_is_refused_rather_than_truncated`.
 On the wire: `cc-hal-esp32::web::tests::the_config_upload_route_is_registered`,
-`::the_upload_response_is_the_cpp_shape`,
-`::the_upload_body_is_bounded_and_the_cap_is_the_cpps`.
+`::the_upload_response_has_three_keys`,
+`::the_upload_body_is_bounded_and_the_cap_is_the_wire_limit`.
 
 ## 23. HTTP Basic authentication is implemented, and is boot-time 🔴 new {#d23}
 

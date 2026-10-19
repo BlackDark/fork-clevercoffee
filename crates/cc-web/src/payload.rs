@@ -113,7 +113,7 @@ pub fn temperatures_json(t: &Telemetry) -> String {
     )
 }
 
-/// The `weight` SSE event's payload. `getWeightJsonString`, `:1193-1210`.
+/// The `weight` SSE event's payload.
 #[must_use]
 pub fn weight_json(t: &Telemetry) -> String {
     match (t.weight_g, t.brew_weight_g) {

@@ -672,7 +672,7 @@ pub enum ConfigViolation {
     },
     /// The heater relay is configured `LOW_TRIGGER`.
     ///
-    /// An ESP32 GPIO is high-impedance before `pinMode()` runs and while the chip
+    /// An ESP32 GPIO is high-impedance before the pin is configured as an output and
     /// resets, and a low-trigger relay board energises its coil when the input is
     /// low *or floating*. Firmware cannot prevent that: it loses control of the
     /// pin before its first instruction, so the heater would be energised on
