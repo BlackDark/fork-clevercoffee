@@ -781,20 +781,13 @@ pub fn check_specific(
         }
 
         MachineState::SensorError => {
-            let error_duration = error_duration_ms(machine);
-            if !machine.has_sensor_error() && !machine.sensors.has_temperature_error {
-                // The error has cleared, so the recovery delay runs from here. Strictly `>`, not
-                // `>=`, so the delay is a full period rather than one tick short of it.
-                if error_duration > timing::ERROR_RECOVERY_DELAY_MS {
-                    return Some(pid_state(ctx));
-                }
-            } else {
-                // Unreachable as the code stands, and left as the shape the delay is *meant* to
-                // have: the global guard answers `SENSOR_ERROR` for a machine already in it, and
-                // the guards are consulted before these rules, so this arm never runs and the delay
-                // is measured from entry. See `divergences.md`'s preserved-behaviours table and
-                // `parity_findings::the_sensor_error_recovery_delay_is_measured_from_entry`.
-                machine.error_since = Some(machine.now);
+            // The delay is measured from entry, not from the moment the fault cleared: the sensor
+            // guard has no exclusion, so while the fault stands this code is not reached and
+            // `error_since` keeps the value entry wrote. What that costs is recorded on
+            // `parity_findings::the_sensor_error_recovery_delay_is_measured_from_entry`.
+            // Strictly `>`, not `>=`: a full period, not one tick short of it.
+            if error_duration_ms(machine) > timing::ERROR_RECOVERY_DELAY_MS {
+                return Some(pid_state(ctx));
             }
             // Never `PID_DISABLED`. A persistent sensor fault needs an operator to look at it,
             // and turning temperature control off would hide the fault rather than report it.
