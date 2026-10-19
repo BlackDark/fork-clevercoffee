@@ -1,4 +1,5 @@
-//! The one crate allowed to import `esp_idf_{hal,svc,sys}` (04 §6, skill §4).
+//! The one crate allowed to import `esp_idf_hal`, `esp_idf_svc` and `esp_idf_sys`
+//! ([target-architecture.md §6](../../../docs/history/target-architecture.md)).
 //!
 //! # Rules
 //!
@@ -6,20 +7,15 @@
 //!   and the pin map is the thing that must be edited in one place.
 //! * [`Board`](board) is a trait with one impl per board, and the pin map is a
 //!   `const` validated at compile time. A pin that does not exist on the chip
-//!   must be a compile error, not a silent miswiring (04 §6 "Feature flags and
-//!   target selection"; the C++ equivalent is the 21 `static_assert`s in
-//!   `pinmapping.h:57-101`).
+//!   must be a compile error, not a silent miswiring ([target-architecture.md
+//!   §6](../../../docs/history/target-architecture.md), "Feature flags and target
+//!   selection").
 //! * `Actuators` is the **only** owner of the pump and the water valve, and
 //!   `HeaterOutput` the only owner of the heater. Interlocks and the emergency
 //!   latch are checked *inside* those methods, not at the call sites, so no
-//!   caller can bypass them. The C++ `heaterEnabled_` drift (01 §4) is the bug
-//!   this ownership rule removes.
+//!   caller can bypass them.
 //! * This crate does not compile for a host target. Validate it with
 //!   `just lint-esp32`.
-//!
-//! Owner: R3-01. This is the R1-01 workspace skeleton, the R1-07 heater output in
-//! [`heater`], and the R1-03/R3-07 temperature sensors in [`onewire`] and
-//! [`zacwire`].
 //!
 //! # 🔴 Two `unsafe`, and they need a human to ratify them
 //!
@@ -34,7 +30,7 @@
 //! serves nobody — measured on hardware, 55 of 60 concurrent API requests timed
 //! out with one browser tab streaming. `esp-idf-svc` 0.53.0 has no safe way to
 //! express it, and ESP-IDF's own `httpd_req_async_handler_begin` is the
-//! documented answer (`esp_http_server.h:840-873`). The module documents each
+//! documented answer. The module documents each
 //! call, the `Send` claim, and the Kconfig that would invalidate it.
 //!
 //! The workspace lint is `unsafe_code = "deny"`, so both are `#[allow]`ed with
@@ -43,7 +39,7 @@
 //! [`zacwire::now_us`] is there because `esp-idf-hal` 0.47 has **no** `esp_timer` module and no
 //! safe monotonic clock of any kind — checked in `src/timer.rs` and
 //! `src/delay.rs`) — and the `ZACwire` protocol cannot be decoded without
-//! microsecond timestamps (04 §5's timing constraint, and the app note's
+//! microsecond timestamps (the app note's
 //! ≥ 128 kHz sampling requirement). The alternatives were all worse: a C shim is
 //! the same `unsafe` in another file, a `GPTimer` count read is also `unsafe` FFI
 //! *and* a 24-bit wrap to difference by hand, and `std::time::Instant` has no
@@ -99,9 +95,10 @@ extern crate alloc;
 // to read the telemetry snapshot the control task publishes. `esp-idf-svc` is
 // built with its `std` feature and the firmware is a `std` binary, so this
 // links nothing new -- but it does mean this crate is not `no_std`, and the
-// alternative (a hand-rolled spin lock, or `critical-section`, which 04 §3.2
-// notes is a FreeRTOS recursive mutex and therefore *not* usable from a task
-// that could be preempted by the httpd task) is worse.
+// alternative (a hand-rolled spin lock, or `critical-section`, which
+// [target-architecture.md
+// §3](../../../docs/history/target-architecture.md) notes is a FreeRTOS recursive
+// mutex and therefore not ISR-safe) is worse.
 extern crate std;
 
 #[cfg(feature = "device-tests")]

@@ -1,30 +1,26 @@
 //! MQTT: the client, the inbound command channel, and the time-budgeted
 //! publish.
 //!
-//! Owner: **R3-13** (task D).
+//! # What is here and what is not
 //!
-//! # What this replaces
+//! The *policy* — the three-phase incremental publish under a 10 ms budget and
+//! the retained / not-retained split — is in [`cc_netpolicy::mqtt`],
+//! host-tested. The Home Assistant discovery payloads are in
+//! [`cc_config::discovery`], also host-tested, because a malformed discovery
+//! payload is *silently* ignored by Home Assistant and is exactly the failure a
+//! device-only test cannot catch.
 //!
-//! `src/network/MQTTManager.cpp`, 932 lines, plus the registration half of
-//! `SystemInitializer::registerMQTTParameters` / `registerMQTTSensors`
-//! (`SystemInitializer.cpp:687-800`). The parts that are *policy* — the
-//! three-phase incremental publish under a 10 ms budget and the retained /
-//! not-retained split — are in [`cc_netpolicy::mqtt`], host-tested. The Home
-//! Assistant discovery payloads are in [`cc_config::discovery`], also
-//! host-tested, because a malformed discovery payload is *silently* ignored by
-//! Home Assistant and is exactly the failure a device-only test cannot catch.
+//! # What lives in `cc-mqtt`
 //!
-//! # What moved to `cc-mqtt`, and why this file is now 875 lines
-//!
-//! **Finding 4.1b.** `Topics`, `ParamTopic`, `Registry`, `PlanView`, `Payload`,
-//! `SetCommand`, the intervals and `interval_for` / `is_configured` are pure
-//! functions of a [`Config`] and a [`cc_domain::state::MachineState`], and this
-//! file named `esp_idf_svc`, so `just test` reached none of them: the registry
-//! that pins the C++'s 32 parameters and 13 sensors was verified only by
-//! flashing a board. They now live in [`cc_mqtt`], whose crate root states the
-//! boundary and names what stayed here. This module **re-exports** them, so the
-//! two consumers (`cc-firmware`'s `mqtt_link`, and every `cc_hal_esp32::mqtt::`
-//! path in prose) are unchanged by the move.
+//! `Topics`, `ParamTopic`, `Registry`, `PlanView`, `Payload`, `SetCommand`, the
+//! intervals and `interval_for` / `is_configured` are pure functions of a
+//! [`Config`] and a [`cc_domain::state::MachineState`], and this file names
+//! `esp_idf_svc`, so `just test` could not reach them: the registry that pins
+//! the 32 parameters and 13 sensors was verified only by flashing a board. They
+//! now live in [`cc_mqtt`], whose crate root states the boundary and names what
+//! stayed here. This module **re-exports** them, so the two consumers
+//! (`cc-firmware`'s `mqtt_link`, and every `cc_hal_esp32::mqtt::` path in prose)
+//! are unchanged by the move.
 //!
 //! What stayed is what genuinely needs ESP-IDF: the client handle, the
 //! callback channel, and the publisher — because its budget is a claim about
@@ -34,41 +30,35 @@
 //!
 //! 1. **The publish is incremental under a time budget.** See
 //!    [`cc_netpolicy::mqtt`] — the budget is a safety property, not an
-//!    optimisation, because the C++ runs the publish from the main loop
-//!    (`LoopManager.cpp:505`). [`Feed::service`] reproduces the C++'s shape:
-//!    a cursor over the three phases, resumed across calls, with a
-//!    [`TIME_BUDGET_MS`] budget on each call.
+//!    optimisation: the publish shares a task with the heater, so a long call is
+//!    a heater window missed. [`Feed::service`] walks a cursor over the three
+//!    phases, resumed across calls, with a [`TIME_BUDGET_MS`] budget on each
+//!    call.
 //! 2. **The buffer is 1024 bytes, raised for discovery.** See [`BUFFER_BYTES`].
-//! 3. **The value-change dedupe.** `mqttLastSent_[topic] != value`
-//!    (`MQTTManager.cpp:512`, `:520`, `:538`) is what stops a machine with a
-//!    steady temperature from republishing thirty identical topics five times a
-//!    second. See [`Feed`].
+//! 3. **The value-change dedupe.** A topic whose value has not changed is not
+//!    published, which is what stops a machine with a steady temperature from
+//!    republishing thirty identical topics five times a second. See [`Feed`].
 //!
-//! # What is NOT what the C++ does
+//! # Brewing does not stop publishing
 //!
-//! **Brewing does not stop publishing.** An earlier revision of this file
-//! carried a `BREWING` flag that made every `publish` a no-op while a brew was
-//! running, justified as "`MQTTManager.cpp:113-115` is a hard stop on *every*
-//! MQTT call". **That was a misreading of the oracle and it is gone.** Line
-//! 113 is inside [`Client::checkConnection`], which is the *connection*
-//! bookkeeping: it stops reconnect attempts, and `loop()` still runs. The
-//! publish itself is in `writeSysParamsToMQTT`, which has no brew guard at all
-//! and *selects a 500 ms interval* while a brew state is active
-//! (`MQTTManager.cpp:385-387`). The flag was never even set by any caller, so
-//! the behaviour was already parity; what was wrong was the comment. See
-//! [`interval_for`].
+//! An earlier revision of this file carried a `BREWING` flag that made every
+//! `publish` a no-op while a brew was running. That was wrong: the connection
+//! bookkeeping stops *reconnect attempts* during a brew, and the publish itself
+//! has no brew guard — it *selects a 500 ms interval* while a brew state is
+//! active. The flag was never set by any caller, so the behaviour was already
+//! right; the comment was not. See [`interval_for`].
 //!
 //! # Whether this ever connected to a broker
 //!
-//! **It did not.** [`Client::new`] was called in `bring_up` and the client was
+//! **It did not, until the client was moved into the control task.**
+//! [`Client::new`] was called in `bring_up` and the client was
 //! dropped at the end of the `match` arm that created it — `EspMqttClient` has
 //! an `impl Drop` that calls `esp_mqtt_client_destroy`
 //! (`esp-idf-svc` `src/mqtt/client.rs:742-747`), so it was destroyed
 //! microseconds after `esp_mqtt_client_start`, and nothing anywhere called
 //! `publish`, `publish_online`, `discovery_due`, `due_for_reconnect` or
 //! `subscribe`. The client now lives in the control task, which drives it from
-//! its 10 ms tick exactly as `LoopManager::updateNetwork`
-//! (`LoopManager.cpp:485-508`) drives the C++'s.
+//! its 10 ms tick.
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -91,13 +81,12 @@ use log::{debug, info, warn};
 
 use crate::time::now_ms;
 
-// Finding 4.1b: the topic layout, the registry, the plan view, the value
-// buffers, the intervals and the two predicates moved to `cc-mqtt`, which is
-// `#![no_std]` and host-testable. They are re-exported rather than reached
-// through a new path so that `cc_firmware::mqtt_link` and every
-// `cc_hal_esp32::mqtt::` reference in prose are unaffected by the move; the
-// direction is still HAL -> cc-mqtt, never the reverse. See `cc_mqtt`'s crate
-// root for the boundary and for what stayed here and why.
+// The topic layout, the registry, the plan view, the value buffers, the
+// intervals and the two predicates live in `cc-mqtt`, which is `#![no_std]` and
+// host-testable. They are re-exported rather than reached through a new path so
+// that `cc_firmware::mqtt_link` and every `cc_hal_esp32::mqtt::` reference in
+// prose are unaffected by the move; the direction is still HAL -> cc-mqtt, never
+// the reverse. See `cc_mqtt`'s crate root for the boundary.
 pub use cc_mqtt::{
     interval_for, is_configured, ParamTopic, Payload, PlanView, Registry, SetCommand, Topics,
     BACKFLUSH_ON, BUFFER_BYTES, CALIBRATION_ON, DISCOVERY_INTERVAL_MS, INBOUND_DEPTH,
@@ -146,11 +135,11 @@ pub struct Link {
     inbound: Mutex<Deque<SetCommand, INBOUND_DEPTH>>,
     /// How many were dropped because the queue was full.
     dropped: AtomicU32,
-    /// The C++'s retry policy and circuit breaker, driven from the events.
+    /// The retry policy and circuit breaker, driven from the events.
     backoff: Mutex<Backoff>,
 }
 
-/// The C++'s `retryPolicy_` and `circuitBreaker_` (`MQTTManager.cpp:48-58`).
+/// When to retry, and when to stop trying.
 struct Backoff {
     retry: RetryPolicy,
     breaker: CircuitBreaker,
@@ -196,9 +185,8 @@ impl Link {
             return Vec::new();
         };
         // `heapless::Deque` has no `drain`, and popping front is the right order
-        // anyway: `MQTTManager::assignParameter` applies each message as it
-        // arrives, so two writes to the same parameter land in the order they
-        // were sent.
+        // anyway: each message is applied as it arrives, so two writes to the
+        // same parameter land in the order they were sent.
         let mut out = Vec::with_capacity(slot.len());
         while let Some(command) = slot.pop_front() {
             out.push(command);
@@ -247,12 +235,9 @@ fn note_event_on(link: &Link, event: &EspMqttEvent<'_>) {
 
 /// Parse one inbound `set` and queue it for the control task.
 ///
-/// The C++'s `messageCallback` (`MQTTManager.cpp:237-274`) does the whole thing
-/// on its own task — parse the topic, `sscanf("%lf")` the payload and call
-/// `assignParameter`, which reaches into `SystemContext` and the configuration
-/// singleton. Here the topic parse happens here, because it is pure, and the
-/// write happens on the control task, because that is the task that owns the
-/// configuration and the store (04 §3.2).
+/// The topic parse happens here, because it is pure, and the write happens on
+/// the control task, because that is the task that owns the configuration and
+/// the store.
 fn receive(link: &Link, topic: &str, data: &[u8]) {
     let Some(reading) = link.topics.command_of(topic) else {
         warn!("mqtt: invalid topic/command: {topic}");
@@ -262,10 +247,9 @@ fn receive(link: &Link, topic: &str, data: &[u8]) {
         reading: Bounded::new(),
         value: Bounded::new(),
     };
-    // `MQTTManager.cpp:250` copies the bytes and NUL-terminates them, then
-    // `sscanf("%lf")`s the result. A payload that is not UTF-8 cannot be a
-    // number, so it is refused here rather than carried as bytes the
-    // configuration's own parser would have to reject anyway.
+    // A payload that is not UTF-8 cannot be a number, so it is refused here
+    // rather than carried as bytes the configuration's own parser would have to
+    // reject anyway.
     let Ok(text) = core::str::from_utf8(data) else {
         warn!("mqtt: command {reading} carried a non-UTF-8 payload");
         return;
@@ -278,8 +262,8 @@ fn receive(link: &Link, topic: &str, data: &[u8]) {
         return;
     }
     if command.reading.push_str(reading).is_err() {
-        // `MQTTManager.cpp:249` truncates at `%119[^\/]`; refusing is the honest
-        // answer, because a truncated name is a *different* parameter.
+        // Refusing is the honest answer, because a truncated name is a
+        // *different* parameter.
         warn!("mqtt: command topic '{reading}' is longer than {READING_MAX} B");
         return;
     }
@@ -287,8 +271,7 @@ fn receive(link: &Link, topic: &str, data: &[u8]) {
         return;
     };
     if slot.push_back(command).is_err() {
-        // Drop-newest, counted. The C++ has no equivalent limit because its
-        // handler is synchronous; a burst from a misconfigured client would
+        // Drop-newest, counted. A burst from a misconfigured client would
         // otherwise grow an unbounded queue on a 320 KB chip.
         link.dropped.fetch_add(1, Ordering::Relaxed);
         warn!("mqtt: the inbound queue is full — a command was dropped");
@@ -326,34 +309,28 @@ impl Client {
     /// `EspMqttClient::new_cb` constructs the client, installs the callback and
     /// calls `esp_mqtt_client_start` (`client.rs:437-448`). `start` is
     /// **asynchronous** — the TCP connect happens on the client's own task — so
-    /// "constructed" and "connected" are separate events. That is what the C++
-    /// does too: `setup` (`:54-92`) does not connect, `checkConnection`
-    /// (`:96-193`) does.
+    /// "constructed" and "connected" are separate events, and only the events
+    /// say when the second has happened.
     ///
     /// # The last will
     ///
-    /// `MQTTManager.cpp:161` connects with
-    /// `connect(hostname, user, pass, topicWill_, 0 /*qos*/, true /*retain*/, "offline")`.
-    /// So the will payload is the literal `offline`, on the status topic,
-    /// retained — which is what makes a machine that loses power show as
-    /// *offline* in Home Assistant rather than as *unknown*.
+    /// The will payload is the literal `offline`, on the status topic, retained
+    /// — which is what makes a machine that loses power show as *offline* in
+    /// Home Assistant rather than as *unknown*.
     ///
     /// # Errors
     ///
     /// `EspError` from `esp_mqtt_client_init`/`start`. Not fatal: the firmware
-    /// runs without MQTT, as the C++ does when `mqttEnabled_` is false.
+    /// runs without MQTT.
     pub fn new(config: &Config) -> Result<Self, EspError> {
         let topics = Topics::new(&config.mqtt.topic, &config.system.hostname);
         let conf = MqttClientConfiguration {
             protocol_version: Some(MqttProtocolVersion::V3_1_1),
-            // The C++'s client id IS the hostname (`MQTTManager.cpp:161`), so a
-            // broker's client list shows the machine's name rather than a
-            // generated id.
+            // The client id IS the hostname, so a broker's client list shows
+            // the machine's name rather than a generated id.
             client_id: Some(&config.system.hostname),
             keep_alive_interval: Some(core::time::Duration::from_secs(60)),
-            // The C++'s RetryPolicy is 10 s → 5 min, 5 attempts
-            // (`MQTTManager.cpp:51-57`). This is the `esp-mqtt` reconnect
-            // equivalent and it is the same schedule.
+            // `esp-mqtt`'s reconnect schedule: 10 s → 5 min, 5 attempts.
             reconnect_timeout: Some(core::time::Duration::from_secs(10)),
             network_timeout: core::time::Duration::from_secs(10),
             lwt: Some(LwtConfiguration {
@@ -431,15 +408,13 @@ impl Client {
         self.link.note(event);
     }
 
-    /// Subscribe to the command topic, as `MQTTManager.cpp:162` does on connect.
+    /// Subscribe to the command topic, on connect.
     ///
     /// # When it is called
     ///
-    /// From the control task, on the first tick after `Connected` — which is
-    /// what the C++ does, since it subscribes immediately after `connect()`
-    /// returns. `esp-mqtt` redelivers subscriptions on its own for a session
-    /// it restores, so this is called once per process rather than once per
-    /// reconnect.
+    /// From the control task, on the first tick after `Connected`. `esp-mqtt`
+    /// redelivers subscriptions on its own for a session it restores, so this is
+    /// called once per process rather than once per reconnect.
     ///
     /// # Errors
     ///
@@ -456,9 +431,8 @@ impl Client {
     ///
     /// Returns `Ok(())` once the payload is in the outbox. **It does not
     /// block**: `esp_mqtt_client_publish` copies into the outbox and returns, and
-    /// the client's own task does the socket write. That is why the C++ needed a
-    /// time budget at all — the copy is bounded but the outbox drains slowly on a
-    /// bad link.
+    /// the client's own task does the socket write. The copy is bounded, but the
+    /// outbox drains slowly on a bad link, which is why the pass has a budget.
     ///
     /// The topic is taken as a `&str` rather than built here, because building it
     /// would allocate and this is called up to thirty times inside a 10 ms budget
@@ -483,14 +457,10 @@ impl Client {
 
     /// Publish the retained availability topic.
     ///
-    /// `MQTTManager.cpp:400` publishes `"online"` on the status topic when a
-    /// pass starts. **Retained here, unretained there**: the C++'s call is
-    /// `publish("status", "online")` against a `bool retain = false` default
-    /// (`MQTTManager.h:291`), and it survives only because it repeats every five
-    /// seconds. A retained `online` costs one write per pass, is the pattern the
-    /// retained `offline` last will on the same topic already implies, and
-    /// removes the five-second window in which a broker restart leaves every
-    /// entity unavailable. Recorded in `intentional-diffs.md`.
+    /// Published when a pass starts. **Retained**: it costs one write per pass,
+    /// matches the retained `offline` last will on the same topic, and removes
+    /// the window in which a broker restart leaves every entity unavailable.
+    /// Recorded in [divergences.md §11](../../../docs/history/divergences.md).
     ///
     /// # Errors
     ///
@@ -520,16 +490,15 @@ impl Client {
 
     /// Whether a reconnect attempt is due, consuming one attempt if so.
     ///
-    /// The C++'s `checkConnection` without the `esp-mqtt` call, which
-    /// `esp-idf-svc` makes on its own task with its own `reconnect_timeout`.
-    /// What is left is the bookkeeping the C++ does and `esp-mqtt` does not: the
-    /// retry policy, the circuit breaker, and the log line.
+    /// Without the `esp-mqtt` call, which `esp-idf-svc` makes on its own task
+    /// with its own `reconnect_timeout`. What is left is the bookkeeping
+    /// `esp-mqtt` does not do: the retry policy, the circuit breaker, and the log
+    /// line.
     #[must_use]
     pub fn due_for_reconnect(&self) -> bool {
         if self.is_connected() || !self.ever_connected() {
-            // `!ever_connected` is the C++'s `serverIP_.length() == 0` guard
-            // generalised: never spend a reconnect attempt on a client that has
-            // not yet had its first chance.
+            // `!ever_connected`: never spend a reconnect attempt on a client
+            // that has not yet had its first chance.
             return false;
         }
         let now = now_ms();
@@ -577,19 +546,16 @@ pub struct Service {
 
 /// Everything a budgeted publish pass must remember between calls.
 ///
-/// The C++'s four members: `mqttLastSent_`, `mqttVarsIt_`, `mqttSensorsIt_`,
-/// `mqttBinarySensorsIt_` and `publishPhase_`
-/// (`MQTTManager.h:245-251`), plus `previousMillisMQTT_` and the two
-/// `MillisecondTimer`s' cursors.
+/// The dedupe table, the cursor, the phase and the last-pass stamp.
 ///
 /// # Why this is built once and never rebuilt
 ///
 /// The `PlanView` the [`cc_netpolicy::mqtt::Cursor`] walks borrows the registry's
 /// topic strings, so a `Feed` that owns both needs a self-reference — or a
 /// registry that outlives it. The registry is built from the configuration once,
-/// at boot, and **never changes**: no C++ code path adds an MQTT topic after
-/// `SystemInitializer` has run, and the four conditional groups are decided by
-/// hardware that is fixed for the life of the machine. So the registry is
+/// at boot, and **never changes**: nothing adds an MQTT topic after bring-up,
+/// and the four conditional groups are decided by hardware that is fixed for the
+/// life of the machine. So the registry is
 /// leaked once ([`Box::leak`]) and the plan is built against `'static`, and the
 /// alternative — rebuilding a `Vec` of ~60 `Item`s every pass, five times a
 /// second — is an allocation the control tick does not need to make.
@@ -599,7 +565,7 @@ pub struct Service {
 /// `topic`, `payload` and the [`BTreeMap`] of last-sent values are all reused.
 /// See [`Payload`].
 pub struct Feed {
-    /// The C++'s `mqttVars_` / `mqttSensors_` / `mqttBinarySensors_`.
+    /// The topic registry, leaked at boot.
     registry: &'static Registry,
     /// The flattened three-phase plan, built once from `registry` and **leaked
     /// alongside it**.
@@ -610,21 +576,19 @@ pub struct Feed {
     /// `&'static str` keys of [`Self::last_sent`] without re-borrowing the very
     /// field the publish loop is iterating.
     view: &'static PlanView<'static>,
-    /// `mqttVarsIt_` / `publishPhase_`, as one cursor.
+    /// Where the pass is: the cursor and the phase.
     cursor: Cursor,
-    /// `mqttLastSent_[topic]`, the value-change dedupe.
+    /// The value-change dedupe, per topic.
     ///
     /// Keys are `&'static str` borrowed from the leaked registry, and values are
     /// fixed-size [`Payload`]s, so neither inserting a first value nor replacing
     /// a changed one touches the allocator. A `BTreeMap` rather than a `Vec`
-    /// because the key is the topic name and the C++'s is a hash of it
-    /// (`MQTTManager.h:245`).
+    /// because the key is the topic name.
     last_sent: BTreeMap<&'static str, Payload>,
-    /// `previousMillisMQTT_`: when the pass in progress started.
+    /// When the pass in progress started.
     ///
-    /// Zero at construction, matching `previousMillisMQTT_(0)`
-    /// (`MQTTManager.h:255`), so the first pass is due as soon as the interval
-    /// has elapsed since boot.
+    /// Zero at construction, so the first pass is due as soon as the interval has
+    /// elapsed since boot.
     last_pass_ms: u32,
     /// The Home Assistant discovery messages, rebuilt at the start of each cycle.
     discovery: Vec<cc_config::discovery::Discovery>,
@@ -642,9 +606,8 @@ pub struct Feed {
 impl Feed {
     /// Build the durable publish state for `config`.
     ///
-    /// `topics` is the same layout [`Client`] built, and `config` is the
-    /// control task's live copy — the conditional groups are read from it here,
-    /// once, exactly as `SystemInitializer` read `Config::getInstance()` once.
+    /// `topics` is the same layout [`Client`] built, and `config` is the control
+    /// task's live copy — the conditional groups are read from it here, once.
     #[must_use]
     pub fn new(topics: &Topics, config: &Config) -> Self {
         let registry: &'static Registry =
@@ -698,28 +661,24 @@ impl Feed {
         self.cursor.phase()
     }
 
-    /// One budgeted step of `MQTTManager::checkConnection` and
-    /// `writeSysParamsToMQTT`.
+    /// One budgeted step of the connection check and the publish pass.
     ///
-    /// Called from the control task's 10 ms tick, where `LoopManager.cpp:490`
-    /// and `:505` call the C++'s.
+    /// Called from the control task's 10 ms tick.
     ///
     /// # The shape, in five lines
     ///
-    /// 1. Nothing at all without a session — `!mqttClient_.connected()`
-    ///    (`MQTTManager.cpp:393`) short-circuits before anything is sent.
+    /// 1. Nothing at all without a session — no connected client short-circuits
+    ///    before anything is sent.
     /// 2. Then Home Assistant discovery, if its own 300 s timer is due, one
     ///    budgeted slice of the document list, rebuilt from the live
     ///    configuration when the cycle starts.
-    /// 3. Then, if `now - last_pass_ms >= interval_ms`, the pass starts:
-    ///    `previousMillisMQTT_` is stamped and the retained `online` is published
-    ///    (`MQTTManager.cpp:398-401`).
+    /// 3. Then, if `now - last_pass_ms >= interval_ms`, the pass starts: the
+    ///    last-pass stamp is set and the retained `online` is published.
     /// 4. The cursor walks parameters → sensors → binary sensors, and **stops**
     ///    the moment [`TIME_BUDGET_MS`] has elapsed, resuming at the next topic on
-    ///    the next call (`MQTTManager.cpp:501, 517, 546`).
+    ///    the next call.
     /// 5. A topic whose value has not changed is skipped without a publish, and
-    ///    the outbox is not written at all in that case
-    ///    (`mqttLastSent_`, `MQTTManager.cpp:512`).
+    ///    the outbox is not written at all in that case.
     ///
     /// # Allocation
     ///
@@ -740,10 +699,8 @@ impl Feed {
     /// # `values`
     ///
     /// Writes the value for `reading` into `payload` and returns `true`, or
-    /// returns `false` for a topic this build has no producer for. The C++'s
-    /// `continueOnError` arm logs `"Parameter %s not found for MQTT topic %s"`
-    /// and moves on (`MQTTManager.cpp:440-443`); this counts it in
-    /// [`Service::unresolved`] instead of logging per topic, because a
+    /// returns `false` for a topic this build has no producer for. This counts it
+    /// in [`Service::unresolved`] instead of logging per topic, because a
     /// disconnected sensor would otherwise produce fifty identical lines a pass.
     pub fn service(
         &mut self,
@@ -755,9 +712,8 @@ impl Feed {
     ) -> Service {
         let mut out = Service::default();
         if !client.is_connected() {
-            // `MQTTManager.cpp:393` — the gate is before everything, including
-            // the availability publish. A machine with no session must not queue
-            // a pass it cannot finish.
+            // The gate is before everything, including the availability publish.
+            // A machine with no session must not queue a pass it cannot finish.
             return out;
         }
 
@@ -765,11 +721,9 @@ impl Feed {
 
         // ---- 1. Home Assistant discovery, on its own 300 s timer ----------
         //
-        // `LoopManager.cpp:382-384` fires `hassioDiscoveryTimer_` every
-        // `HASSIO_DISCOVERY_INTERVAL_MS` and the callback builds and publishes
-        // the whole set. Here the set is built at the start of the cycle and
-        // published a few per call under the same budget, so 29 entities do not
-        // become a 300 ms stall in the control task.
+        // Every `HASSIO_DISCOVERY_INTERVAL_MS` the set is built at the start of
+        // the cycle and published a few per call under the same budget, so 29
+        // entities do not become a 300 ms stall in the control task.
         if client.discovery_due() {
             if self.discovery_cursor == 0 {
                 self.discovery = cc_config::discovery::all(config);
@@ -795,10 +749,9 @@ impl Feed {
             return out;
         }
         if self.cursor.phase() == Phase::Parameters && self.cursor.index() == 0 {
-            // `MQTTManager.cpp:398-401`. `mqttVarsIt_ == mqttVars_.begin()` is
-            // this branch: it is true exactly once per pass, so the retained
-            // availability is republished on the pass's cadence and not on every
-            // resumed slice.
+            // A cursor at the start of the list is this branch: it is true
+            // exactly once per pass, so the retained availability is republished
+            // on the pass's cadence and not on every resumed slice.
             self.last_pass_ms = now;
             if let Err(err) = client.publish_online() {
                 warn!("mqtt: the availability publish failed: {err:?}");
@@ -815,8 +768,8 @@ impl Feed {
             } else {
                 self.publish_one(client, item, &mut out);
             }
-            // `MQTTManager.cpp:501` — after *every* topic, published or skipped,
-            // because a skipped topic costs a lookup too.
+            // After *every* topic, published or skipped, because a skipped topic
+            // costs a lookup too.
             if now_ms().wrapping_sub(started) >= TIME_BUDGET_MS {
                 out.cut_short = true;
                 break;
@@ -828,9 +781,7 @@ impl Feed {
     /// Publish one item, honouring the value-change dedupe.
     fn publish_one(&mut self, client: &mut Client, item: Item<'static>, out: &mut Service) {
         let value = self.payload.as_str();
-        // `mqttLastSent_[mqttTopic] != value` (`MQTTManager.cpp:512`, `:520`,
-        // `:538`) — the dedupe is applied to all three phases, not just the
-        // parameters.
+        // The dedupe is applied to all three phases, not just the parameters.
         if self
             .last_sent
             .get(item.topic)
@@ -857,9 +808,8 @@ impl Feed {
             out.published = out.published.saturating_add(1);
             self.remember(item.topic);
         } else {
-            // `MQTTManager.cpp:517-521`: a failed publish is **not** recorded in
-            // `mqttLastSent_`, so the next pass retries it. Only success advances
-            // the dedupe.
+            // A failed publish is **not** recorded in the dedupe, so the next
+            // pass retries it. Only success advances the dedupe.
             debug!("mqtt: {} was not published", item.topic);
         }
     }
@@ -881,12 +831,9 @@ impl Feed {
         let mut published = 0_u16;
         while self.discovery_cursor < self.discovery.len() {
             let message = &self.discovery[self.discovery_cursor];
-            // `publishLargeMessage` (`MQTTManager.cpp:200-224`) is `beginPublish
-            // (topic, length, /*retain=*/true)` for a payload over 128 bytes and
-            // the default `retain = false` below it. The retained arm is the one
-            // every discovery payload here takes, and it is the one that matters:
-            // an unretained discovery document is forgotten by the next broker
-            // restart and Home Assistant deletes the entity.
+            // Retained for the discovery documents, which is the arm that
+            // matters: an unretained discovery document is forgotten by the next
+            // broker restart and Home Assistant deletes the entity.
             if client
                 .publish_to(message.topic.as_str(), message.payload.as_bytes(), true)
                 .is_ok()

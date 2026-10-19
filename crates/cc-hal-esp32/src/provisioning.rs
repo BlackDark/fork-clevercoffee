@@ -1,7 +1,5 @@
 //! UART Wi-Fi provisioning: the line reader and the credential staging.
 //!
-//! Owner: **R3-12** (task C).
-//!
 //! # What this is
 //!
 //! The device half of the protocol whose grammar and framing are
@@ -34,9 +32,9 @@
 //! stream teed to a TCP client (`/events`, the telnet stream) is bytes the
 //! machine can also read. The flag is set and cleared correctly and is
 //! **currently read by nothing** — see [`log_muted`] — so on this build the
-//! window is the only protection, and it is sufficient. When R3-11's telnet
-//! pump lands, the pump is what must check the flag; this file's job is to keep
-//! it correct so that adding the check is one `if`.
+//! window is the only protection, and it is sufficient. When the telnet pump
+//! checks the flag, this file's job is to keep it correct so that adding the
+//! check is one `if`.
 //!
 //! The cost of the window is that up to 30 s of diagnostics can be lost if a
 //! line *is* swallowed. The alternative — a keyword before the password — would
@@ -49,7 +47,7 @@
 //! [`crate::wifi`]. The short version: it is redundant with a line protocol
 //! that is proven on this hardware, it costs heap this firmware does not have,
 //! and every Rust crate for it binds port 80 itself so it could not share it
-//! with the REST API (02 §6).
+//! with the REST API.
 
 use alloc::format;
 use alloc::string::String;
@@ -70,9 +68,9 @@ use crate::time::now_ms;
 
 /// The baud rate of the shared UART0 log stream, and therefore of provisioning.
 ///
-/// 115200, the same rate the C++ uses and the same rate `esp_idf_svc::log`
-/// assumes. A mismatch would produce a log stream full of framing errors on the
-/// operator's terminal while the firmware believed it was fine.
+/// 115200, the rate `esp_idf_svc::log` assumes. A mismatch would produce a log
+/// stream full of framing errors on the operator's terminal while the firmware
+/// believed it was fine.
 pub const BAUD: u32 = 115_200;
 
 /// A UART0 port that both reads the operator's typing and writes replies.
@@ -113,9 +111,9 @@ impl Serial<'_> {
     /// provisioning, which is a machine with no network surface rather than a
     /// machine that will not boot.
     ///
-    /// GPIO1 is `PIN_STEAMLED` in `pinmapping.h:44`, whose comment is
-    /// *"Moved from pin 1 (UART TX - conflicts with serial logging)"*. This
-    /// firmware does not drive that LED, so taking the pin costs nothing.
+    /// GPIO1 is the steam LED's pin, and the LED is left undriven because the
+    /// pin is UART0's TX line ([pins.md](../../../docs/hardware/pins.md), "The
+    /// traps"). Taking the pin costs nothing.
     pub fn new(
         uart: UART0<'static>,
         tx: Gpio1<'static>,
@@ -322,8 +320,10 @@ impl core::fmt::Debug for Pending {
 /// The provisioning session: the parser, the pending credential, and the mute.
 ///
 /// One per task, and the task exists only while there are no stored credentials
-/// (04 §3.2: *"The provisioning task is only spawned when no valid credentials
-/// exist, and it exits after success"*). It is not a permanent task.
+/// ([target-architecture.md
+/// §3](../../../docs/history/target-architecture.md): *"The provisioning task is
+/// **only** spawned when no valid credentials exist, and it exits after
+/// success"*). It is not a permanent task.
 pub struct Session {
     parser: Parser,
     reader: LineReader,
@@ -527,9 +527,7 @@ impl Session {
     ///
     /// Reports what is *configured*, never what it is called. An SSID is half of
     /// a credential pair and the console is a shared wire, so the status line
-    /// says `ssid_set=yes` and stops there. This is stricter than the C++, which
-    /// logs the SSID on every connection attempt
-    /// (`CleverCoffeeWiFiManager.cpp:96-98`).
+    /// says `ssid_set=yes` and stops there.
     fn status_text(&self) -> String {
         let has_ssid = self.pending.is_some() || self.parser.awaiting_password();
         let has_password = self

@@ -1,26 +1,20 @@
 //! The four operator switches and the water-tank float, as the firmware builds
 //! them.
 //!
-//! Owner: **R4-01** (the wiring; the debounce arithmetic is `cc-domain`'s,
-//! R3-02).
-//!
 //! # What this is
 //!
 //! [`SwitchBank`] owns five [`GpioIn`]s — power, brew, steam, hot water and the
 //! tank float — reads them every control tick, and turns each debounced edge
 //! into a [`cc_machine::Event`]. The reducer never sees a pin; it sees
-//! `ButtonPressed` / `ButtonReleased`, which is the C++'s
-//! `BrewHandler::processSwitchInput` contract
-//! (`include/clevercoffee/handlers/BrewHandler.h:172`) expressed as a value.
+//! `ButtonPressed` / `ButtonReleased`, which is the switch contract expressed as
+//! a value.
 //!
 //! # The pin pull is `Floating` for the four operator switches, and that is not
 //! an oversight
 //!
 //! GPIO34, 35, 36 and 39 are **input-only on the original ESP32 and have no
-//! internal pull-up or pull-down at all** — the pad is a bare input. The C++
-//! asks for `GPIOPin::IN_HARDWARE` (`src/hardware/HardwareManager.cpp:140,151,162,173`),
-//! which is `pinMode(pin, INPUT)` (`GPIOPin.cpp:47-51`): floating, with the
-//! board's external pull doing the work. [`GpioIn::pull_for`] would answer
+//! internal pull-up or pull-down at all** — the pad is a bare input, and the
+//! board's external pull does the work. [`GpioIn::pull_for`] would answer
 //! `Pull::Down` for a normally-open switch, and ESP-IDF accepts that on GPIO34
 //! without complaint while doing nothing — so this module uses
 //! [`Pull::Floating`] for the operator switches and reserves
@@ -34,15 +28,14 @@
 //!
 //! # `initial_raw` is the *debouncer's* seed, not the pin's rest level
 //!
-//! `HardwareManager` passes `(mode == NORMALLY_OPEN) ? LOW : HIGH`
-//! (`:139,150,161,172`) and `createWaterTankSensor` passes the opposite
-//! `(mode == NORMALLY_OPEN) ? HIGH : LOW`
-//! (`src/core/SystemInitializer.cpp:70`). They are not contradictory: the value
-//! only decides whether the **first** read arms the 20 ms debounce, and
-//! `Debounced::new` separately seeds the *state* to "not pressed" regardless
-//! (`cc_domain::switch`, and `s2_the_c_tank_starts_full_and_the_switch_starts_open`).
-//! Both are transcribed here rather than harmonised, because a machine whose
-//! power switch boots "already on" is a different machine.
+//! An operator switch and the tank float carry **opposite** seeds: a
+//! normally-open operator switch starts at `LOW`, a normally-open float at
+//! `HIGH`. They are not contradictory: the value only decides whether the
+//! **first** read arms the 20 ms debounce, and `Debounced::new` separately seeds
+//! the *state* to "not pressed" regardless (`cc_domain::switch`, and
+//! `s2_the_tank_starts_full_and_the_switch_starts_open`). Both are kept apart
+//! rather than harmonised, because a machine whose power switch boots "already
+//! on" is a different machine.
 
 use cc_config::Config;
 use cc_domain::hardware::{SwitchMode, SwitchType};
@@ -67,10 +60,9 @@ const MAX_EDGES_PER_TICK: usize = 4;
 
 /// The pull for an operator switch: none, because the pin has none to give.
 ///
-/// GPIO34/35/36/39 are input-only with no internal pull (`SOC_GPIO_PIN_COUNT`
-/// aside, the original ESP32's datasheet lists no pull for the input-only bank),
-/// and the C++ asks for `IN_HARDWARE`, which is a floating input. See the module
-/// documentation.
+/// GPIO34/35/36/39 are input-only with no internal pull (the original ESP32's
+/// datasheet lists no pull for the input-only bank), so floating is what the
+/// hardware offers. See the module documentation.
 const OPERATOR_PULL: Pull = Pull::Floating;
 
 /// Which switches exist on this machine.
@@ -92,19 +84,15 @@ pub struct SwitchBank {
     water_tank: GpioIn<'static>,
     /// The previous debounced level of each, for edge detection.
     ///
-    /// The C++ keeps one of these per handler (`BrewHandler::lastSwitchReading_`
-    /// and its three siblings, `BrewHandler.h:172`). Here one small struct
-    /// serves all five, and the reducer keeps its own copy in
+    /// One small struct serves all five, and the reducer keeps its own copy in
     /// `Machine::switches` — the two are cross-checked, which is a test rather
     /// than a hope.
     previous: Levels,
     /// Whether the water-tank float is fitted at all.
     ///
-    /// `hardware.sensors.watertank.enabled` is `false` by default, and the C++
-    /// then has no float switch at all (`createWaterTankSensor` returns
-    /// `nullptr`, `SystemInitializer.cpp:64-66`). A machine with no float must
-    /// report **full**, or S4 would block the pump forever
-    /// (`SensorCoordinator.h:260`'s "Assume full initially").
+    /// `hardware.sensors.watertank.enabled` is `false` by default, and a machine
+    /// with no float must report **full**, or S4 would block the pump forever.
+    /// Assuming full is the only safe answer when there is nothing to read.
     tank_fitted: bool,
 }
 
@@ -136,15 +124,13 @@ impl SwitchBank {
     /// The pins arrive already taken from `Peripherals`, because
     /// `Peripherals::take()` may only be called once and belongs to
     /// `cc-firmware`'s `bring_up`. Each is reconfigured here as an input with
-    /// the pull this board's wiring needs, which is the same thing
-    /// `GPIOPin`'s constructor does.
+    /// the pull this board's wiring needs.
     ///
     /// # Errors
     ///
     /// [`esp_idf_svc::sys::EspError`] from `PinDriver::input`. A switch that
     /// cannot be configured is a machine that cannot be operated by hand, which
-    /// is worth failing the boot over — the C++ ignores the return of
-    /// `pinMode` and reports a dead switch as a machine that does nothing.
+    /// is worth failing the boot over.
     pub fn new(
         power: impl esp_idf_hal::gpio::InputPin + 'static,
         brew: impl esp_idf_hal::gpio::InputPin + 'static,
@@ -177,8 +163,7 @@ impl SwitchBank {
             config.hardware.switches.hot_water.mode,
             operator_initial_raw(config.hardware.switches.hot_water.mode),
         );
-        // The float is the one input whose pull matters: GPIO23 has one, and the
-        // C++ asks for it (`SystemInitializer.cpp:71-74`).
+        // The float is the one input whose pull matters: GPIO23 has one.
         let tank_mode = config.hardware.sensors.watertank.mode;
         let water_tank = GpioIn::new(
             esp_idf_hal::gpio::PinDriver::input(water_tank, GpioIn::pull_for(tank_mode))?,
@@ -205,8 +190,7 @@ impl SwitchBank {
     ///
     /// Printed once, at boot, because "the brew switch does nothing" is the
     /// single most likely field report and the reason is always one of the four
-    /// `hardware.switches.*.enabled` flags — all of which default to `false`,
-    /// exactly as in the C++ (`Config.h:985,1004,1023,1042`).
+    /// `hardware.switches.*.enabled` flags — all of which default to `false`.
     fn describe(&self, config: &Config) {
         let row = |name: &str, pin: u8, enabled: bool, r#type: SwitchType, mode: SwitchMode| {
             info!(
@@ -273,12 +257,11 @@ impl SwitchBank {
             if self.previous.level(switch) == level {
                 continue;
             }
-            // `IOSwitch::longPressDetected()` is read **at the edge**, not after
-            // the hold: `BrewHandler.h:199` consults it on the press that opens
-            // `BACKFLUSH_IDLE` to choose manual flush over a backflush cycle.
-            // So it is sampled here and carried in the event, because by the
-            // time the reducer's per-tick work runs the flag has been cleared
-            // by the release.
+            // The long press is read **at the edge**, not after the hold: the
+            // press that opens `BACKFLUSH_IDLE` chooses manual flush over a
+            // backflush cycle. So it is sampled here and carried in the event,
+            // because by the time the reducer's per-tick work runs the flag has
+            // been cleared by the release.
             let long_press = match switch {
                 SwitchId::Brew => self.brew.long_press_detected(),
                 SwitchId::Power => self.power.long_press_detected(),
@@ -315,9 +298,8 @@ impl SwitchBank {
 
     /// Read all five inputs, without touching the edge bookkeeping.
     fn read(&mut self, now: Millis) -> Levels {
-        // The order is power, brew, steam, hot water, tank: the C++'s
-        // `initializeSwitches` order (`HardwareManager.cpp:130-175`), and the
-        // read order is the order the boot log lists them in.
+        // The order is power, brew, steam, hot water, tank, which is the order
+        // the boot log lists them in.
         let power = self.power.update(now);
         let brew = self.brew.update(now);
         let steam = self.steam.update(now);
@@ -337,8 +319,7 @@ impl SwitchBank {
 }
 
 impl Levels {
-    /// One switch's level, so the edge loop reads like the C++'s
-    /// `lastSwitchReading_[switch]`.
+    /// One switch's level, so the edge loop reads as a lookup.
     const fn level(&self, switch: SwitchId) -> bool {
         match switch {
             SwitchId::Brew => self.brew,
@@ -352,10 +333,9 @@ impl Levels {
 /// What the machine believes about the water tank, given whether a float is
 /// fitted and what it last read.
 ///
-/// A machine with no float fitted reports **full**, which is the C++'s
-/// `waterTankFull_ = true` ("Assume full initially",
-/// `SensorCoordinator.h:260`) and the only safe answer: the alternative is a
-/// machine whose pump is blocked by a sensor that does not exist.
+/// A machine with no float fitted reports **full**, which is the only safe
+/// answer: the alternative is a machine whose pump is blocked by a sensor that
+/// does not exist.
 ///
 /// ⚠ The fittedness test is an **exclusion, not a conjunction.** This
 /// previously read `fitted && raw`, which returns `false` when no float is
@@ -384,12 +364,11 @@ pub const fn tank_reading(fitted: bool, raw: bool) -> bool {
 
 /// The `initial_raw` seed for an operator switch.
 ///
-/// `HardwareManager.cpp:139,150,161,172`:
-/// `initialState = (mode == SwitchMode::NORMALLY_OPEN) ? LOW : HIGH` — the
-/// **opposite** of the tank float's, and deliberately so; see the module
-/// documentation. It is spelled out here rather than reusing
-/// [`GpioIn::initial_raw_for`], which transcribes the float's line, because
-/// reusing it would be a silent and load-bearing swap.
+/// A normally-open operator switch starts at `LOW` and a normally-closed one at
+/// `HIGH` — the **opposite** of the tank float's, and deliberately so; see the
+/// module documentation. It is spelled out here rather than reusing
+/// [`GpioIn::initial_raw_for`], which is the float's rule, because reusing it
+/// would be a silent and load-bearing swap.
 #[must_use]
 pub const fn operator_initial_raw(mode: SwitchMode) -> u8 {
     match mode {

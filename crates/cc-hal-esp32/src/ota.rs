@@ -1,7 +1,5 @@
 //! Streaming writes to flash: the half of an OTA that needs a chip.
 //!
-//! Owner: **R3-15**.
-//!
 //! # What this module is, and what it is not
 //!
 //! It is four calls to `esp_ota_*` and two to `esp_partition_*`, plus the loop
@@ -34,34 +32,26 @@
 //! # Why the handler runs on the httpd task and still does not block the API
 //!
 //! It does block it, for the duration of one upload, and that is stated rather
-//! than hidden. ESP-IDF's httpd is a single task (`web_async`'s module docs),
-//! so any handler that loops is the C++'s own `ESPAsyncWebServer` behaviour: an
-//! upload occupies the web server. The C++ has the same property and does not
-//! work around it either.
+//! than hidden. ESP-IDF's httpd is a single task (`web_async`'s module docs), so
+//! any handler that loops occupies the web server.
 //!
-//! What the C++ *does* work around is the **URL** download, which it queues for
-//! the main loop (`ota.cpp:795-820`, with the reason: *"Running it here would
-//! stall the `AsyncTCP` task and the response would never reach the client"*).
-//! [`Kind::Filesystem`] and [`Kind::Firmware`] uploads are the same case here,
-//! and the same answer is available for them — see the route's `202` arm in
-//! `web.rs`. What is **not** done is the whole 500 ms queue-delay dance, because
-//! with the reader streaming, the response is written after the last byte rather
-//! than before the first, and a browser's `fetch` waits for it either way.
+//! What is avoided is the opposite failure: queueing the upload to the control
+//! task would stall the task that decides whether the heater stays on, and would
+//! leave the response unable to reach the client. [`Kind::Filesystem`] and
+//! [`Kind::Firmware`] uploads stay on the handler, and the reader streams, so the
+//! response is written after the last byte rather than before the first — a
+//! browser's `fetch` waits for it either way.
 //!
 //! # What happens to the watchdog
 //!
-//! **Nothing, and that is a decision.** The C++ suspends the task watchdog for
-//! the whole OTA (`ota.cpp:99-110` → `g_watchdog->suspend()`), because its flash
-//! write runs on the same loop that feeds the watchdog, and an erase of a 1.8 MB
-//! partition blocks for seconds.
-//!
-//! This firmware does not need that, because the flash write happens on the
-//! **httpd** task and the watchdog is subscribed to the **control** task
-//! (`main.rs:1802`, 04 §2: "Watchdog feed — control task only"). The control
-//! task keeps ticking and keeps feeding while the httpd task erases, so the
-//! watchdog stays armed and a genuinely wedged flash still resets the chip. That
-//! is strictly safer than the C++'s arrangement, which removes the fail-safe for
-//! the exact window it most wants one. Recorded in `intentional-diffs.md`.
+//! **Nothing, and that is a decision.** The flash write happens on the **httpd**
+//! task and the watchdog is subscribed to the **control** task only
+//! ([target-architecture.md
+//! §2](../../../docs/history/target-architecture.md)). The control task keeps
+//! ticking and keeps feeding while the httpd task erases, so the watchdog stays
+//! armed and a genuinely wedged flash still resets the chip. Suspending it for
+//! the upload would remove the fail-safe for the exact window that most wants
+//! one.
 
 // The `unsafe` in this module is eight `esp_ota_*` / `esp_partition_*` calls,
 // and the workspace lint is `unsafe_code = "deny"`, so the allowance is here,
@@ -112,9 +102,8 @@ pub const OTA_CHUNK_BYTES: usize = 4096;
 ///
 /// The cost is that the whole app slot is erased up front
 /// (`esp_ota_ops.c:189-197`: `if (image_size != OTA_SIZE_UNKNOWN) { erase }`),
-/// which is seconds of blocked flash. That is the same trade the C++ makes with
-/// `Update.begin(UPDATE_SIZE_UNKNOWN)` (`ota.cpp:426`), and it is why this
-/// module's watchdog story is a paragraph rather than a shrug.
+/// which is seconds of blocked flash, and it is why this module's watchdog story
+/// is a paragraph rather than a shrug.
 const OTA_SIZE_UNKNOWN: usize = 0xFFFF_FFFF;
 
 /// `ESP_ERR_INVALID_ARG`, as the `NonZeroI32` [`EspError::from_non_zero`] wants.
@@ -150,7 +139,7 @@ pub struct Writer {
     kind: Kind,
     /// `esp_ota_handle_t` for a firmware session; unused for a filesystem one.
     ///
-    /// `esp_ota_handle_t` is `u32` (`esp_ota_ops.h:47`), so this is 4 bytes and
+    /// `esp_ota_handle_t` is `u32`, so this is 4 bytes and
     /// the field costs nothing. It is `0` for a filesystem session because
     /// `esp_ota_*` is **not** used for a data partition at all — `esp_ota_begin`
     /// requires an app partition and returns `ESP_ERR_INVALID_ARG` otherwise —
@@ -173,8 +162,8 @@ impl Writer {
     /// `ESP_ERR_OTA_PARTITION_CONFLICT`, which means the table has only one app
     /// partition), or `esp_partition_find_first` returning null for the
     /// filesystem — which is what a **label mismatch** looks like, and the
-    /// reason the lookup uses [`Kind::PARTITION_LABEL`] (`littlefs`) rather than
-    /// the C++'s `"spiffs"`.
+    /// reason the lookup uses [`Kind::PARTITION_LABEL`] (`littlefs`): the label
+    /// in the table, not a name inherited from another filesystem layout.
     ///
     /// # Safety-irreducible note
     ///
@@ -188,7 +177,7 @@ impl Writer {
         match kind {
             Kind::Firmware => {
                 // SAFETY: `esp_ota_get_next_update_partition(NULL)` is the
-                // documented "the next OTA slot" call (`esp_ota_ops.h:288-297`) and
+                // documented "the next OTA slot" call and
                 // returns null only if the table has no second app partition. It
                 // is a read of a static table, and the pointer it yields stays
                 // valid for the life of the process — the table is in flash.
@@ -199,7 +188,7 @@ impl Writer {
                 let mut handle: esp_ota_handle_t = 0;
                 // SAFETY: `partition` is non-null (checked) and came from the
                 // partition table; `out_handle` is a live local. Both are the
-                // signature's own requirements (`esp_ota_ops.h:105`). The
+                // signature's own requirements. The
                 // `borrow_as_ptr` allow is the C out-parameter: `esp_ota_begin`
                 // takes `*mut esp_ota_handle_t` and there is no `Option<*mut T>`
                 // form of the call.
@@ -246,8 +235,7 @@ impl Writer {
                 // SAFETY: `partition` is non-null (checked) and names a real data
                 // partition; `offset` is 0 and `size` is that partition's own
                 // length, both from `cc_web::ota::capacity` and the table, so the
-                // range is inside it. This is the whole-partition erase the C++
-                // gets from `Update.begin(UPDATE_SIZE_UNKNOWN, U_SPIFFS, ...)`.
+                // range is inside it, and the erase covers the whole partition.
                 let rc = unsafe { esp_partition_erase_range(partition, 0, size) };
                 match EspError::from(rc) {
                     None => Ok(Self {
@@ -278,12 +266,10 @@ impl Writer {
     ///
     /// # Errors
     ///
-    /// The flash driver's error — `ESP_ERR_FLASH_OP_FAIL` on a write failure,
-    /// which is the case the C++ turns into `"Write failed at byte N"`
-    /// (`ota.cpp:208`). A `run` longer than
-    /// [`cc_web::ota::capacity`] is refused **here**, before the driver refuses
-    /// it, so the caller gets a message naming the partition rather than a
-    /// driver code.
+    /// The flash driver's error — `ESP_ERR_FLASH_OP_FAIL` on a write failure.
+    /// A `run` longer than [`cc_web::ota::capacity`] is refused **here**, before
+    /// the driver refuses it, so the caller gets a message naming the partition
+    /// rather than a driver code.
     pub fn write(&mut self, run: &[u8]) -> Result<(), EspError> {
         if run.is_empty() {
             return Ok(());
@@ -298,7 +284,7 @@ impl Writer {
         match self.kind {
             Kind::Firmware => {
                 // SAFETY: `run` is a live slice and `size` is its length, which is
-                // what `esp_ota_write` reads (`esp_ota_ops.h:177`); `handle` came
+                // what `esp_ota_write` reads; `handle` came
                 // from a successful `esp_ota_begin` on this object and has not
                 // been ended. A zero-length `run` never reaches here.
                 let rc = unsafe { esp_ota_write(self.handle, run.as_ptr().cast(), run.len()) };
@@ -343,7 +329,7 @@ impl Writer {
     ///   **that is all it does**. It does *not* select the new slot.
     ///   `esp_ota_end` is `ota_verify_partition` and cleanup
     ///   (`esp_ota_ops.c:477-524`); the only writer of `otadata` on the write
-    ///   path is `esp_ota_set_boot_partition` (`:599`). **This module used not
+    ///   path is `esp_ota_set_boot_partition`. **This module used not
     ///   to call it**, and `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is not set in
     ///   this build, so nothing else switched the slot either — which is why
     ///   [`Writer::end`] now calls it explicitly.
@@ -370,17 +356,15 @@ impl Writer {
     ///   machine keeps running what it had.
     /// * Once [`Writer::end`] has selected the slot (it does, on success), a
     ///   power cut after that point means the new image is selected and is a
-    ///   complete, validated image. There is no rollback: `CONFIG_
-    ///   BOOTLOADER_APP_ROLLBACK_ENABLE` is **not set** in this build's
+    ///   complete, validated image. There is no rollback:
+    ///   `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is **not set** in this build's
     ///   `sdkconfig` (checked: no `BOOTLOADER_APP_ROLLBACK` line at all), so
     ///   `esp_ota_mark_app_valid_cancel_rollback` is a no-op and a new image that
     ///   boots and then misbehaves stays selected. This is a **deliberate,
-    ///   recorded limitation**, not an oversight — and it is the C++'s behaviour
-    ///   too, since the C++ also never enables rollback.
+    ///   recorded limitation**, not an oversight.
     ///
     /// For a **filesystem** session there is no boot partition to switch and
-    /// nothing to validate: the bytes are in the partition, and the C++ requires
-    /// the same (`ota.cpp:474` calls `Update.end(true)`).
+    /// nothing to validate: the bytes are in the partition.
     ///
     /// # Errors
     ///
@@ -393,14 +377,14 @@ impl Writer {
             Kind::Firmware => {
                 // SAFETY: `handle` is live (from `begin`, not yet ended) and
                 // consumed by `esp_ota_end`, which frees the handle on **both**
-                // paths (`esp_ota_ops.h:205-208`). `self` is taken by value so no
+                // paths. `self` is taken by value so no
                 // second call is possible.
                 let rc = unsafe { esp_ota_end(self.handle) };
                 self.handle = 0;
                 // A validated image is not a *selected* one. `esp_ota_end` is
                 // `ota_verify_partition` and cleanup
                 // (`esp_ota_ops.c:477-524`); the only writer of `otadata` on the
-                // write path is `esp_ota_set_boot_partition` (`:599`), and with
+                // write path is `esp_ota_set_boot_partition`, and with
                 // `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` unset nothing else
                 // switches the slot either. Without this call the machine
                 // restarts into the slot it came from and the update silently
@@ -526,11 +510,9 @@ pub struct Session {
     /// The kind of the update in flight, set by [`Session::claim`] and read by
     /// [`Session::note_progress`].
     ///
-    /// This is the session's answer to the C++'s `isFilesystem` flag
-    /// (`ota.cpp:234`), and it is a field rather than an argument because the
-    /// two are decided at different points: the route knows the kind when it
-    /// claims, and the progress callback only knows how many bytes have
-    /// arrived. A progress bar scaled against the wrong floor stalls halfway on
+    /// A field rather than an argument because the two are decided at different
+    /// points: the route knows the kind when it claims, and the progress callback
+    /// only knows how many bytes have arrived. A progress bar scaled against the wrong floor stalls halfway on
     /// a filesystem upload.
     kind: Mutex<Option<Kind>>,
     /// Set while a flash handle is open, so a second request is refused.
@@ -562,9 +544,8 @@ impl Session {
     /// Claim the session for `kind`, or refuse because one is already running.
     ///
     /// A compare-and-set rather than a lock, so two simultaneous uploads cannot
-    /// both see "idle" and both erase a partition. The C++'s equivalent is
-    /// `otaBusy()` (`ota.cpp:68-70`) and it answers the same `409` the UI
-    /// already has a toast for (`OTAUpdateSection.tsx:198`).
+    /// both see "idle" and both erase a partition. The refusal is a `409`, which
+    /// the UI already has a toast for.
     pub fn claim(&self, kind: Kind) -> bool {
         if self
             .busy
@@ -633,14 +614,13 @@ impl Session {
             status.phase = phase;
             status.uploaded = uploaded;
             status.total = total;
-            // The C++ scales progress against a 512 KiB / 256 KiB floor
-            // (`ota.cpp:216-218,234`) rather than a declared length, because a
-            // browser's `Content-Length` covers the multipart envelope. The same
-            // arithmetic is reproduced here for the same reason, against **this
-            // session's** kind, so a filesystem image's bar fills the way the
-            // C++'s does instead of stalling at the firmware floor. It means a
-            // large image's bar reaches ~90 % and then jumps to 100 on success —
-            // which is what the C++ does and what the operator is used to.
+            // Progress is scaled against a 512 KiB / 256 KiB floor rather than a
+            // declared length, because a browser's `Content-Length` covers the
+            // multipart envelope. The floor is chosen by **this session's** kind,
+            // so a filesystem image's bar fills instead of stalling at the
+            // firmware floor. It means a large image's bar reaches ~90 % and then
+            // jumps to 100 on success, which is the behaviour the operator is
+            // used to.
             status.progress = cc_web::ota::progress_percent(kind, uploaded);
         }
     }
@@ -824,12 +804,12 @@ pub mod tests {
 
     /// 🔴 The claimed kind reaches the progress bar.
     ///
-    /// The arithmetic is host-tested (`progress_is_scaled_against_each_kinds_own_
-    /// floor` in `cc-web`); this is the half only this crate can see — that
-    /// [`Session::claim`]'s kind is the one `note_progress` scales against. It was
-    /// the defect: the kind was written and never read, so a filesystem upload
-    /// was scaled against the 512 KiB firmware floor and its bar stalled at 45 %
-    /// on a successful update.
+    /// The arithmetic is host-tested
+    /// (`progress_is_scaled_against_each_kinds_own_floor` in `cc-web`); this is
+    /// the half only this crate can see — that [`Session::claim`]'s kind is the
+    /// one `note_progress` scales against. It was the defect: the kind was
+    /// written and never read, so a filesystem upload was scaled against the
+    /// 512 KiB firmware floor and its bar stalled at 45 % on a successful update.
     #[cfg_attr(test, test)]
     pub fn a_filesystem_upload_is_scaled_against_the_filesystem_floor() {
         let session = Session::new();

@@ -1,7 +1,5 @@
 //! The heap gauges, and the free-heap floor ADR-0002 set.
 //!
-//! Owner: **R3-14** (task E).
-//!
 //! # ADR-0002, and what it actually decided
 //!
 //! `docs/adr/0002-wifi-logging-ota-memory-architecture.md` records a reproducible
@@ -12,30 +10,25 @@
 //!
 //! * **Decision 2:** stream large JSON, never build a `String` intermediate.
 //!   That is [`crate::web`]'s [`respond_large`](crate::web).
-//! * **Decision 5:** *"When `ESP.getFreeHeap() < 30 KB`, `writeToOutputs()`
-//!   skips `WiFi` writes (Serial still works). This is a **soft shed** — the
-//!   telnet connection stays open and resumes when heap recovers. **No active
-//!   `client_.stop()`** to avoid the 'Connection reset by peer' problem."*
+//! * **Decision 5:** under heap pressure the log stream **sheds rather than
+//!   closes**. Writing stops below the floor, the telnet connection stays open,
+//!   and writing resumes when the heap recovers. An active close is refused: it
+//!   surfaces in the operator's terminal as "Connection reset by peer", which
+//!   looks like a network fault rather than the memory fault it is.
 //!
-//! The brief for R3-14 said the log client must be *disconnected* under heap
-//! pressure. The ADR says the opposite and explains why: an active close
-//! surfaces in the operator's terminal as "Connection reset by peer", which
-//! looks like a network fault rather than the memory fault it is, and the
-//! symptom is what gets debugged. The soft shed is what the C++ does
-//! (`Logger.cpp:13` `MIN_HEAP_FOR_WIFI_LOG = 30000`, checked at `:64`), and it
-//! is what is implemented here. What *is* honoured from the brief is the part
-//! that matters: **under heap pressure the machine sheds, and it does not crash.**
+//! The shed is the part that matters: **under heap pressure the machine sheds,
+//! and it does not crash.**
 
 /// The free-heap floor below which the Wi-Fi log stream stops writing.
 ///
-/// ADR-0002 decision 5 and `Logger.cpp:13` `MIN_HEAP_FOR_WIFI_LOG = 30000`.
-/// The same number guards the large-HTTP-response path
+/// [ADR-0002](../../../docs/adr/0002-wifi-logging-ota-memory-architecture.md)
+/// decision 5: 30 KB. The same number guards the large-HTTP-response path
 /// ([`crate::web::HEAP_FLOOR_BYTES`]) — one threshold, several subscribers,
 /// because several constants for "the machine is tight" is how they drift.
 ///
 /// **Re-exported, not defined here.** The value moved to
 /// [`cc_web::telnet::SHED_FLOOR_BYTES`] when the log stream's policy moved
-/// there (`32-findings` 3.2): the shed decision is host-testable and a heap
+/// there: the shed decision is host-testable and a heap
 /// gauge is not, so the *policy* is portable and this module is the one place
 /// that reads the gauge and hands it over.
 pub use cc_web::telnet::SHED_FLOOR_BYTES as HEAP_SHED_BYTES;
@@ -94,7 +87,7 @@ pub mod tests {
 
     #[cfg_attr(test, test)]
     pub fn the_shed_floor_is_the_adrs_thirty_kilobytes() {
-        // ADR-0002 decision 5 and Logger.cpp:13. A test because it is a
+        // ADR-0002 decision 5. A test because it is a
         // judgement call someone will otherwise "tidy" to 32768, or to
         // HEAP_SHED_BYTES / 2, without reading the ADR that explains it.
         // The literal is now in cc-web, which is where the policy lives; this

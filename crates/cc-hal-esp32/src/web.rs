@@ -1,28 +1,25 @@
-//! The HTTP server: the 20 `/api/*` handlers, `/`, `/ui`, and the SSE stream.
+//! The HTTP server: the `/api/*` handlers, `/`, `/ui`, and the SSE stream.
 //!
-//! Owner: **R3-14** (task E).
+//! # What is registered
 //!
-//! # What this replaces
+//! 20 `/api/*` routes, `/api/config/download`, the four OTA routes, the `/`
+//! redirect, `/ui`, the embedded SPA bundle, and one event stream on `/events`.
+//! [`routes`] is the table, and `every_api_route_is_registered` holds it to the
+//! frontend's own `API_ROUTES`.
 //!
-//! `src/network/WebServerManager.cpp`, 1208 lines, registering 24 routes
-//! (`WebServerManager.cpp:327-980`): 20 `/api/*`, the `/` redirect, `/ui`, six
-//! `serveStatic` mounts from `LittleFS`, and one `AsyncEventSource` on
-//! `/events`.
+//! # What moved out, and why
 //!
-//! # What moved out, and why (finding 4.1)
+//! The half that does not touch ESP-IDF — `Telemetry`, `Command`, `Auth`, every
+//! `*_json` renderer but [`history_json`], `classify_parameters` and the
+//! request-parsing helpers — is in [`cc_web`](../cc_web/index.html), and its
+//! tests run in `CC_RUST_TOOLCHAIN=stable just test` instead of on a board. This
+//! file names `esp_idf_svc`, and `just test` lists only the portable crates, so
+//! anything left here is unreachable to the host suite.
 //!
-//! **This file used to be 4,669 lines and the whole of it was untestable on a
-//! host**, because it named `esp_idf_svc` and `just test` lists only the
-//! portable crates. The half that does not touch ESP-IDF — `Telemetry`,
-//! `Command`, `Auth`, every `*_json` renderer but [`history_json`],
-//! `classify_parameters` and the request-parsing helpers — is now
-//! [`cc_web`](../cc_web/index.html), and its 46 tests run in
-//! `CC_RUST_TOOLCHAIN=stable just test` instead of on a board.
-//!
-//! What stayed is the part that genuinely needs ESP-IDF: this module's route
-//! registration, the chunked writers, the broadcaster, the httpd `Configuration`,
-//! and [`Snapshot`] — whose `unsafe` argument is `interrupt::free`, so it cannot
-//! move. `cc_web`'s crate root states the boundary and why it falls there.
+//! What stayed is the part that needs ESP-IDF: route registration, the chunked
+//! writers, the broadcaster, the httpd `Configuration`, and [`Snapshot`] — whose
+//! `unsafe` argument is `interrupt::free`, so it cannot move. `cc_web`'s crate
+//! root states the boundary.
 //!
 //! # ⚠ ADR-0002 is load-bearing, and both halves of it are here
 //!
@@ -30,38 +27,33 @@
 //! records a reproducible `abort()` from failed `operator new`: a user opened the
 //! web UI, the browser fired 6–10 parallel API requests within two seconds of
 //! boot, and `/api/parameters?filter=all` — 19 KB of JSON — was serialised into
-//! a `JsonDocument`, copied into a `String`, and copied *again* by
-//! `request->send()`. Three ~19 KB allocations. The two decisions that fixed it
-//! are both in this file:
+//! a `JsonDocument`, copied into a `String`, and copied *again* by the response
+//! write. Three ~19 KB allocations. The two decisions that fixed it are both in
+//! this file:
 //!
 //! * **Decision 2, `AsyncJsonResponse`:** serialise into one buffer and write it
 //!   in chunks, never build a `String` intermediate for a large response. That
 //!   is [`EspHttpConnection::write`] — `httpd_resp_send_chunk` — which streams.
 //!   See [`respond`], which every JSON handler goes through, and
 //!   [`respond_large`], which is the one that matters.
-//! * **Decision 5, the heap-aware `WiFi` shed:** the telnet log stream stops
-//!   writing below 30 KB of free heap. See [`crate::telnet`]. Note that the ADR
-//!   says a **soft** shed — the connection stays open and resumes — and that an
-//!   active `client_.stop()` was explicitly rejected because it surfaces as
-//!   "Connection reset by peer" in the operator's terminal, which looks like a
-//!   network problem rather than the memory problem it is.
+//! * **Decision 5, the heap-aware shed:** the telnet log stream stops writing
+//!   below 30 KB of free heap. See [`crate::telnet`]. The ADR says a **soft**
+//!   shed — the connection stays open and resumes — and rejects an active close
+//!   because it surfaces as "Connection reset by peer" in the operator's
+//!   terminal, which looks like a network problem rather than the memory problem
+//!   it is.
 //!
 //! # SSE: the handler must return, because httpd is one task
 //!
-//! **02 §4 was half right, and the earlier version of this file was wrong about
-//! the other half.** 02 §4 recorded SSE on ESP-IDF as "the biggest web-tier
-//! unknown" and proposed an `esp-idf-sys` FFI shim. The shim is needed — but not
-//! for the reason given. Chunked transfer-coding was never the problem:
-//! `EspHttpConnection::write` *is* `httpd_resp_send_chunk` (`esp-idf-svc` 0.53.0
-//! `src/http/server.rs:1121-1135`). The problem is **whose task the write
-//! happens on**.
+//! Chunked transfer-coding is not the difficulty: `EspHttpConnection::write` *is*
+//! `httpd_resp_send_chunk` (`esp-idf-svc` 0.53.0 `src/http/server.rs:1121-1135`).
+//! The difficulty is **whose task the write happens on**.
 //!
 //! ESP-IDF's httpd is a single task serving every route. `httpd_server_init`
-//! creates one thread (`components/esp_http_server/src/httpd_main.c:533`) and
-//! `httpd_thread` (`:329-350`) is `while (1) { httpd_server(hd); }` over one
-//! `select()`. `esp-idf-svc` adds no per-connection task and no async layer for
-//! HTTP. So a `/events` handler that loops while it streams is a web server that
-//! serves nobody — and this file used to do exactly that.
+//! creates one thread and `httpd_thread` is `while (1) { httpd_server(hd); }`
+//! over one `select()`. `esp-idf-svc` adds no per-connection task and no async
+//! layer for HTTP. So a `/events` handler that loops while it streams is a web
+//! server that serves nobody.
 //!
 //! Measured on hardware, one browser tab with the stream open:
 //!
@@ -70,16 +62,11 @@
 //! | no stream connected | 60/60 `200`, 22–133 ms each |
 //! | one `/events` client | **55/60 timed out** at the client's 5 s limit; the 5 that got through took 6–7 s |
 //!
-//! The C++ has no such failure because `ESPAsyncWebServer`'s `AsyncEventSource`
-//! **returns from its handler** and is pushed to later from the main loop
-//! (`WebServerManager.cpp:308-319`; senders at `:1128-1152`, driven by
-//! `LoopManager::updateWebsite`).
-//!
-//! So the shape here is the C++'s shape: the handler sets the response headers,
-//! detaches the request with `httpd_req_async_handler_begin`, registers it in a
-//! bounded list and **returns**; a dedicated broadcaster task does every write.
-//! The seam is [`crate::web_async`] — the second `unsafe` in the workspace, and
-//! it documents each of its three calls.
+//! So the handler sets the response headers, detaches the request with
+//! `httpd_req_async_handler_begin`, registers it in a bounded list and
+//! **returns**; a dedicated broadcaster task does every write. The seam is
+//! [`crate::web_async`] — the second `unsafe` in the workspace, and it documents
+//! each of its three calls.
 //!
 //! A browser's `EventSource` accepts `Transfer-Encoding: chunked`; the WHATWG
 //! concern in
@@ -90,14 +77,12 @@
 //!
 //! Every handler reads one [`Telemetry`] snapshot, republished by the control
 //! task into an `Arc`. The handlers therefore cannot actuate anything: a
-//! `POST /api/steam` sets a *request* that the control task picks up, exactly as
-//! 04 §3.2 requires ("A `POST /api/...` becomes a `Command`, never a direct call
-//! into control state").
+//! `POST /api/steam` sets a *request* that the control task picks up, which is
+//! the rule that no HTTP route reaches control state directly.
 //!
-//! The subsystems R3 has not ported yet — the scale, OTA, the SPA bundle —
-//! answer with the C++'s **shape** and an explicit `unavailable` reason, rather
-//! than a plausible-looking zero. A handler that returns `0 g` for a scale the
-//! firmware cannot read is a lie that costs a support call.
+//! One route answers `501` with an explicit reason — `/api/ota/url`, see
+//! `ota_upload_route`. A handler that returns a plausible-looking zero for a
+//! value this firmware cannot read is a lie that costs a support call.
 
 // The `unsafe` in this module is the lock-free `Cell` below: one writer,
 // sequence-checked readers. The reasoning is on the type and at every access; the
@@ -123,11 +108,11 @@ use std::sync::Mutex;
 
 use cc_config::Config;
 use cc_protocol::http_auth::WWW_AUTHENTICATE;
-// Finding 4.1: the application tier moved to `cc-web`, which is `no_std` and
-// host-testable. These are the payload builders and the two shared types; what
-// stayed here is route registration, the chunked writers, the broadcaster and
-// the httpd `Configuration`. See `cc_web`'s crate root for the boundary and for
-// why `Snapshot` did not move with them.
+// The application tier lives in `cc-web`, which is `no_std` and host-testable.
+// These are the payload builders and the two shared types; what stayed here is
+// route registration, the chunked writers, the broadcaster and the httpd
+// `Configuration`. See `cc_web`'s crate root for the boundary and for why
+// `Snapshot` did not move with them.
 use cc_web::{
     classify_parameters, error_body, explicit_value, first_of, health_json, mime_for,
     nvs_debug_json, parameter_help, parse_flag, parse_setpoint, query_of, status_json,
@@ -149,18 +134,18 @@ use crate::heap::{free_heap, min_free_heap, HEAP_SHED_BYTES};
 use crate::task::{COMMAND_ACK_POLL_MS, COMMAND_ACK_TIMEOUT_MS};
 use crate::time::now_ms;
 
-/// The C++'s HTTP port. `WebServerManager` is constructed with 80.
+/// The HTTP port.
 pub const HTTP_PORT: u16 = 80;
 
-/// The port the C++'s telnet log stream uses. `Logger::Config::port`.
+/// The telnet log stream's port.
 pub const TELNET_PORT: u16 = 23;
 
 /// The largest JSON response this server will build, in bytes.
 ///
 /// `/api/parameters?filter=all` is the biggest: 96 registered parameters, each
-/// an object with a name, a type, a value, a minimum and a maximum. The C++
-/// measured ~19 KB (`ADR-0002` §2). 32 KB is comfortably above that and
-/// comfortably below the point at which one response could be the OOM.
+/// an object with a name, a type, a value, a minimum and a maximum, measured at
+/// ~19 KB (ADR-0002, §2). 32 KB is comfortably above that and comfortably below
+/// the point at which one response could be the OOM.
 pub const MAX_JSON_BYTES: usize = 32 * 1024;
 
 /// The heap floor below which the large-response path refuses to build.
@@ -174,9 +159,9 @@ pub const HEAP_FLOOR_BYTES: u32 = HEAP_SHED_BYTES;
 
 /// The interval between temperature events on `/events`, in milliseconds.
 ///
-/// The C++'s `tempEventInterval_`, and it matters for the same reason the
-/// publish budget does: `/events` pushes a frame per client per interval, and
-/// with a browser open on a slow link the frames queue.
+/// It matters for the same reason the publish budget does: `/events` pushes a
+/// frame per client per interval, and with a browser open on a slow link the
+/// frames queue.
 pub const SSE_EVENT_INTERVAL_MS: u32 = 1_000;
 
 /// The idle keep-alive frame, in milliseconds.
@@ -215,17 +200,16 @@ const SSE_MAILBOX_DEPTH: usize = 4;
 
 /// The server's URI-handler budget.
 ///
-/// `HttpServerConfiguration::max_uri_handlers` defaults to 32 (`server.rs:132`)
-/// and the C++ registers 24. Raised here to 40 because the Rust table now
-/// carries every route the C++ has plus `POST /api/config/upload` and the
-/// `OPTIONS` preflight, and because `ESP_ERR_HTTPD_HANDLERS_FULL` fires **at
-/// boot** — which is the worst possible moment to discover a route was added.
-/// The headroom is against ESP-IDF's own static allocation of
-/// `max_uri_handlers * sizeof(httpd_uri_t)` (`httpd_main.c:533`), so it costs
+/// `HttpServerConfiguration::max_uri_handlers` defaults to 32 (`server.rs:132`).
+/// Raised to 40 because the route table carries every route plus
+/// `POST /api/config/upload` and the `OPTIONS` preflight, and because
+/// `ESP_ERR_HTTPD_HANDLERS_FULL` fires **at boot** — which is the worst possible
+/// moment to discover a route was added. The headroom is against ESP-IDF's own
+/// static allocation of `max_uri_handlers * sizeof(httpd_uri_t)`, so it costs
 /// `8 * 8` bytes, not per-request memory.
-/// `max_open_sockets` is raised from 4 to 5 for the same reason: a browser
-/// opens the SPA, an SSE stream and several API requests at once, and the C++'s
-/// 4 was on `ESPAsyncWebServer`, which has a different accounting.
+/// `max_open_sockets` is raised from 4 to 5 for the same reason: a browser opens
+/// the SPA, an SSE stream and several API requests at once, and 4 leaves no
+/// session for the fourth.
 pub const MAX_URI_HANDLERS: usize = 40;
 /// See [`MAX_URI_HANDLERS`].
 pub const MAX_OPEN_SOCKETS: usize = 5;
@@ -237,30 +221,26 @@ pub const MAX_OPEN_SOCKETS: usize = 5;
 ///
 /// `Shared::telemetry` was a `std::sync::Mutex` — a `pthread` mutex, so a
 /// `FreeRTOS` one — taken **twice per 10 ms control tick** and read by the httpd
-/// and display tasks. On this build every cross-task *blocking* primitive
-/// asserts the kernel (`09-cpp-findings.md` §28), so the design was
-/// contradicting its own stated rule.
+/// and display tasks. Every cross-task *blocking* primitive on this build asserts
+/// the kernel, so the design would have contradicted its own rule the first time
+/// a control tick and an HTTP read overlapped.
 ///
 /// # 🔴 Why this is NOT a seqlock
 ///
-/// The obvious lock-free answer is a seqlock: stamp a sequence odd, write,
-/// stamp it even, and have readers retry. That is what this used to be, and it
-/// was **unsound**, not merely racy.
+/// A seqlock stamps a sequence odd, writes, stamps it even, and has readers
+/// retry. That gives *atomicity of observation*, not of access: the reader still
+/// dereferences a non-atomic location while the writer may be overwriting it, and
+/// the sequence check afterwards only decides whether to *keep* the value it
+/// already read. Under Rust's memory model that concurrent non-atomic read/write
+/// is undefined behaviour whether or not the result is discarded — and with a
+/// heap-owning payload it is not academic:
 ///
-/// A seqlock gives you *atomicity of observation*, not of access. The reader
-/// still dereferences a non-atomic location while the writer may be
-/// overwriting it; the sequence check afterwards only decides whether to
-/// *keep* the value it already read. Under Rust's memory model that
-/// concurrent non-atomic read/write is undefined behaviour whether or not the
-/// result is discarded — and with a heap-owning payload it is not academic:
-///
-/// * [`Telemetry::ip`] was a `String`, reassigned every 10 ms tick by
-///   `network::publish_radio` (`network.rs:449`). Each reassignment
-///   **allocates and then drops the previous `String`**, i.e. `free()`s the
-///   buffer the httpd task may be `memcpy`-ing from inside its `clone()`. A
-///   torn read yields a `{ptr, len, cap}` triple from two different
-///   generations — a live use-after-free at 100 Hz, reachable from any HTTP
-///   request, on the task that also serves the UI.
+/// * a `String` field reassigned every 10 ms **allocates and then drops the
+///   previous buffer**, i.e. `free()`s the memory the httpd task may be
+///   `memcpy`-ing from inside its `clone()`. A torn read yields a
+///   `{ptr, len, cap}` triple from two generations — a live use-after-free at
+///   100 Hz, reachable from any HTTP request, on the task that also serves the
+///   UI.
 ///
 /// Making the payload `Copy` would have downgraded that to "garbage numbers",
 /// which is better and still UB.
@@ -341,26 +321,24 @@ impl<T: Clone + Default> Snapshot<T> {
 
     /// The current value.
     ///
-    /// This is infallible where the seqlock's `get` returned `Option<T>`: there
-    /// is no "write in flight" state to fail to observe, because a reader
-    /// either gets the critical section before the writer or after it.
-    /// Every caller therefore loses its `unwrap_or_default()`.
+    /// This is infallible where a retry loop's `get` returned `Option<T>`: there
+    /// is no "write in flight" state to fail to observe, because a reader either
+    /// gets the critical section before the writer or after it. Every caller
+    /// therefore loses its `unwrap_or_default()`.
     ///
-    /// **A read, not a consume.** This was `Cell::take`, which is
-    /// move-and-reset: it leaves `T::default()` behind, so every read destroyed
-    /// the value it returned. Two `/api/status` polls inside one 10 ms control
-    /// period is ordinary UI behaviour, and the second one reported
-    /// `machineState: 0`, 0.00 °C and `pidEnabled: false` for a live machine.
-    /// [`network::publish_radio`]'s read half was the one that hurt most: its
-    /// read-modify-write republished a machine-field-less snapshot for up to a
-    /// second.
+    /// **A read, not a consume.** A move-and-reset would leave `T::default()`
+    /// behind, so every read would destroy the value it returned. Two
+    /// `/api/status` polls inside one 10 ms control period is ordinary UI
+    /// behaviour, and the second would report `machineState: 0`, 0.00 °C and
+    /// `pidEnabled: false` for a live machine. [`network::publish_radio`]'s read
+    /// half would republish a machine-field-less snapshot for up to a second.
     ///
     /// `Telemetry` is `Clone` but not `Copy` -- it carries a
     /// [`heapless::String<15>`] in [`Telemetry::ip`] -- so the copy is a clone,
-    /// not a `memcpy`, and that is why `take` was reached for in the first
-    /// place. Taking the value out and putting it back inside the **same**
-    /// critical section is what makes this a read: the writer still cannot
-    /// observe a moved-from slot, because it cannot get the section either.
+    /// not a `memcpy`. Taking the value out and putting it back inside the
+    /// **same** critical section is what makes this a read: the writer still
+    /// cannot observe a moved-from slot, because it cannot get the section
+    /// either.
     #[must_use]
     pub fn get(&self) -> T {
         interrupt::free(|| {
@@ -385,11 +363,9 @@ pub struct Shared {
     pub telemetry: Snapshot<Telemetry>,
     /// The temperature history, appended by the control task.
     ///
-    /// The C++'s `static TemperatureHistory tempHistory` is a file-static in
-    /// the web server, written from `sendTempEvent` (`WebServerManager.cpp:1134`).
-    /// Here the producer is the control task, so the ring is shared state and
-    /// lives here — next to the telemetry, which the same task publishes for the
-    /// same reason.
+    /// The producer is the control task, so the ring is shared state and lives
+    /// here — next to the telemetry, which the same task publishes for the same
+    /// reason.
     ///
     /// **Boxed, and that is not a style choice.** The ring is 600 points, 7.2 KB;
     /// a `Shared` built *by value* — which two on-target tests do — put that on
@@ -431,22 +407,16 @@ impl Shared {
 
     /// Append one sample to the history ring, ignoring a poisoned lock.
     ///
-    /// Called by the control task at the C++'s `sendTempEvent` cadence. A
-    /// poisoned lock means some other thread panicked while holding it, and the
-    /// only honest response to "the chart is a diagnostic" is to lose a point
-    /// rather than refuse to regulate a boiler.
+    /// Called by the control task on the temperature cadence. A poisoned lock
+    /// means some other thread panicked while holding it, and the only honest
+    /// response to "the chart is a diagnostic" is to lose a point rather than
+    /// refuse to regulate a boiler.
     pub fn push_history(&self, current_temp: f32, target_temp: f32, heater_power: f32) {
         if let Ok(mut ring) = self.history.lock() {
             ring.push(current_temp, target_temp, heater_power);
         }
     }
 
-    /// A snapshot of the history ring, oldest first.
-    ///
-    /// A copy rather than a lock held across the serialisation: the copy is a
-    /// 7 KB `memcpy` on the httpd task, and holding the lock while writing
-    /// 12 KB to a socket would stall the control task's next sample. The C++
-    /// has the same shape of problem and solves it by never sharing the ring
     /// Replace the telemetry snapshot.
     ///
     /// **A whole-slot replace, not a merge.** There are two publishers — the
@@ -502,11 +472,10 @@ impl Shared {
     /// Block until [`Self::applied`] passes `before`, or
     /// [`COMMAND_ACK_TIMEOUT_MS`] elapses. Returns whether it advanced.
     ///
-    /// The C++ has no equivalent: its web handler *is* the control task, so a
-    /// `POST /api/pid` mutates the machine before it answers. Since the split
-    /// that put the panel and the control loop in different tasks, a handler can
-    /// only ask — so it asks, and waits a bounded time. Bounded because a
-    /// stalled control task must fail visibly rather than hang a browser.
+    /// A web handler is not the control task, so a `POST /api/pid` cannot mutate
+    /// the machine before it answers. A handler can only ask — so it asks, and
+    /// waits a bounded time. Bounded because a stalled control task must fail
+    /// visibly rather than hang a browser.
     pub fn wait_applied(&self, before: u32) -> bool {
         let deadline = now_ms().wrapping_add(COMMAND_ACK_TIMEOUT_MS);
         while self.applied() == before {
@@ -556,12 +525,10 @@ pub enum SseMode {
 
 /// The most `/events` clients that will be served at once.
 ///
-/// **The C++ has no such limit** — `AsyncEventSource` grows a linked list and
-/// the browser tabs all get a stream. This firmware does, and the reason is
-/// [`MAX_OPEN_SOCKETS`]: ESP-IDF's httpd has a fixed session pool, an SSE client
-/// occupies one session for as long as it is connected, and a browser opens
-/// several connections of its own for the SPA. Two leaves three of five for
-/// `/api/*`, which is the number the ADR-0002 reproducer (6–10 parallel
+/// The reason is [`MAX_OPEN_SOCKETS`]: ESP-IDF's httpd has a fixed session pool,
+/// an SSE client occupies one session for as long as it is connected, and a
+/// browser opens several connections of its own for the SPA. Two leaves three of
+/// five for `/api/*`, which is the number the ADR-0002 reproducer (6–10 parallel
 /// requests) needs to be served rather than queued behind a stream.
 ///
 /// The cost of the cap is stated rather than hidden: a third tab gets a `503`
@@ -579,11 +546,11 @@ pub const SSE_MAX_CLIENTS: usize = 2;
 /// without disturbing the others.
 struct SseClient {
     req: crate::web_async::AsyncReq,
-    /// Whether the C++'s `hello` is still owed to this client.
+    /// Whether the greeting frame is still owed to this client.
     ///
     /// A browser's `EventSource` dispatches nothing until it sees a frame, so
     /// without it the connection looks dead to the UI until the first event
-    /// arrives. `WebServerManager.cpp:308-317` sends it from `onConnect`.
+    /// arrives. Sent on connect.
     await_hello: bool,
     /// When this client last got a frame of any kind. The keepalive deadline is
     /// measured from here so a busy stream does not also emit keepalives.
@@ -592,10 +559,9 @@ struct SseClient {
 
 /// The `/events` stream's broadcast state.
 ///
-/// The C++'s `AsyncEventSource` keeps a client list and every producer pushes to
-/// all of them (`WebServerManager.cpp:1163`). This is now a real list, bounded by
-/// [`SSE_MAX_CLIENTS`], and it lives in an `Arc` shared between the httpd task
-/// (which adds and removes clients) and the broadcaster task (which writes).
+/// A real client list, bounded by [`SSE_MAX_CLIENTS`], in an `Arc` shared between
+/// the httpd task (which adds and removes clients) and the broadcaster task
+/// (which writes).
 pub struct Sse {
     mode: SseMode,
     clients: Mutex<Vec<SseClient>>,
@@ -660,9 +626,9 @@ impl Sse {
 
     /// How many frames were dropped because the client had gone away.
     ///
-    /// A `write` to a closed socket is not an error the C++ surfaces either;
-    /// counting it is what makes "the stream delivered events for ten minutes
-    /// with zero drops" a measurable claim rather than an assertion.
+    /// A `write` to a closed socket is not an error worth surfacing. Counting it
+    /// is what makes "the stream delivered events for ten minutes with zero
+    /// drops" a measurable claim rather than an assertion.
     #[must_use]
     pub fn dropped(&self) -> u32 {
         self.dropped.load(Ordering::SeqCst)
@@ -703,7 +669,7 @@ impl Sse {
     ///
     /// `Result<(), AsyncReq>` rather than `bool` because the request **must** be
     /// completed on every path: `httpd_req_async_handler_begin` has already set
-    /// `sd->for_async_req` (`httpd_txrx.c:700`), and a request left incomplete
+    /// `sd->for_async_req`, and a request left incomplete
     /// keeps the socket out of the httpd task's `select()` for ever
     /// (`esp_http_server.h:864-866`). Returning it lets the caller release it;
     /// returning `false` and dropping it would leak the socket — which is
@@ -735,9 +701,9 @@ impl Sse {
 ///
 /// **This is ADR-0002 decision 2.** `httpd_resp_send_chunk` is called once per
 /// chunk, so the payload is serialised into one `Vec<u8>` and handed to the
-/// socket in pieces; there is no intermediate `String`, and no second copy
-/// inside the web server. The C++'s `request->send(200, "application/json",
-/// response)` with a `String` response was the other half of the OOM.
+/// socket in pieces; there is no intermediate `String`, and no second copy inside
+/// the web server. Returning one owned `String` to a framework that copies it
+/// again is the shape that produced three ~19 KB allocations.
 fn respond(conn: &mut EspHttpConnection<'_>, status: u16, json: &str) -> Result<(), EspError> {
     conn.initiate_response(status, Some("OK"), &[("Content-Type", "application/json")])?;
     // 512-byte chunks: small enough that the send path's buffer is not the
@@ -755,23 +721,21 @@ fn respond(conn: &mut EspHttpConnection<'_>, status: u16, json: &str) -> Result<
 /// The `401` a request that failed [`Auth`] gets.
 ///
 /// `WWW-Authenticate: Basic realm="CleverCoffee"` is the header that makes a
-/// browser show its credential prompt, and it is the C++'s realm verbatim
-/// (`WebServerManager.cpp:286`, via `AsyncAuthenticationMiddleware`).
+/// browser show its credential prompt.
 ///
-/// The body is the C++'s shape rather than [`error_body`]'s, because a browser
-/// shows the challenge and *not* the body: this text is what an operator
-/// reading a `curl` transcript sees, and "authentication required" is a better
-/// answer to that than `{"error":"Unauthorized"}`.
+/// The body is not [`error_body`], because a browser shows the challenge and
+/// *not* the body: this text is what an operator reading a `curl` transcript
+/// sees, and "authentication required" is a better answer to that than
+/// `{"error":"Unauthorized"}`.
 fn unauthorized(conn: &mut EspHttpConnection<'_>) -> Result<(), EspError> {
     conn.initiate_response(
         401,
         Some("Unauthorized"),
         &[
             ("Content-Type", "application/json"),
-            // The header that makes a browser raise its credential prompt, and
-            // the C++'s realm verbatim (`WebServerManager.cpp:286`). A different
-            // realm is a different protection space, and a browser holding
-            // credentials for one will not send them for another.
+            // The header that makes a browser raise its credential prompt. A
+            // different realm is a different protection space, and a browser
+            // holding credentials for one will not send them for another.
             ("WWW-Authenticate", WWW_AUTHENTICATE),
         ],
     )?;
@@ -821,14 +785,11 @@ where
 
 /// Register the CORS preflight answer, and **not** behind [`Auth`].
 ///
-/// The C++ adds `AsyncCorsMiddleware` with `setOrigin("*")`,
-/// `setMethods("GET,POST,PUT,DELETE,OPTIONS")` and
-/// `setHeaders("Content-Type,Authorization,X-Requested-With")`
-/// (`WebServerManager.cpp:272-277`). A preflight is the one request a browser
-/// sends **without** credentials — that is what makes it a preflight — so
-/// challenging one makes every cross-origin request fail, permanently and
-/// confusingly. It is registered through `fn_handler` and not [`register`]
-/// deliberately, and this is the one place in the file where that is true.
+/// A preflight is the one request a browser sends **without** credentials — that
+/// is what makes it a preflight — so challenging one makes every cross-origin
+/// request fail, permanently and confusingly. It is registered through
+/// `fn_handler` and not [`register`] deliberately, and this is the one place in
+/// the file where that is true.
 ///
 /// `/api*` rather than one URI per route: ESP-IDF matches URI and method
 /// independently (`httpd_uri.c:97-122` — a URI match with the wrong method sets
@@ -837,11 +798,11 @@ where
 /// also what `routes()` advertises, which is the point: the entry used to be
 /// `("/api/status", Method::Options)` with no handler behind it at all.
 ///
-/// **The C++'s per-response `Access-Control-Allow-Origin: *` is not ported**, and
-/// the omission is deliberate: the SPA is served same-origin from `/ui` and
-/// needs nothing, and a wildcard origin on an endpoint that can reboot a boiler
-/// or change its safety cut-offs is a widening with no consumer. Recorded in
-/// `docs/history/divergences.md`.
+/// **No per-response `Access-Control-Allow-Origin: *`**, and the omission is
+/// deliberate: the SPA is served same-origin from `/ui` and needs nothing, and a
+/// wildcard origin on an endpoint that can reboot a boiler or change its safety
+/// cut-offs is a widening with no consumer. Recorded in
+/// [divergences.md](../../../docs/history/divergences.md).
 fn register_preflight(server: &mut EspHttpServer<'static>) -> Result<(), EspError> {
     server
         .fn_handler::<EspError, _>("/api*", Method::Options, |mut req| {
@@ -868,20 +829,16 @@ fn register_preflight(server: &mut EspHttpServer<'static>) -> Result<(), EspErro
         .map(|_| ())
 }
 
-/// `GET /api/history` — `WebServerManager.cpp:631-645` and
-/// `TemperatureHistory::generateJson` (`:134-153`).
+/// `GET /api/history` — three parallel arrays, oldest point first, each value
+/// rounded to two decimals.
 ///
-/// Three parallel arrays, oldest point first, each value rounded to two
-/// decimals by `round2` (`helperUtils.h:32`). The C++ builds this with
-/// `ArduinoJson` into an `AsyncJsonResponse`; here it is one `String` handed to
-/// [`respond_large`], which streams it in 512-byte chunks and refuses it below
-/// the ADR-0002 heap floor — the same two protections, arrived at from a
-/// different library.
+/// The body is one `String` handed to [`respond_large`], which streams it in
+/// 512-byte chunks and refuses it below the ADR-0002 heap floor.
 ///
 /// **The spacing is part of the contract.** The ring keeps every third sample,
 /// and the UI reconstructs the x axis as `now - 3 * i` seconds
-/// (`CleverCoffeeContext.tsx:240-243`). A ring that kept every sample would
-/// draw 30 minutes of data across a 10-minute axis.
+/// (`CleverCoffeeContext.tsx:240-243`). A ring that kept every sample would draw
+/// 30 minutes of data across a 10-minute axis.
 ///
 /// An empty ring answers three empty arrays, not an error: a machine that has
 /// been up for four seconds has no history, and the chart's own loading state is
@@ -983,10 +940,10 @@ fn respond_large(
 /// [`respond_large`], plus the `Content-Disposition` that makes the browser save
 /// the file instead of rendering it.
 ///
-/// `WebServerManager.cpp:717`. `respond_large` is reused rather than
-/// reimplemented so the ADR-0002 heap floor and the 32 KB ceiling apply to this
-/// route too — the download serialises the same document `/api/config` does, so
-/// it is the same size and has the same failure modes.
+/// `respond_large` is reused rather than reimplemented so the ADR-0002 heap floor
+/// and the 32 KB ceiling apply to this route too — the download serialises the
+/// same document `/api/config` does, so it is the same size and has the same
+/// failure modes.
 fn respond_download(
     conn: &mut EspHttpConnection<'_>,
     shared: &Shared,
@@ -1078,11 +1035,9 @@ pub enum UiTarget {
 /// rather than filtered: there is no filesystem, and a path is either a key in
 /// the table or it is nothing.
 ///
-/// The query string is stripped before the extension test. The C++ tests
-/// `request->url()`, which is the URL *including* the query
-/// (`WebServerManager.cpp:977`, `:1017`), so a C++ SPA route with `?x=1.5` is
-/// treated as an asset request and 404s. That is a latent C++ bug, not parity
-/// worth reproducing.
+/// The query string is stripped before the extension test. Testing the URL
+/// *including* the query would treat an SPA route with `?x=1.5` as an asset
+/// request and 404 it.
 #[must_use]
 pub fn resolve_ui(uri: &str) -> UiTarget {
     let path = uri.split_once('?').map_or(uri, |(path, _)| path);
@@ -1129,9 +1084,9 @@ fn write_ui_file(
     asset: &'static UiAsset,
 ) -> Result<(), EspError> {
     let mime = mime_for(asset.path);
-    // Cache parity with the C++ (`WebServerManager.cpp:907-921`): the shell must
-    // not be cached or a rebuilt UI is unreachable until the entry expires,
-    // while Vite's content-hashed asset names make the rest safe to pin.
+    // Cache policy: the shell must not be cached or a rebuilt UI is unreachable
+    // until the entry expires, while Vite's content-hashed asset names make the
+    // rest safe to pin.
     let cache = if asset.path == UI_INDEX.path {
         "no-cache, no-store, must-revalidate"
     } else {
@@ -1166,7 +1121,7 @@ fn write_ui_file(
 /// `GET /ui` and everything under it.
 ///
 /// Registered once, on the template `/ui*`. ESP-IDF's
-/// `httpd_uri_match_wildcard` (`httpd_uri.c:24-70`) treats a trailing `*` as
+/// `httpd_uri_match_wildcard` treats a trailing `*` as
 /// "prefix", and a template *without* `*` or `?` still requires an exact length
 /// match — so enabling [`Configuration::uri_match_wildcard`] for this one route
 /// leaves all 23 exact `/api/*` handlers exactly as strict as they were.
@@ -1177,10 +1132,9 @@ fn serve_ui(mut req: Request<&mut EspHttpConnection<'_>>) -> Result<(), EspError
         UiTarget::File(asset) => write_ui_file(conn, asset),
         UiTarget::SpaRoute => write_ui_file(conn, UI_INDEX),
         UiTarget::Missing => {
-            // The C++'s "File not found" (`WebServerManager.cpp:994`), and
-            // deliberately not the shell: a missing asset must be visible as a
-            // 404 rather than smuggled in as HTML the browser then fails to
-            // parse as JavaScript.
+            // "File not found", deliberately not the shell: a missing asset must
+            // be visible as a 404 rather than smuggled in as HTML the browser
+            // then fails to parse as JavaScript.
             conn.initiate_response(404, Some("Not Found"), &[("Content-Type", "text/plain")])?;
             conn.write_all(b"File not found")
         }
@@ -1220,8 +1174,8 @@ pub fn routes() -> Vec<(&'static str, Method)> {
         ("/api/restart", Method::Post),
         // All four OTA routes stay registered. `/api/ota/firmware` and
         // `/api/ota/filesystem` are implemented (real multipart upload);
-        // `/api/ota/url` is deferred by R3-15 and answers 501. A 404 here would
-        // be indistinguishable from a lost feature.
+        // `/api/ota/url` is deferred and answers 501. A 404 here would be
+        // indistinguishable from a lost feature.
         ("/api/ota/status", Method::Get),
         ("/api/ota/firmware", Method::Post),
         ("/api/ota/filesystem", Method::Post),
@@ -1267,9 +1221,8 @@ impl Web {
     ///
     /// `commands` is the network→control channel. A handler never calls into the
     /// state machine: it formats a [`Command`], and the control task drains the
-    /// queue at the top of its tick (04 §3.2). `send` is non-blocking and drops
-    /// on a full queue, which is the C++'s behaviour by way of the web server
-    /// simply never being able to reach the main loop.
+    /// queue at the top of its tick. `send` is non-blocking and drops on a full
+    /// queue, which is the right answer for a request nobody is waiting on.
     ///
     /// # Errors
     ///
@@ -1315,8 +1268,7 @@ impl Web {
         // this workspace denies).
         let send = Arc::clone(send);
         let parameters = Arc::clone(parameters);
-        // Decided once, here, exactly as the C++'s `setupMiddleware` decides it
-        // once in `WebServerManager::initialize`. See [`Auth`].
+        // Decided once, here. See [`Auth`].
         let auth = Arc::new(Auth::from_config(config));
         if auth.is_enforced() {
             info!("http: web authentication enabled (HTTP Basic, realm CleverCoffee)");
@@ -1378,11 +1330,11 @@ impl Web {
                 "/api/history",
                 Method::Get,
                 move |mut req| {
-                    // The C++'s `AsyncJsonResponse` (`:634-640`) with the same
-                    // refusal below the heap floor, which `respond_large` applies to
-                    // every response over `MAX_JSON_BYTES` — and 600 points is about
-                    // 12 KB of JSON, so this route is the second-largest the server
-                    // serves after `/api/parameters?filter=all`.
+                    // The same refusal below the heap floor that `respond_large`
+                    // applies to every response over `MAX_JSON_BYTES` — and 600
+                    // points is about 12 KB of JSON, so this route is the
+                    // second-largest the server serves after
+                    // `/api/parameters?filter=all`.
                     let body = history_json(&shared);
                     respond_large(req.connection(), &shared, &body)
                 },
@@ -1421,13 +1373,12 @@ impl Web {
                 "/api/parameter-help",
                 Method::Get,
                 |mut req| {
-                    // The C++'s handler (`WebServerManager.cpp:585-618`) reads
-                    // `?param=` and answers 422 / 404 / 200. This used to answer
-                    // **200 with an error object**, which is finding 3.4: a
-                    // client checking the status saw success and a client parsing
-                    // the body saw a failure, and neither could tell it apart
-                    // from the feature working. The body and the code are one
-                    // value here so they cannot disagree again.
+                    // Reads `?param=` and answers 422 / 404 / 200. Answering
+                    // **200 with an error object** was finding 3.4: a client
+                    // checking the status saw success and a client parsing the
+                    // body saw a failure, and neither could tell it apart from
+                    // the feature working. The body and the code are one value
+                    // here so they cannot disagree again.
                     //
                     // `first_of` over the parsed query rather than a substring
                     // search, because `param` is percent-decoded by
@@ -1450,11 +1401,11 @@ impl Web {
                 "/api/config",
                 Method::Get,
                 move |mut req| {
-                    // ADR-0002 decision 2: serialise ONCE. The C++ built a
-                    // `JsonDocument`, copied it to a `String`, and the web server
-                    // copied it again — three ~19 KB allocations, which is the abort
-                    // the ADR exists to prevent. `json_export` returns a single
-                    // `String` and `respond_large` streams it out in chunks.
+                    // ADR-0002 decision 2: serialise ONCE. A `JsonDocument`
+                    // copied to a `String` and copied again by the web server is
+                    // three ~19 KB allocations, which is the abort the ADR exists
+                    // to prevent. `json_export` returns a single `String` and
+                    // `respond_large` streams it out in chunks.
                     let Ok(json) = cc_config::json_export(&config) else {
                         return respond(
                             req.connection(),
@@ -1512,12 +1463,10 @@ impl Web {
             )?;
         }
         {
-            // `GET /api/config/download` — the C++'s
-            // `AsyncURIMatcher::exact("/api/config/download")`
-            // (`WebServerManager.cpp:706-723`). The body is the same
-            // `exportToJsonObject` document `/api/config` serves; what makes it a
-            // download is the `Content-Disposition` header, which is the whole
-            // point of the separate route.
+            // `GET /api/config/download`. The body is the same document
+            // `/api/config` serves; what makes it a download is the
+            // `Content-Disposition` header, which is the whole point of the
+            // separate route.
             let config = Arc::clone(config);
             let shared = Arc::clone(&shared);
             register(
@@ -1527,32 +1476,28 @@ impl Web {
                 Method::Get,
                 move |mut req| {
                     let Ok(json) = cc_config::json_export(&config) else {
-                        // The C++'s `response->overflowed()` arm (`:711-715`).
+                        // The document did not fit the export buffer.
                         return respond(
                             req.connection(),
                             500,
                             &error_body("Failed to generate config"),
                         );
                     };
-                    // `Content-Disposition: attachment; filename="config.json"`
-                    // — `WebServerManager.cpp:717`, verbatim. Without it a
-                    // browser renders the JSON instead of saving it, which is
-                    // the whole reason this route exists separately.
+                    // `Content-Disposition: attachment; filename="config.json"`.
+                    // Without it a browser renders the JSON instead of saving it,
+                    // which is the whole reason this route exists separately.
                     respond_download(req.connection(), &shared, &json)
                 },
             )?;
         }
         {
-            // `POST /api/parameters` — the C++'s writer
-            // (`WebServerManager.cpp:821-878`), which is the same route as the
-            // `GET` above because the C++ registers it `HTTP_ANY` and branches
-            // on the method (`:815`, `:879`). Two registrations rather than one
-            // `HTTP_ANY` because `esp-idf-svc`'s `Method` has no "any"
-            // (embedded-svc 0.29 `http.rs:17-52`). A third method still gets
-            // the right status: ESP-IDF's own "method not registered for this
-            // URI" handler answers **405**, which is what the C++ sends (`:880`),
-            // though its body is ESP-IDF's "Specified method is invalid for this
-            // resource" rather than the C++'s `{"error":"Method not allowed"}`.
+            // `POST /api/parameters` — the writer half of the same route as the
+            // `GET` above. Two registrations rather than one `HTTP_ANY` because
+            // `esp-idf-svc`'s `Method` has no "any" (embedded-svc 0.29
+            // `http.rs:17-52`). A third method still gets the right status:
+            // ESP-IDF's own "method not registered for this URI" handler answers
+            // **405**, though its body is ESP-IDF's "Specified method is invalid
+            // for this resource" rather than `{"error":"Method not allowed"}`.
             let handoff = Arc::clone(&parameters);
             register(
                 &mut server,
@@ -1580,7 +1525,7 @@ impl Web {
                             &error_body("request body too large; send only what changed"),
                         );
                     };
-                    // `request->params()` (`:823`) is the query string *and* the body,
+                    // `request->params()` is the query string *and* the body,
                     // in that order, because `AsyncWebServerRequest` appends the query
                     // args before the POST fields. So `?pid.enabled=1` and
                     // `pid.enabled=1` are the same request, and a request may carry
@@ -1597,11 +1542,10 @@ impl Web {
 
                     let verdict = classify_parameters(&pairs);
                     if let ParameterPost::Rejected { reasons, .. } = &verdict {
-                        // The C++ logs one `WARNING` per failure (`:853`, `:857`) and
-                        // then answers a single 400 that names none of them. Naming
-                        // them here is the whole diagnostic value of a rejected
-                        // parameter: without it, `400` on a 20-field form is a
-                        // guessing game.
+                        // One failure per parameter would flood the log; a single
+                        // 400 that names none of them is a guessing game. Naming
+                        // them is the whole diagnostic value of a rejected
+                        // parameter.
                         for reason in reasons {
                             warn!("http: /api/parameters rejected {reason}");
                         }
@@ -1639,7 +1583,7 @@ impl Web {
                     }
                     let (status, payload) = verdict.response();
                     // A `200 {"success":true}` on a write that cannot affect the
-                    // running machine is the lie the human reported. Naming the
+                    // running machine is a lie the human reported. Naming the
                     // keys that need a reboot turns it into an answer.
                     let reboot = verdict.reboot_required();
                     if !reboot.is_empty() {
@@ -1659,31 +1603,24 @@ impl Web {
             )?;
         }
         {
-            // `POST /api/config/upload` — the C++'s
-            // `AsyncURIMatcher::exact("/api/config/upload")` with an
-            // `AsyncCallbackJsonWebHandler` (`WebServerManager.cpp:725-762`).
+            // `POST /api/config/upload`.
             //
-            // **The body is `application/json`, not multipart.** The C++ says so
-            // in a comment on the line above its own registration (`:725` — "Config
-            // upload: application/json body (AsyncCallbackJsonWebHandler buffers
-            // full body before parse)"), and `ui/packages/frontend/src/pages/SystemPage.tsx:180-183`
-            // posts the selected file's text with `Content-Type:
-            // application/json` and no boundary. A multipart reader here would
-            // answer the live "Upload configuration" button with 400.
+            // **The body is `application/json`, not multipart.**
+            // `ui/packages/frontend/src/pages/SystemPage.tsx:180-183` posts the
+            // selected file's text with `Content-Type: application/json` and no
+            // boundary. A multipart reader here would answer the live "Upload
+            // configuration" button with 400.
             //
             // The four outcomes, and which is which:
             //
             // * **over the transport cap** → `413`, and nothing is parsed. See
             //   [`drain_body_checked`] for why this cannot truncate.
-            // * **not a top-level object** → `400`, the C++'s message verbatim
-            //   (`:732`).
+            // * **not a top-level object** → `400`.
             // * **rejected by the reader** → `400`, and the offending keys are
             //   named in the log rather than the body, because the body is what
-            //   the UI shows and "invalid values" is what the C++ shows
-            //   (`:750`).
+            //   the UI shows.
             // * **applied** → `200` and `restart: true`, which tells the browser
-            //   to call `POST /api/restart` (the C++ does not reboot itself
-            //   either — `:760` sets a flag and returns).
+            //   to call `POST /api/restart`.
             let handoff = Arc::clone(&parameters);
             register(
                 &mut server,
@@ -1693,10 +1630,9 @@ impl Web {
                 move |mut req| {
                     let Some(body) = drain_body_checked(req.connection(), MAX_CONFIG_UPLOAD_BYTES)
                     else {
-                        // The C++'s `setMaxContentLength(16384)` (`:762`) makes
-                        // `ESPAsyncWebServer` answer 413 for an over-long body.
-                        // Nothing is parsed, so nothing can be half-applied; and
-                        // the tail left unread is purged by ESP-IDF itself
+                        // A 16 KB cap makes an over-long body a `413`. Nothing is
+                        // parsed, so nothing can be half-applied; and the tail
+                        // left unread is purged by ESP-IDF itself
                         // (`httpd_req_delete`, `httpd_parse.c:841-855`).
                         return respond(
                             req.connection(),
@@ -1716,10 +1652,8 @@ impl Web {
                     let pairs = match cc_config::document_pairs(&body) {
                         Ok(pairs) => pairs,
                         Err(rejection) => {
-                            // `WebServerManager.cpp:737-752` names two of these
-                            // exactly; the rest share the C++'s third message,
-                            // which is what its own `importFromJson` answers
-                            // `false` for (`Config.cpp:348-374`).
+                            // The reader names two of these exactly; the rest
+                            // share one "invalid values" message.
                             if let cc_config::ImportError::InvalidValues { rejected } = &rejection {
                                 for value in rejected {
                                     warn!(
@@ -1833,9 +1767,8 @@ impl Web {
             Arc::clone(&send),
             parse_setpoint,
         )?;
-        // The C++'s three toggle routes (`WebServerManager.cpp:437-509`). All
-        // three read no field in the C++; all three are what the UI's buttons
-        // call with a bare POST.
+        // Three toggle routes. All three read no field; all three are what the
+        // UI's buttons call with a bare POST.
         register_toggle(
             &mut server,
             &auth,
@@ -1932,12 +1865,11 @@ impl Web {
             Command::Restart,
         )?;
 
-        // --- OTA (R3-15) --------------------------------------------------
+        // --- OTA -----------------------------------------------------------
         //
-        // `src/ota.cpp:847-866` registers four routes: two binary uploads, a
-        // URL update and a status document. Three are implemented here and the
-        // URL update is **not** — see `ota_upload_route` for what was left out
-        // and why.
+        // Four routes: two binary uploads, a URL update and a status document.
+        // Three are implemented here and the URL update is **not** — see
+        // `ota_upload_route` for what was left out and why.
         //
         // All four stay registered either way, because the UI has a live tab
         // that calls them and a 404 is indistinguishable from a lost feature.
@@ -1966,12 +1898,11 @@ impl Web {
             })?;
         }
         {
-            // `/api/ota/url` is registered and refuses. The C++ implements it
-            // (`ota.cpp:704-724`) by queueing a download for the main loop; doing
-            // that here needs an HTTP client, a second long-lived task and a
-            // restart-on-failure path, for a feature whose every part is
-            // already reachable from a browser upload. Not built, and this
-            // answer says so rather than 404ing.
+            // `/api/ota/url` is registered and refuses. Implementing it needs an
+            // HTTP client, a second long-lived task and a restart-on-failure
+            // path, for a feature whose every part is already reachable from a
+            // browser upload. Not built, and this answer says so rather than
+            // 404ing.
             register(
                 &mut server,
                 &auth,
@@ -1990,7 +1921,7 @@ impl Web {
         // --- static ------------------------------------------------------
         {
             register(&mut server, &auth, "/", Method::Get, |mut req| {
-                // WebServerManager.cpp:974: `request->redirect("/ui/")`.
+                // Redirect `/` to `/ui/`.
                 let conn = req.connection();
                 conn.initiate_response(302, Some("Found"), &[("Location", "/ui/")])?;
                 conn.write_all(b"")
@@ -2027,21 +1958,18 @@ impl Web {
 
         // --- the JSON 404 --------------------------------------------------
         // One `httpd_register_err_handler` for `HTTPD_404_NOT_FOUND`, which
-        // ESP-IDF calls only when no URI handler matched — the `onNotFound`
-        // condition the C++ registers at `WebServerManager.cpp:235`. A `/api/`
-        // path gets JSON; anything else keeps ESP-IDF's plain text, exactly as
-        // `handleNotFound` (`:1011-1025`) chooses.
+        // ESP-IDF calls only when no URI handler matched. A `/api/` path gets
+        // JSON; anything else keeps ESP-IDF's plain text.
         //
-        // **The one place this firmware's 404 is not behind `Auth`.** The C++
-        // installs its authentication middleware on the server, which covers
-        // `onNotFound` too, so a C++ build answers `401` for an unknown
-        // `/api/` path and this answers `404`. Left as it is deliberately: the
-        // handler carries no `user_ctx` and no `Arc<Auth>`, and the alternative
-        // would be a raw handler reading the `Authorization` header — i.e. a
-        // second credential path, written a second time, guarding a response
-        // that says only "no such route". Every route that exists is behind
-        // `Auth`; the set of routes that do not is not a secret, and this is
-        // recorded rather than silently differing.
+        // **The one place this firmware's 404 is not behind `Auth`.** The
+        // authentication middleware covers every registered route, and this
+        // error handler is not a route, so an unknown `/api/` path answers `404`
+        // rather than `401`. Left as it is deliberately: the handler carries no
+        // `user_ctx` and no `Arc<Auth>`, and the alternative would be a raw
+        // handler reading the `Authorization` header — a second credential path,
+        // written a second time, guarding a response that says only "no such
+        // route". Every route that exists is behind `Auth`; the set of routes
+        // that do not exist is not a secret.
         crate::web_async::register_raw_api_not_found(esp_idf_svc::handle::RawHandle::handle(
             &server,
         ))?;
@@ -2103,8 +2031,7 @@ impl Web {
 
     /// Push one `new_temps` event to every connected client.
     ///
-    /// The C++'s `sendTempEvent` (`WebServerManager.cpp:1128-1143`) sends a
-    /// `ping` and then a `new_temps` carrying exactly the `/api/temperatures`
+    /// A `ping` and then a `new_temps` carrying exactly the `/api/temperatures`
     /// body. Both are sent: the `ping` is a liveness marker the UI uses to show
     /// that the stream is alive independently of the data, and dropping it would
     /// make a stream that is connected but idle indistinguishable from one that
@@ -2115,7 +2042,7 @@ impl Web {
         self.sse.broadcast(Sse::frame("new_temps", &payload));
     }
 
-    /// Push one `weight` event. `WebServerManager.cpp:1145-1152`.
+    /// Push one `weight` event.
     pub fn send_weight_event(&self) {
         let snapshot = self.shared.snapshot();
         let payload = weight_json(&snapshot);
@@ -2126,27 +2053,22 @@ impl Web {
 /// The broadcaster task: everything `/events` writes, on a task that is not
 /// the httpd task.
 ///
-/// This function is the fix. The previous `/events` handler looped **inside**
-/// the handler, and ESP-IDF's httpd is one task for the whole server
-/// (`httpd_main.c:533` creates the single `httpd` thread; `httpd_thread` at
-/// `:329` is `while (1) { httpd_server(hd); }` over one `select()`), so a
-/// looping handler is a looping server. Measured on hardware before this
-/// change: with one browser tab holding a stream open, 55 of 60 sequential
-/// `GET /api/parameters` requests timed out at the client's 5 s limit, and the
-/// five that did get through took 6–7 s. The C++ does not have this failure
-/// because `ESPAsyncWebServer`'s `AsyncEventSource` **returns from its handler**
-/// and pushes events later from the main loop task
-/// (`WebServerManager.cpp:308-319` registers the source; the senders at
-/// `:1128-1152` run from `LoopManager::updateWebsite`).
+/// This function is why `/api/*` latency is independent of how many streams are
+/// open. ESP-IDF's httpd is one task for the whole server (`httpd_main.c:533`
+/// creates the single `httpd` thread; `httpd_thread` at `:329` is `while (1) {
+/// httpd_server(hd); }` over one `select()`), so a handler that loops while it
+/// streams is a server that serves nobody. Measured on hardware with one browser
+/// tab holding a stream open: 55 of 60 sequential `GET /api/parameters` requests
+/// timed out at the client's 5 s limit, and the five that did get through took
+/// 6–7 s.
 ///
-/// The shape here is deliberately the same: the handler registers a detached
-/// request and returns; this task does the writing. Nothing in this loop runs on
-/// the httpd task, so `/api/*` latency is independent of how many streams are
-/// open.
+/// The handler registers a detached request and returns; this task does the
+/// writing. Nothing in this loop runs on the httpd task.
 ///
 /// The 50 ms sleep is the loop's only cost when idle. It is not a busy-wait on
 /// the httpd task, and it is shorter than it needs to be for correctness — it
 /// only bounds how late a due frame is noticed.
+///
 /// # Errors
 ///
 /// Never, in practice, and that is deliberate: a thread that cannot be created
@@ -2174,11 +2096,10 @@ pub fn spawn_broadcaster(sse: Arc<Sse>) -> Result<(), EspError> {
 
 /// Transport frames to every client. It originates only the keepalive.
 ///
-/// It reads no machine state, and deliberately so: the C++'s `AsyncEventSource`
-/// reads none either. The producer is the control task (`broadcast_temps`,
-/// `WebServerManager.cpp:1128-1143` driven from `LoopManager::updateWebsite`),
-/// and giving the broadcaster a `Shared` would invite the next reader to start
-/// generating telemetry here — the coupling 04 §3.2 exists to prevent.
+/// It reads no machine state, and deliberately so: the producer is the control
+/// task (`broadcast_temps`), and giving the broadcaster a `Shared` would invite
+/// the next reader to start generating telemetry here — the coupling the
+/// command/telemetry split exists to prevent.
 fn broadcaster(sse: &Sse) {
     loop {
         let now = now_ms();
@@ -2225,13 +2146,11 @@ fn broadcaster(sse: &Sse) {
             }
 
             // The keepalive is the broadcaster's own, and the only thing it
-            // originates: the C++'s `AsyncEventSource` has no timer of its own
-            // and its `new_temps` cadence is the main loop's
-            // (`WebServerManager.cpp:1128-1143`), which is `broadcast_temps`
-            // here. So the two producers are the control task (events) and this
-            // task (liveness), and neither duplicates the other. It is measured
-            // from the last write of any kind, so a stream that is receiving
-            // events does not also emit keepalives.
+            // originates: events come from the control task through
+            // `broadcast_temps`. So the two producers are the control task
+            // (events) and this task (liveness), and neither duplicates the
+            // other. It is measured from the last write of any kind, so a stream
+            // that is receiving events does not also emit keepalives.
             if ok && now.wrapping_sub(client.last_write_ms) >= SSE_KEEPALIVE_MS {
                 let keepalive = Sse::keepalive();
                 if client.req.write(&keepalive).is_err() {
@@ -2276,9 +2195,8 @@ fn broadcaster(sse: &Sse) {
 
 /// Register a `POST` handler that takes no parameters and emits a command.
 ///
-/// The C++'s eight no-argument POSTs (`/api/wake`, `/api/sleep`, `/api/health`
-/// aside). The `202 Accepted` is deliberate and different from the C++'s `200`:
-/// the command has been *queued*, not performed. A `200` on
+/// The eight no-argument POSTs. The `202 Accepted` is deliberate and different
+/// from a `200`: the command has been *queued*, not performed. A `200` on
 /// `POST /api/factory-reset` would be a lie — the machine is about to reboot.
 fn register_flag(
     server: &mut EspHttpServer<'static>,
@@ -2294,13 +2212,12 @@ fn register_flag(
     })
 }
 
-/// Register a `POST` handler for a route that is a **toggle** in the C++.
+/// Register a `POST` handler for a route that is a **toggle**.
 ///
-/// The C++'s `/api/pid`, `/api/steam` and `/api/backflush` read no field. They
-/// compute `!current` from live machine state and answer with the new value
-/// (`WebServerManager.cpp:444-475`, `:490-491`). A bare `POST` is what the React
-/// UI sends (`useMachineToggles.ts:22,31,40` — no body, no query), so a bare
-/// `POST` has to work, and it has to *toggle*.
+/// `/api/pid`, `/api/steam` and `/api/backflush` read no field. They compute
+/// `!current` from live machine state and answer with the new value. A bare
+/// `POST` is what the React UI sends (`useMachineToggles.ts:22,31,40` — no body,
+/// no query), so a bare `POST` has to work, and it has to *toggle*.
 ///
 /// The explicit forms still work, because the human uses them and the
 /// integration checklist spells them `?on=0` / `?on=1`: `value`/`on` in the query
@@ -2308,22 +2225,22 @@ fn register_flag(
 /// siblings. Only the **absent** field selects the toggle.
 ///
 /// `on_toggle` is the command to emit when no field was given. It carries no
-/// value, so the control task resolves `!current` against the machine it owns —
-/// the same machine the C++'s handler reads. Doing it here instead would mean
-/// toggling a possibly-stale snapshot, and two rapid clicks could both compute
-/// the same target.
+/// value, so the control task resolves `!current` against the machine it owns.
+/// Doing it here instead would mean toggling a possibly-stale snapshot, and two
+/// rapid clicks could both compute the same target.
 ///
 /// # What it answers
 ///
-/// The C++'s `ApiResponses::boolResponse(key, value)` — `{"success": true,
-/// "<key>": <bool>}` (`ApiResponses.cpp:10-19`) — where `key` is the route's own
-/// name: `pidEnabled`, `steamMode`, `backflushOn`. The C++ answers `200` in all
-/// three cases, and this keeps that.
+/// `{"success": true, "<key>": <bool>}` — where `key` is the route's own name:
+/// `pidEnabled`, `steamMode`, `backflushOn`. `200` in all three cases.
 ///
 /// A route that answers `202 {"accepted":true}` instead would break the UI: it
-/// reads `response.ok` (which `202` satisfies) but the human's own tooling and
-/// the C++ contract both expect the resulting value in the body.
-/// One C++ toggle route: its URI, the key its response reports, and the three
+/// reads `response.ok` (which `202` satisfies) but the human's own tooling
+/// expects the resulting value in the body.
+///
+/// # The struct
+///
+/// One toggle route: its URI, the key its response reports, and the three
 /// functions that turn a request into a command.
 ///
 /// A struct rather than eight positional arguments because the three function
@@ -2335,7 +2252,7 @@ fn register_flag(
 struct Toggle {
     /// The route, `/api/…`.
     uri: &'static str,
-    /// The C++'s `ApiResponses::boolResponse` key (`ApiResponses.h:12`).
+    /// The key the response reports.
     key: &'static str,
     /// The command a bare `POST` emits. Carries no value: see
     /// [`Command::ToggleSteam`].
@@ -2367,8 +2284,7 @@ fn register_toggle(
         let body = drain_body(req.connection());
         fields.extend(cc_config::form::parse_form(&body));
         // `first_of` scans in *name* order, so `value` anywhere beats `on`
-        // anywhere — the C++'s `hasParam("value", …).orElse(hasParam("on",
-        // …))` order (`WebServerManager.cpp:392`).
+        // anywhere.
         let (chosen, value) = match first_of(&fields, &["value", "on"]) {
             // `start` is the one non-boolean field, and only on
             // `/api/backflush`; see [`Command::StartBackflush`].
@@ -2376,23 +2292,21 @@ fn register_toggle(
                 (Command::StartBackflush, None)
             }
             Some(field) => (explicit(parse_flag(&field)), None),
-            // No field at all: the C++'s toggle.
+            // No field at all: a toggle.
             None => (on_toggle, Some(!current(&shared.snapshot()))),
         };
         // **The value is read after the command has been applied.**
         //
-        // It used to be computed *before* sending: `!current(&snapshot)` for a
-        // bare toggle, from the last telemetry the control task published. So
-        // the answer described the machine as it was, and a client that
-        // trusted it wrote the old value into its own state. The report was
-        // "I press the toggle, the device switches, and the switch stays
-        // active until I refresh" — the device was right and the answer was
-        // a lie.
+        // Computing it *before* sending — `!current(&snapshot)` for a bare
+        // toggle, from the last telemetry the control task published — makes the
+        // answer describe the machine as it was, and a client that trusts it
+        // writes the old value into its own state. The report was "I press the
+        // toggle, the device switches, and the switch stays active until I
+        // refresh" — the device was right and the answer was a lie.
         //
-        // The wait is bounded (400 ms) and the fallback is the requested
-        // value rather than a panic: a stalled control task must not hang a
-        // browser, and `refetchParameters` is the client's other route to
-        // truth.
+        // The wait is bounded (400 ms) and the fallback is the requested value
+        // rather than a panic: a stalled control task must not hang a browser,
+        // and a refetch is the client's other route to truth.
         let before = shared.applied();
         send(chosen);
         let settled = shared.wait_applied(before);
@@ -2419,18 +2333,15 @@ fn register_command(
     parse: fn(&str) -> Option<Command>,
 ) -> Result<(), EspError> {
     register(server, auth, uri, Method::Post, move |mut req| {
-        // The C++ reads `hasParam("value", true)` — the `true` is "from the
-        // body" (`WebServerManager.cpp:392`) — and 0 is a valid setpoint
-        // (`:393`), so the field's presence is what matters, not its
-        // truthiness.
+        // A field is present or it is not, and 0 is a valid setpoint, so presence
+        // is what matters, not truthiness.
         //
-        // The query string is read too, and the **body wins** where both
-        // carry the field. The C++'s `POST /api/pid` reads no field at all —
-        // it is a toggle — so there is no C++ answer for `?on=0` to match,
-        // and every script, the UI's own button and the integration
-        // checklist spell it `?on=0` or `?on=1`. Accepting both is what
-        // `curl -X POST '.../api/pid?on=0'` needs; the body is checked first
-        // because a form post that also carries a stale query string should
+        // The query string is read too, and the **body wins** where both carry
+        // the field. The toggle route reads no field at all, so there is nothing
+        // for `?on=0` to match there, and every script, the UI's own button and
+        // the integration checklist spell it `?on=0` or `?on=1`. Accepting both
+        // is what `curl -X POST '.../api/pid?on=0'` needs; the body is checked
+        // first because a form post that also carries a stale query string should
         // do what the form says.
         let mut fields = cc_config::form::parse_form(query_of(req.uri()));
         let body = drain_body(req.connection());
@@ -2454,8 +2365,7 @@ fn register_command(
 /// [`crate::telnet::LINE_BUFFER_BYTES`] (256), the same bound the log stream
 /// uses. A `POST /api/setpoint` body is `value=94.5` — nine characters — and a
 /// body that does not fit is a client bug or an attack, not a large legitimate
-/// request. The C++ has no bound at all (`AsyncWebServerRequest` will buffer
-/// whatever it is sent), which on a 320 KB heap is a denial of service with three
+/// request. An unbounded body on a 320 KB heap is a denial of service with three
 /// words.
 fn drain_body(conn: &mut EspHttpConnection<'_>) -> String {
     drain_body_bounded(conn, crate::telnet::LINE_BUFFER_BYTES)
@@ -2515,11 +2425,10 @@ impl Sse {
 
     /// Push a frame to every connected client.
     ///
-    /// The C++'s `AsyncEventSource::send` (`WebServerManager.cpp:1163`): every
-    /// producer pushes, and every client receives. It cannot write from the
+    /// Every producer pushes, and every client receives. It cannot write from the
     /// caller's task — the sockets belong to the broadcaster — so it hands the
-    /// frame over through a bounded mailbox, and the broadcaster drains it on
-    /// its next pass (at most [`SSE_POLL_MS`] later).
+    /// frame over through a bounded mailbox, and the broadcaster drains it on its
+    /// next pass (at most [`SSE_POLL_MS`] later).
     ///
     /// A full mailbox drops the **newest** frame and counts it in
     /// [`Sse::dropped_frames`], rather than blocking the caller. The caller is
@@ -2543,8 +2452,7 @@ impl Sse {
 /// carry **three different HTTP statuses** — a malformed envelope is a `400`, a
 /// flash failure is a `500`, and a mid-stream write failure is a `500` with a
 /// different word. Collapsing them to one error would force the caller to
-/// re-derive which, and the C++'s `setUploadResult(code, body)` does exactly
-/// this distinction (`ota.cpp:203,213,247`).
+/// re-derive which.
 struct OtaFailure {
     /// 400 for a malformed body, 500 for a device-side failure.
     status: u16,
@@ -2618,8 +2526,8 @@ fn ota_stream(
             });
         }
         // 0 rather than a guess for `total`: a browser's `Content-Length` covers
-        // the multipart envelope, so it is not the image length. The C++ likewise
-        // reports only bytes received (`ota.cpp:730-731`).
+        // the multipart envelope, so it is not the image length. Only bytes
+        // received are reported.
         session.note_progress(cc_web::ota::Phase::Uploading, writer.written(), 0);
     }
     Ok(())
@@ -2636,16 +2544,14 @@ fn ota_stream(
 ///    been read, and the payload had to be consumed either way to answer the
 ///    request.
 /// 3. **The size rule**, against the partition — *after* the erase, which is the
-///    C++'s order too and the reason the `min_accepted` floor exists at all: it
-///    cannot save the erase, only refuse to finalise.
+///    only order available and the reason the `min_accepted` floor exists at
+///    all: it cannot save the erase, only refuse to finalise.
 ///
 /// # Why the extension check is not before the erase
 ///
 /// It would be nicer. It cannot be: a `multipart/form-data` filename lives in the
 /// part's headers, and the headers arrive *inside* the body, so the only way to
-/// learn it is to read at least that far. The C++ has the same constraint — its
-/// `validateFileExtension` runs in the upload callback at `index == 0`
-/// (`ota.cpp:441`), because `AsyncWebServer` has already parsed the part by then.
+/// learn it is to read at least that far.
 fn ota_validate(
     reader: &cc_web::ota::PartReader,
     written: usize,
@@ -2713,9 +2619,8 @@ fn ota_open_session(
     let telemetry = shared.snapshot();
     // An id the firmware does not know is treated as "not safe to flash", which
     // is the conservative direction: an unrecognised state might be one that
-    // flows water. The C++ restarts the device on an unknown id
-    // (`StateFactory.cpp:65-69`); this firmware must not, so `from_id`'s `None`
-    // has to mean something, and refusal is what it means here.
+    // flows water. `from_id`'s `None` has to mean something, and refusal is what
+    // it means here.
     let admission = match u16::try_from(telemetry.machine_state)
         .ok()
         .and_then(cc_domain::state::MachineState::from_id)
@@ -2771,11 +2676,10 @@ fn ota_open_session(
 ///
 /// 1. **Admission.** [`cc_machine::ota::admit`] on the machine state from the
 ///    published snapshot, as a cheap first filter. Refused while brewing or
-///    steaming — the C++ does not check at all (`ota.cpp:437-455` jumps straight
-///    to the extension test), and this is the strictly-safer difference recorded
-///    in `intentional-diffs.md`.
-/// 2. **Claim.** One update at a time. A second concurrent upload gets the C++'s
-///    `409` (`ota.cpp:444`).
+///    steaming, which is the strictly-safer difference recorded in
+///    [divergences.md](../../../docs/history/divergences.md).
+/// 2. **Claim.** One update at a time. A second concurrent upload gets a `409`.
+///    `409`.
 /// 3. **Safe hardware shutdown, waited for.** [`Command::OtaBegin`] to the
 ///    **control task**, which re-reads the live machine state, re-runs
 ///    admission against *that*, applies the shutdown as a separate applier pass
@@ -2783,8 +2687,8 @@ fn ota_open_session(
 ///    [`crate::ota::Admission`](crate::ota::Admission). This is S8. A `Command`
 ///    rather than a direct call because the httpd task does not own the
 ///    actuators.
-/// 4. **Boundary.** No `Content-Type: multipart/form-data`, no part. The C++'s
-///    `sendUploadResult(request, "No firmware file provided")` arm.
+/// 4. **Boundary.** No `Content-Type: multipart/form-data`, no part — the "No
+///    firmware file provided" arm.
 /// 5. **Open the slot.** [`crate::ota::Writer::begin`] — the first thing that
 ///    erases anything.
 /// 6. **Stream.** One 4 KiB stack buffer, [`cc_web::ota::PartReader`] stripping
@@ -2961,10 +2865,9 @@ pub mod tests {
     use super::*;
 
     #[cfg_attr(test, test)]
-    pub fn every_csqs_api_route_is_registered() {
-        // 20 /api/* from WebServerManager.cpp:327-812, plus `/api/config/download`
-        // (`:706`), the four OTA routes (`ota.cpp:847-866`), and `/`, `/ui` and
-        // `/events`.
+    pub fn every_api_route_is_registered() {
+        // 20 /api/* routes, `/api/config/download`, the four OTA routes, and
+        // `/`, `/ui` and `/events`.
         //
         // This list is the parity contract with `ui/packages/frontend/src/lib/
         // routes.ts`, the frontend's own `API_ROUTES` table. A route the UI can
@@ -3056,13 +2959,12 @@ pub mod tests {
     /// Every `/api/` route the table advertises is a path the JSON `404`
     /// claims.
     ///
-    /// Finding 3.8. The C++'s `handleNotFound` decides JSON-vs-text with
-    /// `path.startsWith("/api/")` (`WebServerManager.cpp:1011`), and this
-    /// firmware registers the JSON `404` on exactly that rule. If a route were
-    /// ever advertised as `/api` — no trailing slash — the 404 would not cover
-    /// it and a client would get plain text from a route the boot log claims
-    /// exists. That is a whole-table property rather than a property of one
-    /// entry, which is why it is asserted over the table and not per route.
+    /// Finding 3.8. The JSON `404` decides JSON-vs-text with
+    /// `path.starts_with("/api/")`. If a route were ever advertised as `/api` —
+    /// no trailing slash — the 404 would not cover it and a client would get
+    /// plain text from a route the boot log claims exists. That is a whole-table
+    /// property rather than a property of one entry, which is why it is asserted
+    /// over the table and not per route.
     #[cfg_attr(test, test)]
     pub fn every_advertised_api_route_is_covered_by_the_json_404() {
         for (path, _) in routes() {
@@ -3087,17 +2989,16 @@ pub mod tests {
     /// Finding 3.4. The route existed and was wrong in the worst way — it
     /// answered `200` with an error object — so the registration was never in
     /// doubt and no route test could have caught it. What is worth pinning is
-    /// that the C++ registers it `HTTP_GET` only
-    /// (`WebServerManager.cpp:586`), and a `POST` to it would now fall through
-    /// to the JSON `404` rather than being answered.
+    /// the method list, and a `POST` to it falls through to the JSON `404`
+    /// rather than being answered.
     #[cfg_attr(test, test)]
     pub fn every_registered_route_is_in_the_raw_handlers_own_table() {
         // `cc_web::help::ROUTE_PATHS` is a compile-time list, because the `extern
         // "C"` handler that consults it cannot capture one. `routes()` is the
         // runtime list the server actually registers, and this is what stops the
-        // two drifting: a path in `routes()` and missing from `ROUTE_PATHS`
-        // would answer a `404` where the C++ answers a `405`, and the only way
-        // that happens is someone adding a route here and not there.
+        // two drifting: a path in `routes()` and missing from `ROUTE_PATHS` would
+        // answer a `404` where a `405` is correct, and the only way that happens
+        // is someone adding a route here and not there.
         for (path, _) in routes() {
             assert!(
                 cc_web::help::ROUTE_PATHS.contains(&path),
@@ -3127,7 +3028,7 @@ pub mod tests {
 
     // ==================================================== the toggle routes
 
-    // ==================================================== OTA (R3-15, deferred)
+    // ==================================================== OTA (deferred)
 
     // ============================================ POST /api/parameters honesty
 
@@ -3171,10 +3072,9 @@ pub mod tests {
 
     #[cfg_attr(test, test)]
     pub fn the_parameter_route_is_registered_for_both_methods() {
-        // The C++ registers it once as HTTP_ANY and branches on the method
-        // (`WebServerManager.cpp:813-815`); two registrations is the closest
-        // `esp-idf-svc` can get, because its `Method` has no "any"
-        // (embedded-svc 0.29 `http.rs:17-52`).
+        // Registered once per method rather than as `HTTP_ANY`; two
+        // registrations is the closest `esp-idf-svc` can get, because its
+        // `Method` has no "any" (embedded-svc 0.29 `http.rs:17-52`).
         let routes = routes();
         assert!(routes.contains(&("/api/parameters", Method::Get)));
         assert!(routes.contains(&("/api/parameters", Method::Post)));
@@ -3266,9 +3166,8 @@ pub mod tests {
 
     #[cfg_attr(test, test)]
     pub fn a_push_counts_and_a_full_mailbox_counts_the_drop() {
-        // `Sse::broadcast` is the C++'s `AsyncEventSource::send` path, and it
-        // must not block its caller: the caller is the control task. A mailbox
-        // that filled is counted, not waited on.
+        // `Sse::broadcast` must not block its caller: the caller is the control
+        // task. A mailbox that filled is counted, not waited on.
         let sse = Sse::new(SseMode::Chunked);
         for i in 0..SSE_MAILBOX_DEPTH {
             sse.broadcast(Sse::frame("weight", &format!("{{\"n\":{i}}}")));
@@ -3304,14 +3203,14 @@ pub mod tests {
 
     #[cfg_attr(test, test)]
     pub fn the_large_response_floor_is_the_adrs_floor() {
-        // ADR-0002 decision 5, `Logger.cpp:13`. Two subscribers, one number.
+        // ADR-0002 decision 5. Two subscribers, one number.
         assert_eq!(HEAP_FLOOR_BYTES, 30_000);
     }
 
     #[cfg_attr(test, test)]
-    pub fn the_large_response_limit_is_above_the_csqs_19kb() {
+    pub fn the_large_response_limit_is_above_19kb() {
         // ADR-0002 measured `/api/parameters?filter=all` at 19 KB. A limit
-        // below that would 503 the endpoint the C++ serves.
+        // below that would 503 the endpoint that serves it.
         const { assert!(MAX_JSON_BYTES > 19 * 1024) };
         const {
             assert!(MAX_JSON_BYTES < 64 * 1024, "and not so large it is the OOM");

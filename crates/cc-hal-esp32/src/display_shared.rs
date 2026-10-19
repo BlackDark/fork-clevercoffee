@@ -3,9 +3,10 @@
 //! # Why this type exists
 //!
 //! The SSD1306 and the ABP2 pressure sensor are on the **same two wires**
-//! (`pinmapping.h:53-54`: SCL 22, SDA 21), and an ESP32 I²C peripheral can only
-//! have one owner. `Abp2Pressure` takes the `I2cDriver` by value, so the display
-//! cannot simply borrow it afterwards — one of the two has to give way, and
+//! ([pins.md](../../../docs/hardware/pins.md): I²C0 on GPIO 22 and 21), and an
+//! ESP32 I²C peripheral can only have one owner. `Abp2Pressure` takes the
+//! `I2cDriver` by value, so the display cannot simply borrow it afterwards —
+//! one of the two has to give way, and
 //! whoever gives up the bus holds it for as long as the other wants it, which
 //! would starve the other.
 //!
@@ -13,8 +14,7 @@
 //! one transaction. That is not a stylistic choice: with a 100 ms display
 //! refresh and a 50 ms pressure cadence, a display that held the bus
 //! continuously would make the ABP2 unreadable, and a pressure sensor that did
-//! the same would make the panel flicker. Neither is acceptable, and the C++
-//! solved it with `Wire` being re-entrant-by-convention rather than by design.
+//! the same would make the panel flicker. Neither is acceptable.
 //!
 //! # What the control task must do
 //!
@@ -40,7 +40,7 @@ use crate::display::{self, I2cPanel, Oled, DISPLAY_OFF, DISPLAY_ON, FRAMEBUFFER_
 
 /// The I²C address the panel answers at.
 ///
-/// `hardware.oled.address` defaults to `ADDR_3C` (`Config.h:951-957`).
+/// `hardware.oled.address` defaults to `ADDR_3C`.
 pub const ADDRESS: u8 = display::ADDRESS_3C;
 
 /// The bus, shared between the panel and the pressure sensor.
@@ -274,8 +274,7 @@ impl<'bus> SharedPanel<'bus> {
         if let Some(mut guard) = self.bus.take() {
             // One byte: `0xAE` to blank, `0xAF` to wake. The controller keeps its
             // RAM across both, so waking restores the last frame with no
-            // re-flush — which is why the C++ can return early and still come
-            // back to a correct screen (`LoopManager.cpp:330-334`).
+            // re-flush.
             //
             // **Not** `Oled::new_initialised(..).set_power_saved(..)`. That is the
             // obvious spelling and it is a **stack overflow**: `Oled` embeds the
@@ -286,8 +285,7 @@ impl<'bus> SharedPanel<'bus> {
             // transition to standby — the same crash signature the `Display`
             // scratch buffer already had a comment about, reached a second way.
             // The unit tests exercised `set_blank` against a recorder and never
-            // built it on the real stack, which is the whole lesson of
-            // `notes.md` finding 3 repeating itself.
+            // built it on the real stack, so they could not see the overflow.
             let sent = I2cPanel::new(&mut guard, ADDRESS)
                 .send_command(if blank { DISPLAY_OFF } else { DISPLAY_ON })
                 .is_ok();

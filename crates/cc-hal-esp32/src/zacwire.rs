@@ -1,7 +1,5 @@
 //! The `ZACwire` edge capture: sampling a `TSIC-306`'s waveform on one GPIO.
 //!
-//! Owner: **R3-07**.
-//!
 //! # 🔴 Not exercised on hardware, and why that is a real gap
 //!
 //! **No TSIC-306 is fitted to the machine this was written on.** The probe is a
@@ -19,16 +17,17 @@
 //! `Tstrobe` and then waits for the next nine edges. This does not do that, for
 //! two reasons, both checked against the installed sources rather than assumed.
 //!
-//! **1. 04 §3.1 constrains this firmware's ISRs to "nothing beyond one GPIO
-//! write",** and a bit-sampling ISR is a busy-wait loop with a sampled decision
-//! in it. The plan's constraint wins.
+//! **1. This firmware's ISRs do "nothing beyond one GPIO write"**
+//! ([target-architecture.md
+//! §3](../../../docs/history/target-architecture.md)), and a bit-sampling ISR is a
+//! busy-wait loop with a sampled decision in it. The constraint wins.
 //!
 //! **2. `esp-idf-hal` 0.47 exposes no safe way to get a timestamped GPIO edge
 //! callback, and this workspace denies `unsafe_code`.** Read from
 //! `esp-idf-hal-0.47.0/src/gpio.rs`:
 //!
 //! * [`PinDriver::enable_interrupt`](esp_idf_hal::gpio::PinDriver::enable_interrupt)
-//!   registers a *private* `handle_isr` (`:1022-1020`) that only pokes an
+//!   registers a *private* `handle_isr` that only pokes an
 //!   internal `PIN_NOTIF` and, under `feature = "alloc"`, an
 //!   `unsafe`-obtained `PIN_ISR_HANDLER`. There is no `attach_interrupt`.
 //! * The PCNT unit's [`PcntUnitDriver::subscribe`](esp_idf_hal::pcnt::PcntUnitDriver::subscribe)

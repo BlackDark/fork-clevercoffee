@@ -1,13 +1,12 @@
 //! The Wi-Fi telnet log stream: the listener, and ADR-0002's heap-aware shed.
 //!
-//! Owner: **R3-14** (task E), transport completed after finding 3.2 of
-//! [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md).
+//! Transport completed after finding 3.2 of
+//! [`review-2026-10-03.md`](../../../docs/history/review-2026-10-03.md).
 //!
-//! # What it replaces
+//! # What is here
 //!
-//! `src/Logger.cpp` (F29) and the heap behaviour of ADR-0002. The C++'s
-//! `Logger` is a 16-entry ring plus a `WiFiServer` on port 23
-//! (`Logger.cpp:133-152`), with the shed at `:29`.
+//! A [`RING_ENTRIES`]-entry ring plus a listener on port 23, with ADR-0002's
+//! shed between the ring and the socket.
 //!
 //! # The shed is a soft one, and that is the ADR's decision
 //!
@@ -23,16 +22,13 @@
 //! about a second sink*, not about this one: the shed below ([`Shed`], applied
 //! in [`Server::flush`]) drops a ring entry before it is written to the socket,
 //! and the UART0 write in [`Fanout::log`] has already happened by then and is
-//! not reachable from it. That is the same order the C++ uses —
-//! `Logger::writeToOutputs` writes `Serial` first (`src/Logger.cpp:59-61`) and
-//! only then decides whether the Wi-Fi client gets the line (`:66-74`).
+//! not reachable from it. **UART0 is written first**, and only then does the
+//! Wi-Fi client get a say.
 //!
-//! The R3-14 brief said the client must be *disconnected* under heap pressure.
-//! The ADR that records the decision says the opposite, and gives the reason: an
-//! active close appears in the operator's terminal as "Connection reset by
-//! peer", which is indistinguishable from a network fault and sends the
-//! investigation in the wrong direction. What the brief is protecting — **shed,
-//! and do not crash** — is what this implements.
+//! The client is *not* disconnected under heap pressure. An active close appears
+//! in the operator's terminal as "Connection reset by peer", which is
+//! indistinguishable from a network fault and sends the investigation in the
+//! wrong direction. **Shed, and do not crash** is what this implements.
 //!
 //! # The split, and why it is this split
 //!
@@ -57,7 +53,7 @@
 //! an `EspIdfLogger` — the only writer of UART0 in this dependency set — and
 //! calls its `log`, then pushes its own formatted line into the ring. The ring
 //! push is a claim, a bounded copy and a return; a full ring drops the newest
-//! line and counts it (`Logger.cpp:248-256`). So a terminal that has stopped
+//! line and counts it. So a terminal that has stopped
 //! reading costs the control tick a copy and a counter, and never a wait —
 //! which is the whole of what "a slow/absent client must not block anything but
 //! itself" asks for.
@@ -78,11 +74,10 @@
 //!
 //! # The client cap
 //!
-//! [`cc_web::telnet::MAX_CLIENTS`] is **1**, because the C++ has one
-//! `WiFiClient client_` (`Logger.h:154`) and a second connection *replaces* the
-//! first (`Logger.cpp:134-137`). That is also the only thing standing between a
-//! debug channel and the heap exhaustion ADR-0002 documents: the socket count
-//! must not grow with how many terminals are open.
+//! [`cc_web::telnet::MAX_CLIENTS`] is **1**: a second connection *replaces* the
+//! first. That is also the only thing standing between a debug channel and the
+//! heap exhaustion ADR-0002 documents: the socket count must not grow with how
+//! many terminals are open.
 //!
 //! # The other half of the OOM fix is not here
 //!
@@ -127,36 +122,36 @@ use cc_web::telnet::{Decision, Ring, Shed, MAX_CLIENTS, MAX_FLUSH_PER_PASS, RING
 use crate::heap::free_heap;
 use crate::time::now_ms;
 
-/// The port the C++'s log stream listens on. `Logger::Config::port`.
+/// The port the log stream listens on.
 pub const TELNET_PORT: u16 = 23;
 
-/// The banner sent when a client connects. `Logger.cpp:139`.
+/// The banner sent when a client connects, so a silent terminal is
+/// distinguishable from a dead listener.
 pub const BANNER: &str = "CleverCoffee log stream connected\r\n";
 
-/// The idle keep-alive. `Logger.cpp:150-152` `# heartbeat`.
+/// The idle keep-alive: proof the stream is alive when nothing else is logged.
 pub const HEARTBEAT: &str = "# heartbeat\r\n";
 
-/// How often the heartbeat goes out when nothing else has. `Logger::Logger.h:146`.
+/// How often the heartbeat goes out when nothing else has.
 pub const HEARTBEAT_INTERVAL_MS: u32 = 30_000;
 
-/// The read buffer, in bytes.
+/// The ring entry size, in bytes.
 ///
-/// The C++'s format buffer is 256 B after ADR-0002 decision 1 ("down from 512"),
-/// because a log line rarely exceeds 200 characters. 256 it is; a line longer
-/// than this is truncated at the buffer's end rather than being split across two
-/// reads, which is the ADR's own "messages are dropped" acceptance.
+/// 256 B, because a log line rarely exceeds 200 characters (ADR-0002 decision 1).
+/// A longer line is truncated at the buffer's end rather than split across two
+/// entries, which is the ADR's own "messages are dropped" acceptance.
 pub use cc_web::telnet::ENTRY_BYTES as LINE_BUFFER_BYTES;
 
 /// The free-heap floor, re-exported so the paths that guard "the machine is
-/// tight" cannot drift. ADR-0002 decision 5, `Logger.cpp:13`.
+/// tight" cannot drift. ADR-0002 decision 5.
 pub use cc_web::telnet::SHED_FLOOR_BYTES as HEAP_SHED_BYTES;
 
 /// How long the listener task sleeps between passes, in milliseconds.
 ///
-/// 50 ms is a fifth of [`HEARTBEAT_INTERVAL_MS`] and one twentieth of the C++'s
-/// `loop()` period, and it bounds the latency between a log line and its
-/// arrival on a connected terminal. It is a *task* sleep, so it costs nothing
-/// while the machine is busy: the control tick at priority 5 preempts it.
+/// 50 ms is a fifth of [`HEARTBEAT_INTERVAL_MS`], and it bounds the latency
+/// between a log line and its arrival on a connected terminal. It is a *task*
+/// sleep, so it costs nothing while the machine is busy: the control tick at
+/// priority 5 preempts it.
 const POLL_INTERVAL_MS: u32 = 50;
 
 /// The `listen` backlog, as the `c_int` `lwip_listen` takes.
@@ -180,11 +175,11 @@ const TASK_STACK_BYTES: usize = 4 * 1024;
 pub struct Stats {
     /// Lines written to a client.
     ///
-    /// A `u32`, not a `u64`: the original ESP32 has no 64-bit atomics
-    /// (`XCHAL_..._INT64` is clear on the LX6), so a `u64` here would need a
-    /// mutex to be correct -- and a mutex on the logging path is exactly the
-    /// thing ADR-0002 exists to avoid. 4 billion lines is 40 days at one line
-    /// per millisecond, and the counter is reset by a reboot.
+    /// A `u32`, not a `u64`: the original ESP32 has no 64-bit atomics on the
+    /// LX6, so a `u64` here would need a mutex to be correct -- and a mutex on
+    /// the logging path is exactly the thing ADR-0002 exists to avoid. 4 billion
+    /// lines is 40 days at one line per millisecond, and the counter is reset by
+    /// a reboot.
     pub written: AtomicU32,
     /// Lines dropped because the client had gone away.
     pub client_errors: AtomicU32,
@@ -251,7 +246,7 @@ pub static RING: Mutex<Ring> = Mutex::new(Ring::new());
 ///
 /// The `()` filter backend is a unit struct with no state at all
 /// (`esp-idf-svc/src/log.rs:275-279`), and `EspStdout` takes and releases
-/// newlib's recursive `stdout` lock per record (`:26-72`), so two tasks
+/// newlib's recursive `stdout` lock per record, so two tasks
 /// logging concurrently serialise in libc exactly as they did when a fresh
 /// `EspIdfLogger` was constructed per call. `EspIdfLogger::new` is a `const fn`
 /// (`:315`), so the one instance is built into the `static` with no lazy
@@ -279,11 +274,9 @@ impl log::Log for Fanout {
 
     fn log(&self, record: &log::Record) {
         if self.enabled(record.metadata()) {
-            // UART0 first, because that is the order the C++ writes its two
-            // outputs in (`Logger::writeToOutputs`, `src/Logger.cpp:59-61` then
-            // `:66-74`): the operator with a USB cable is the one who cannot
-            // be shed, and a full ring must never be able to cost the console
-            // a line.
+            // UART0 first: the operator with a USB cable is the one who cannot
+            // be shed, and a full ring must never be able to cost the console a
+            // line.
             self.console.log(record);
             let line = cc_web::telnet::line(
                 level_of(record.level()),
@@ -314,8 +307,8 @@ impl log::Log for Fanout {
 
 /// The `log::Level` this firmware's words for.
 ///
-/// `log` has no `FATAL` or `SILENT` and the C++'s table has both
-/// (`Logger.cpp:161-177`), so the mapping is by name and not by ordinal.
+/// `log` has no `FATAL` or `SILENT`, so the mapping is by name and not by
+/// ordinal.
 const fn level_of(level: log::Level) -> cc_web::telnet::Level {
     match level {
         log::Level::Error => cc_web::telnet::Level::Error,
@@ -411,9 +404,8 @@ impl Stats {
 /// What the socket layer is holding.
 ///
 /// One variant, because [`MAX_CLIENTS`] is 1. A second connection *replaces*
-/// the first (`Logger.cpp:134-137`), which is a property of the C++'s single
-/// `WiFiClient` member and is what stops the socket count tracking the number of
-/// open terminals.
+/// the first, which is what stops the socket count tracking the number of open
+/// terminals.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Client {
     /// Nothing connected.
@@ -489,8 +481,7 @@ impl Server {
         let mut addr = sockaddr_in {
             sin_len: 0,
             sin_family: AF_INET as sa_family_t,
-            // `Logger::Config::port` is 23 and `Logger.cpp:133-152` never varies
-            // it, so there is no knob here.
+            // The port is fixed, so there is no knob here.
             // Safety: `lwip_htons` is a byte-swap on a value, no pointer, no
             // allocation; ESP-IDF exposes no safe wrapper for it.
             sin_port: unsafe { lwip_htons(TELNET_PORT) },
@@ -522,7 +513,7 @@ impl Server {
         // `O_NONBLOCK`, so `lwip_accept` in [`Server::accept`] reports "nobody
         // yet" instead of parking the task until a client arrives. Nothing else
         // in lwIP will do it: `lwip_fcntl(F_SETFL)` is the only non-blocking
-        // switch its sockets carry (`sockets.c:3965-3976`), and it accepts
+        // switch its sockets carry, and it accepts
         // `O_NONBLOCK` and nothing else.
         //
         // This has to happen *here*. A blocking listener makes the whole
@@ -589,16 +580,14 @@ impl Server {
         if fd < 0 {
             return;
         }
-        // If a client is already connected the C++ stops it and takes the new
-        // one (`Logger.cpp:134-137`), so a second terminal does not silently
-        // starve the first.
+        // A second terminal takes the connection from the first, so it does not
+        // silently starve it.
         if let Some(old) = self.client.fd() {
             // Safety: `old` is a descriptor this `Server` owns.
             unsafe { lwip_close(old) };
         }
-        // `TCP_NODELAY`, which the C++ asks for explicitly
-        // (`Logger.cpp:139` `client_.setNoDelay(true)`). A log line is small and
-        // latency matters more than packing.
+        // `TCP_NODELAY`: a log line is small and latency matters more than
+        // packing.
         // Safety: a four-byte `c_int` option into a four-byte slot.
         unsafe {
             let on: c_int = 1;
@@ -617,11 +606,9 @@ impl Server {
 
     /// Write what is waiting, honouring the shed.
     ///
-    /// A shed line is **consumed from the ring and not written**, which is what
-    /// `Logger.cpp:60-66` does: `writeToOutputs` returns early and
-    /// `flushRingBuffer` then clears the entry. A shed that kept the line would
-    /// hand the operator a burst of stale backlog the moment the heap
-    /// recovered, describing a machine that no longer exists.
+    /// A shed line is **consumed from the ring and not written**. A shed that
+    /// kept the line would hand the operator a burst of stale backlog the moment
+    /// the heap recovered, describing a machine that no longer exists.
     fn flush(&mut self, shed: &mut Shed) {
         for _ in 0..MAX_FLUSH_PER_PASS {
             let free = free_heap();
@@ -645,9 +632,8 @@ impl Server {
 
     /// Send bytes, dropping the client if the write fails.
     ///
-    /// A failed `lwip_send` means the client is gone, which is the C++'s
-    /// `networkErrors` (`Logger.cpp:60-64`). Dropping the descriptor is what
-    /// makes the next [`Server::run`] re-enter [`Server::accept`]; keeping a
+    /// A failed `lwip_send` means the client is gone. Dropping the descriptor is
+    /// what makes the next [`Server::run`] re-enter [`Server::accept`]; keeping a
     /// dead descriptor would mean the stream silently stops for ever.
     fn send(&mut self, bytes: &[u8]) -> bool {
         let Some(fd) = self.client.fd() else {
@@ -797,17 +783,18 @@ pub mod tests {
     use super::*;
 
     #[cfg_attr(test, test)]
-    pub fn the_port_and_banner_are_the_csqs() {
-        // Logger.cpp:133-139.
+    pub fn the_port_and_banner_are_pinned() {
+        // Pinned because support notes and operator tooling match these exact
+        // strings.
         assert_eq!(TELNET_PORT, 23);
         assert_eq!(BANNER, "CleverCoffee log stream connected\r\n");
         assert_eq!(HEARTBEAT, "# heartbeat\r\n");
     }
 
     #[cfg_attr(test, test)]
-    pub fn the_heartbeat_is_the_csqs_thirty_seconds() {
-        // Logger.cpp:150-152, and the ADR's "Telnet stays connected
-        // indefinitely (heartbeat + no aggressive disconnect)".
+    pub fn the_heartbeat_is_thirty_seconds() {
+        // The ADR's "Telnet stays connected indefinitely (heartbeat + no
+        // aggressive disconnect)".
         assert_eq!(HEARTBEAT_INTERVAL_MS, 30_000);
     }
 
@@ -822,7 +809,7 @@ pub mod tests {
 
     #[cfg_attr(test, test)]
     pub fn a_fresh_server_has_no_client() {
-        // `Client` is the C++'s single `WiFiClient client_` (`Logger.h:154`).
+        // The server owns at most one client socket.
         let none = Client::None;
         assert!(!none.is_connected());
         assert_eq!(none.fd(), None);
@@ -892,9 +879,9 @@ pub mod tests {
     /// `EspIdfLogger::log` writes through newlib's `stdout` to the ROM console
     /// (`esp-idf-svc/src/log.rs:369-390`), and there is no read-back path from
     /// Rust to UART0 TX. The only proof is off-target — an operator's serial
-    /// monitor, or `firmware_tests::the_console_reaches_the_wire_before_a_
-    /// reboot` in `cc-device-tests`, which reads the wire from the host. This
-    /// case is the half that can run without a human holding a USB cable.
+    /// monitor, or `firmware_tests::the_console_reaches_the_wire_before_a_reboot`
+    /// in `cc-device-tests`, which reads the wire from the host. This case is the
+    /// half that can run without a human holding a USB cable.
     #[cfg_attr(test, test)]
     pub fn the_fanout_is_one_filter_over_two_sinks() {
         // (1) One filter, for every level, in both directions.
