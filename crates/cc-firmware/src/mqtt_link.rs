@@ -493,11 +493,10 @@ fn write_sensor(live: &Live, machine: &Machine, topic: &str, payload: &mut Paylo
             payload.set_float(f64::from(live.standby_remaining_ms) / 1000.0);
         }
         "shotsSinceBackflush" => {
-            // `static_cast<double>(getShotsSinceBackflush())` — `:758-761`. The
-            // counter is `i32` and is never
-            // negative — it starts at 0, is only incremented while brewing, and
-            // is reset on entering `BACKFLUSH_FINISHED` — so the widening is a
-            // formality that documents it.
+            // The counter is `i32` and is never negative — it starts at 0, is
+            // only incremented while brewing, and is reset on entering
+            // `BACKFLUSH_FINISHED` — so the widening to `f64` is a formality that
+            // documents it.
             payload.set_float(f64::from(machine.shots_since_backflush.max(0)));
         }
         "backflushReminderDue" => payload.set_float(f64::from(live.backflush_reminder_due)),
@@ -508,7 +507,7 @@ fn write_sensor(live: &Live, machine: &Machine, topic: &str, payload: &mut Paylo
         // number is the wire format only because the enumeration's discriminants are;
         // that is checked in `cc-domain`, not here.
         "machineState" => payload.set_int(i64::from(machine.state as i32)),
-        // `getCurrBrewTime() / 1000` — `:771-774`.
+        // The topic carries seconds; the reducer holds milliseconds.
         "currBrewTime" => payload.set_float(machine.brew.elapsed_ms / 1000.0),
         "currReadingWeight" => payload.set_float(live.weight_g.unwrap_or(0.0)),
         "currBrewWeight" => payload.set_float(live.brew_weight_g),

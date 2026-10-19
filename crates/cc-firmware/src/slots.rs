@@ -188,7 +188,7 @@ use esp_idf_hal::interrupt;
 pub struct FrameRequest {
     /// The inputs for one frame.
     pub input: DisplayInput,
-    /// `standbyCoordinator().shouldTurnOffDisplay()` — blank the panel.
+    /// Whether to blank the panel while keeping its last frame in RAM.
     pub blank: bool,
     /// The display's own view of the configuration.
     ///

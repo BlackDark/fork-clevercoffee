@@ -45,10 +45,9 @@ use log::{debug, info, warn};
 
 /// The heater chopper's window, in milliseconds.
 ///
-/// `ProcessState::windowSize_`
-/// and `cc_config::Config::HEATER_WINDOW_MS`. The PID's output limits and its
-/// sample time are both this number, so it is
-/// named once here rather than spelled three times.
+/// `cc_config::Config::HEATER_WINDOW_MS`. The PID's output limits and its sample
+/// time are both this number, so it is named once here rather than spelled three
+/// times.
 const WINDOW_MS: u32 = Config::HEATER_WINDOW_MS;
 
 /// The control task's view of the machine: the reducer's state, the PID, and the
@@ -491,7 +490,7 @@ impl Control {
         }
     }
 
-    /// The regular (non-brew-detection) tuning, `setPIDTunings` and all.
+    /// The regular (non-brew-detection) tuning.
     ///
     /// Applies the derived gains, the integrator limit, and `P_ON_M` when
     /// `pid.use_ponm` is set.
@@ -506,7 +505,6 @@ impl Control {
             warn!("control: regular PID tuning rejected (kp={kp} ki={ki} kd={kd})");
             return;
         }
-        // `setPidIntegratorLimits(0, aggIMax_)`.
         // See the boot path's comment: `i_max == 0` is "no integral action" and
         // is already `Ki == 0`, so the call is skipped rather than made and its
         // rejection discarded.

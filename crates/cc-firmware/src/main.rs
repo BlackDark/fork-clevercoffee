@@ -449,7 +449,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     // The pin map against the wiring, before a single pin is configured.
     //
     // `cc_hal_esp32::pins` holds the numbers every log line below prints; the
-    // `peripherals.pins.gpioNN` fields are what the machine is actually wired
+    // `peripherals.pins.gpio<NN>` fields are what the machine is actually wired
     // to. Nothing about `esp-idf-hal` 0.47's typed pin fields lets the second
     // be derived from the first without `unsafe` — so this checks, once, and
     // panics with both numbers if they ever disagree. Without it, changing either
@@ -1072,7 +1072,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     // The radio moves into the control task rather than staying in this frame.
     // It is `Send` (`EspWifi` is, and `Monitor` and `String` are), and the
     // control task is the only task with a watchdog subscription, so the 1 s
-    // `checkAndMaintainConnection` poll and the `/api/status` radio fields
+    // radio poll and the `/api/status` radio fields
     // (`network::publish_radio`) both belong to the task whose stalls are already
     // fatal. Before this, the radio was polled nowhere and `/api/status`
     // reported `wifiAssociated: false` on a machine that was associated.
@@ -1901,9 +1901,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                         );
                     }
                 }
-                // `POST /api/pid?on=0|1` toggles `Config::pidEnabled` **and** calls
-                // `setUserPidEnabled`, which
-                // persists the preference *and* sets the runtime flag. The web
+                // `POST /api/pid?on=0|1` toggles `Config::pidEnabled` **and**
+                // persists the preference while setting the runtime flag. The web
                 // layer here sends the intended value rather than a toggle, so
                 // the command is that one `cc_machine::Command::SetUserPidEnabled`.
                 cc_hal_esp32::web::Command::SetPid(enabled) => {
@@ -1995,9 +1994,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                     };
                     control.feed(&config, Event::Command(request), &mut effects);
                 }
-                // `setBackflushMode(newState)` —
-                // including `currBackflushCycles_ = 1` on the enable arm, which
-                // is `apply_backflush_mode`'s job and is already the reducer's
+                // Enabling also resets the cycle counter to 1, which is
+                // `apply_backflush_mode`'s job and is already the reducer's
                 // (`cc_machine::backflush`).
                 cc_hal_esp32::web::Command::SetBackflush(on) => {
                     // One command, both directions. Mapping `false` to `BackflushStop` is
@@ -2317,12 +2315,11 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             //
             // It was the literal `0.0`, which made the by-weight arm of
             // `BrewRunningState::checkSpecificTransitions`
-            // unreachable for any target above 0 g — and with `brew.by_time`
-            // disabled, `initTotalTargetBrewTime` returning `0.0` takes
-            // the other arm with it, so the only thing left was the brew switch or
-            // the 300-second pump watchdog. The same zero reached
-            // `recordBrewIfQualified` through
-            // `Machine::brew_weight`, killing the weight arm of shot counting too.
+            // unreachable for any target above 0 g — and with `brew.by_time` disabled, a
+            // target of `0.0` takes the time arm with it, so the only thing left was the
+            // brew switch or the 300-second pump watchdog. The same zero reached the shot
+            // record through `Machine::brew_weight`, killing the weight arm of shot
+            // counting too.
             //
             // `None` is `0.0` and not an error: an absent scale reports no weight,
             // and `brew.by_weight` on a machine with no scale is refused by
@@ -2553,8 +2550,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             // never filled in.
             display_input.now_ms = tick_began_ms;
             display_input.state = control.state();
-            // The brew row's two numbers, `processCurrentBrewTime()` and
-            // `processTotalTargetBrewTime()` — `BrewProgress` is exactly those.
+            // The brew row's two numbers: elapsed and target, which is all `BrewProgress`
+            // carries.
             display_input.brew_time_ms = machine.brew.elapsed_ms;
             display_input.target_brew_time_ms = machine.brew.target_ms;
             // The brew-timer FSM leaves `Idle` while the brew is active.
@@ -3163,7 +3160,7 @@ fn start_provisioning(
 ///
 /// Left unfilled, the by-weight stop condition in
 /// `BrewRunningState::checkSpecificTransitions` is unreachable for every target above
-/// 0 g, and with it the weight arm of `recordBrewIfQualified`: `cc-hal-esp32::Sampler`
+/// 0 g, and with it the weight arm of the shot record: `cc-hal-esp32::Sampler`
 /// measures a real weight and `/api/status` and MQTT carry it, and the one consumer
 /// that acts on it gets nothing.
 ///
@@ -3263,7 +3260,7 @@ fn template_for(
 ///
 /// `cc_display::model::Config` is deliberately a *separate* type from
 /// `cc_config::Config`: the display crate is a pure renderer with 48 goldens and
-/// a pixel-parity oracle against real U8g2, and it has no business knowing about
+/// a pixel-for-pixel comparison against real U8g2, and it has no business knowing about
 /// Wi-Fi credentials or the NVS blob. The consequence is that this mapping
 /// exists, and it is the seam where a new display-relevant parameter has to be
 /// wired up by hand — which is the point.

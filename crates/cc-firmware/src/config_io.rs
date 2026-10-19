@@ -12,7 +12,7 @@
 //! * [`drain_scale`] — the scale's *events*, drained every tick and persisted,
 //!   because dropping a completed tare loses an operator's action.
 //!
-//! The call sites decide the behaviour: `push_into_machine` and the three `persist_*`
+//! The call sites decide the behaviour: `push_into_machine` and the three `persist`
 //! calls run inside the control tick, and `drain_scale` runs at step 7b, *after* the
 //! applier, because its NVS commit must not sit between the reducer's decision and the
 //! pins.

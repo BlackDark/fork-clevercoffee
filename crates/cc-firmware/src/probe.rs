@@ -71,7 +71,7 @@ fn probe_from_config(config: &cc_config::Config) -> TemperatureSensorType {
 /// The `DS18B20`'s ROM code on this machine, in the device's byte order.
 ///
 /// Measured, not assumed: `0x41af78cdaa376928`, family `0x28`, printed in wire order
-/// (least-significant byte first) — see `cc_domain::onewire`'s
+/// (least-significant byte first) — see `cc_protocol::sensor::onewire`'s
 /// `the_logged_rom_is_printed_least_significant_byte_first`. A mismatch is reported
 /// rather than tolerated, because a wrong ROM means the driver is addressing a device
 /// that is not there.
