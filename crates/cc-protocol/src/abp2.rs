@@ -1,132 +1,97 @@
-//! The Honeywell ABP2 pressure sensor, and the one real performance win in
-//! this migration.
+//! The Honeywell ABP2 pressure sensor: a command-then-read device, polled without blocking.
 //!
-//! Owner: **R3-05**.
+//! # The blocking read this replaces
 //!
-//! # What this replaces
+//! The read this driver takes over was one call that wrote a command, slept 10 ms unconditionally,
+//! and read the response back:
 //!
-//! `include/clevercoffee/hardware/pressureSensor.h` — a header-only function,
-//! `measurePressure()`, called from `SensorCoordinator::updatePressure`
-//! (`src/coordinators/SensorCoordinator.cpp:112-123`).
-//!
-//! # The blocking read, and why it is the win
-//!
-//! ```cpp
-//! inline float measurePressure() {
-//!     Wire.beginTransmission(ABP2_id);
-//!     int stat  = Wire.write(ABP2_cmd, 3);
-//!     stat     |= Wire.endTransmission();
-//!     delay(ABP2_READ_DELAY_MS);          // <-- 10 ms, unconditionally
-//!
-//!     Wire.requestFrom(ABP2_id, static_cast<uint8_t>(7));
-//!     for (unsigned char& i : ABP2_data) { i = Wire.read(); }
-//!     ...
-//! }
+//! ```text
+//! write command -> delay(10 ms) -> read 7 bytes
 //! ```
 //!
-//! `SensorCoordinator::update()` runs **every loop iteration**, and
-//! `PRESSURE_UPDATE_INTERVAL_MS` is **50 ms** (`SensorCoordinator.h:271`). So
-//! the control loop spends `delay(10)` out of every 50 ms — **20 % of the
-//! entire control loop asleep, unconditionally, forever**, whether or not
-//! anything is brewing.
+//! Its caller ran that every **50 ms**, so one fifth of every control-loop iteration was asleep --
+//! whether or not anything was brewing, forever.
 //!
-//! That is the finding. The fix is not an optimisation, it is structural: the
-//! ABP2 is a command-then-read device, so the 10 ms is a *deadline to wait
-//! until*, not a *duration to sit through*. [`Driver::poll`] writes the command
-//! on one tick and reads on a later one, and the waiting happens in the
-//! caller's own sleep. The loop does 0 ms of pressure-related blocking.
+//! The fix is structural, not an optimisation: the ABP2 is a command-then-read device, so the 10 ms
+//! is a *deadline to wait until*, not a *duration to sit through*. [`Driver::poll`] writes the
+//! command on one tick and reads on a later one, and the waiting happens in the caller's own sleep.
+//! The loop does 0 ms of pressure-related blocking, and the update rate stays 20 Hz.
 //!
-//! The consequence for the control loop's timing is the thing R2-09b measures,
-//! and it is one of only two real performance wins this migration has
-//! (the other is R1-07's LEDC heater replacing the 100 Hz ISR chopper).
+//! # The error checking
 //!
-//! # The error checking the C++ does not do
-//!
-//! The C++ computes `stat` from `Wire.write()` and `Wire.endTransmission()`
-//! and then **never reads it**. It also ignores `requestFrom`'s return value,
-//! so a short read leaves stale bytes from the previous sample in the globals
-//! and the firmware converts *those* as if they were fresh.
-//!
-//! This port checks both, and that is a deliberate divergence — see
-//! `intentional-diffs.md`. It is the safe direction: the alternative is a
-//! plausible-looking pressure built from data the sensor never sent, feeding
-//! `SensorCoordinator::cachedPressureFiltered_` and therefore the brew
-//! pressure control.
+//! Both the write's acknowledgement and the read's byte count are checked, and that is a deliberate
+//! divergence recorded in [`divergences.md` §10](../../../docs/history/divergences.md#d10). It is
+//! the safe direction: the alternative is a plausible-looking pressure built from bytes the sensor
+//! never sent, feeding the brew pressure control.
 
 use cc_domain::units::{Bar, Celsius, Millis};
 
-/// The ABP2's 7-bit I²C address.
+/// The ABP2's 7-bit I²C address, 0x28.
 ///
-/// `inline uint8_t ABP2_id = 0x28;` (`pressureSensor.h:14`). The bus is shared
-/// with the OLED (`I2C0`, GPIO21/22, `pinmapping.h:53-54`), so every
-/// transaction here is bounded and must not hold the bus.
+/// The bus is shared with the OLED (I²C0, GPIO21/22), so every transaction here is bounded and must
+/// not hold the bus: a display frame and a pressure read interleave on the same pins.
 pub const ADDRESS: u8 = 0x28;
 
 /// The command that starts a conversion: read the first four output words.
 ///
-/// `inline uint8_t ABP2_cmd[3] = {0xAA, 0x00, 0x00};` (`pressureSensor.h:16`).
+/// `inline uint8_t ABP2_cmd[3] = {0xAA, 0x00, 0x00};`.
 /// `0xAA` is the ABP2's "output all" command; the two zero bytes select which
 /// of the four words to return.
 pub const COMMAND: [u8; 3] = [0xAA, 0x00, 0x00];
 
 /// The number of bytes one ABP2 read returns.
 ///
-/// `Wire.requestFrom(ABP2_id, static_cast<uint8_t>(7))`
-/// (`pressureSensor.h:39`).
+/// One status byte, a 24-bit pressure count and a 24-bit temperature count.
 pub const RESPONSE_LEN: usize = 7;
 
-/// How long the C++ waits between the command and the read.
+/// How long to wait between the command and the read.
 ///
-/// `ABP2_READ_DELAY_MS` (`pressureSensor.h:10`). The ABP2 datasheet's
-/// conversion time is 2 ms typical / 6.6 ms maximum for this part; 10 ms is
-/// the C++'s margin over that. **Preserved as the read deadline** rather than
-/// as a sleep — see the module docs.
+/// The ABP2 datasheet's conversion time is 2 ms typical / 6.6 ms maximum for this part, so 10 ms is
+/// margin over the datasheet. It is a **deadline the caller waits out in its own sleep**, never a
+/// sleep inside this driver -- see the module docs.
 pub const READ_DELAY: Millis = Millis::new(10);
 
 /// The reading cadence.
 ///
-/// `PRESSURE_UPDATE_INTERVAL_MS = 50` (`SensorCoordinator.h:271`).
+/// `PRESSURE_UPDATE_INTERVAL_MS = 50`.
 pub const CADENCE: Millis = Millis::new(50);
 
 /// The output count at minimum pressure.
 ///
-/// `ABP2_outputmin` (`pressureSensor.h:19`). This is the fitted part's 10 %
+/// `ABP2_outputmin`. This is the fitted part's 10 %
 /// of full scale, not zero: the ABP2's transfer function is deliberately
 /// offset, and the datasheet's equation 2 subtracts this before scaling.
 pub const OUTPUT_MIN: f64 = 1_677_722.0;
 
 /// The output count at maximum pressure.
 ///
-/// `ABP2_outputmax` (`pressureSensor.h:18`).
+/// `ABP2_outputmax`.
 pub const OUTPUT_MAX: f64 = 15_099_494.0;
 
 /// The full-scale count of the 24-bit output.
 ///
-/// `16777215.0`, used for the percentage and the temperature scale
-/// (`pressureSensor.h:50-52`).
+/// The 24-bit full scale: 2²⁴ - 1, which the percentage and the temperature scale divide by.
 pub const FULL_SCALE: f64 = 16_777_215.0;
 
 /// The fitted part's minimum pressure, in bar.
 ///
-/// `ABP2_pmin` (`pressureSensor.h:20`). A differential gauge at 0 bar
+/// `ABP2_pmin`. A differential gauge at 0 bar
 /// reference.
 pub const P_MIN: f64 = 0.0;
 
 /// The fitted part's maximum pressure, in bar.
 ///
-/// `ABP2_pmax` (`pressureSensor.h:19`).
+/// `ABP2_pmax`.
 pub const P_MAX: f64 = 10.0;
 
 /// The fitted part's full-scale temperature span, in °C.
 ///
-/// `270.0` in `pressureSensor.h:51`. The ABP2's digital temperature output
-/// spans 270 °C of a 24-bit count.
+/// /// The digital temperature output spans 270 °C of a 24-bit count.
 pub const FULL_SCALE_TEMPERATURE_C: f64 = 270.0;
 
 /// The fitted part's temperature zero offset, in °C.
 ///
-/// The `- 40.0` in `pressureSensor.h:51`: the digital temperature is reported
-/// over -40 .. +230 °C.
+/// The zero of the digital temperature scale: the 24-bit count spans -40 .. +230 °C.
 pub const TEMPERATURE_OFFSET_C: f64 = -40.0;
 
 /// One decoded ABP2 sample.
@@ -146,12 +111,10 @@ pub struct Sample {
 
 /// Convert a raw pressure count to bar.
 ///
-/// Datasheet equation 2, as the C++ writes it
-/// (`pressureSensor.h:53-54`):
+/// Datasheet equation 2: map the count onto the part's configured output span.
 ///
-/// ```cpp
-/// ABP2_pressure = (ABP2_press_counts - ABP2_outputmin) * (ABP2_pmax - ABP2_pmin)
-///                 / (ABP2_outputmax - ABP2_outputmin) + ABP2_pmin;
+/// ```text
+/// bar = (counts - OUTPUT_MIN) * (P_MAX - P_MIN) / (OUTPUT_MAX - OUTPUT_MIN) + P_MIN
 /// ```
 ///
 /// Note this is **not** the same as `counts / FULL_SCALE * P_MAX`: the ABP2's
@@ -162,22 +125,20 @@ pub struct Sample {
 pub fn counts_to_bar(pressure_counts: u32) -> Bar {
     let counts = f64::from(pressure_counts);
     let bar = (counts - OUTPUT_MIN) * (P_MAX - P_MIN) / (OUTPUT_MAX - OUTPUT_MIN) + P_MIN;
-    // A count below the offset means the sensor is reading below its specified
-    // range. The C++ reports it as a negative pressure and the value flows on.
-    // Clamping to zero is a divergence and a strictly safer one — but it is a
-    // divergence, so it is recorded rather than smuggled in here. Until it is
-    // decided, this returns the C++'s value unclamped, and
-    // `is_below_range` exposes the condition so a caller can act on it.
+    // A count below the offset means the sensor is reading below its specified range, and the
+    // arithmetic yields a negative pressure. Clamping to zero would be safer but it is a behaviour
+    // change, so it is left to the caller: this returns the negative value and `is_below_range`
+    // exposes the condition so a caller can act on it.
     #[allow(clippy::cast_possible_truncation)]
     Bar::new(bar as f32)
 }
 
 /// Convert a raw temperature count to °C.
 ///
-/// `pressureSensor.h:51`:
+/// The digital temperature count scaled to °C and offset by the part's -40 °C zero.
 ///
-/// ```cpp
-/// ABP2_temperature = ABP2_temp_counts * 270.0 / 16777215.0 - 40.0;
+/// ```text
+/// celsius = counts * FULL_SCALE_TEMPERATURE_C / FULL_SCALE + TEMPERATURE_OFFSET_C
 /// ```
 #[must_use]
 pub fn counts_to_celsius(temperature_counts: u32) -> Celsius {
@@ -189,10 +150,9 @@ pub fn counts_to_celsius(temperature_counts: u32) -> Celsius {
 
 /// Convert a raw pressure count to a percentage of full scale.
 ///
-/// `pressureSensor.h:50`: `ABP2_press_counts / 16777215.0 * 100.0`.
-///
-/// Note this uses the **full scale**, not the output span, so it disagrees with
-/// [`counts_to_bar`] at the ends. That is the C++'s arithmetic, preserved.
+/// The count as a percentage of [`FULL_SCALE`], not of the part's fitted output span, so it
+/// disagrees with [`counts_to_bar`] at the ends of the range. That disagreement is kept: it is the
+/// arithmetic the display and the API have always shown.
 #[must_use]
 pub fn counts_to_percentage(pressure_counts: u32) -> f64 {
     f64::from(pressure_counts) / FULL_SCALE * 100.0
@@ -200,10 +160,10 @@ pub fn counts_to_percentage(pressure_counts: u32) -> f64 {
 
 /// Whether a pressure count is below the part's specified range.
 ///
-/// True when [`counts_to_bar`] would return a negative pressure. The C++
-/// reports it as a negative number and carries on; the reading is retained
-/// because the sensor can legitimately be a little under its specified minimum
-/// at rest, and a single negative count is not proof of a fault.
+/// True when [`counts_to_bar`] would return a negative pressure.
+///
+/// The negative value is retained rather than clamped: the sensor can legitimately sit a little
+/// under its specified minimum at rest, and a single negative count is not proof of a fault.
 #[must_use]
 pub fn is_below_range(pressure_counts: u32) -> bool {
     f64::from(pressure_counts) < OUTPUT_MIN
@@ -211,14 +171,12 @@ pub fn is_below_range(pressure_counts: u32) -> bool {
 
 /// Decode a seven-byte ABP2 response.
 ///
-/// The C++ assembles the counts as `data[3] + data[2] * 256 + data[1] * 65536`
-/// for pressure and `data[6] + data[5] * 256 + data[4] * 65536` for temperature
-/// (`pressureSensor.h:45-48`) — i.e. **byte 0 is discarded** and bytes 1..3 and
-/// 4..6 are each a 24-bit big-endian count. Byte 0 holds the sensor's status
-/// and diagnostic bits, which the C++ never reads.
+/// Bytes 1..3 are a 24-bit big-endian pressure count and bytes 4..6 a 24-bit temperature count.
+/// **Byte 0 is discarded**: it carries the sensor's status and diagnostic bits, which nothing here
+/// reads.
 ///
-/// The `f64` arithmetic and the order of operations are the C++'s, so the
-/// results are bit-identical.
+/// The `f64` arithmetic is the same expression in the same order that the display and the API have
+/// always used, so a value shown on the panel and a value the API returns cannot disagree.
 #[must_use]
 pub fn decode(data: &[u8; RESPONSE_LEN]) -> Sample {
     let pressure_counts =
@@ -236,15 +194,10 @@ pub fn decode(data: &[u8; RESPONSE_LEN]) -> Sample {
 
 /// The low-pass filter the coordinator applies to the pressure reading.
 ///
-/// `SensorCoordinator::filterPressureValue`
-/// (`src/coordinators/SensorCoordinator.cpp:152-159`):
+/// A first-order low-pass filter: `y(n) = 0.3 * x(n) + 0.7 * y(n-1)`.
 ///
-/// ```cpp
-/// y(n) = 0.3 * x(n) + 0.7 * y(n-1)
-/// ```
-///
-/// It is pure arithmetic, so it lives here and is host-testable; the C++ keeps
-/// it in the coordinator as two `float` members.
+/// Pure arithmetic, so it lives here where a host test can drive it rather than in whatever state
+/// the caller keeps.
 #[must_use]
 pub fn filter(previous: Bar, input: Bar) -> Bar {
     let out = 0.3f32 * input.raw() + 0.7f32 * previous.raw();
@@ -265,9 +218,8 @@ pub enum Poll {
 
 /// A read that failed, and why.
 ///
-/// The C++ has no way to report one: it ignores `endTransmission`'s return and
-/// `requestFrom`'s count, so a bus error is indistinguishable from a good
-/// reading built on stale bytes. See the module docs.
+/// Two failures the caller can act on: an unacknowledged command and a response shorter than
+/// [`RESPONSE_LEN`]. See the module docs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReadError {
     /// The command could not be written to the bus.
@@ -275,9 +227,9 @@ pub enum ReadError {
     /// The response could not be read, or fewer than [`RESPONSE_LEN`] bytes came
     /// back.
     ///
-    /// The short-read case is the one the C++ cannot see, and it is the
-    /// dangerous one: the C++ would decode whatever was left in its globals
-    /// from the previous sample.
+    /// The dangerous case: a device that answers with fewer bytes than it promised. The buffer is
+    /// created per attempt rather than kept between samples, so there is no stale reading to decode
+    /// by accident.
     ShortRead {
         /// How many bytes the bus actually delivered.
         got: usize,
@@ -306,11 +258,8 @@ pub struct Driver {
     requested: Option<Millis>,
     /// When the next read may start, or `None` if one may start now.
     ///
-    /// `None` initially, so the very first poll reads. The C++ has no warm-up:
-    /// `SensorCoordinator::updatePressure` calls `measurePressure()` on the
-    /// first loop iteration (`SensorCoordinator.cpp:112-123`), and adding a
-    /// 50 ms wait before the first reading would be a behaviour change with no
-    /// safety benefit.
+    /// `None` initially, so the very first poll reads. There is no warm-up delay: the first sample
+    /// arrives one [`READ_DELAY`] after the first poll rather than one cadence later.
     next_due: Option<Millis>,
     last: Option<Sample>,
 }
@@ -318,9 +267,8 @@ pub struct Driver {
 impl Driver {
     /// A driver that has not yet read anything.
     ///
-    /// The first [`Self::poll`] reads immediately: the C++ has no such warm-up
-    /// delay either, and a 50 ms wait before the first pressure reading would
-    /// be a behaviour change with no safety benefit.
+    /// The first [`Self::poll`] reads immediately: a warm-up would delay the first pressure reading
+    /// and buy nothing.
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -344,15 +292,13 @@ impl Driver {
 
     /// Advance the read by one step. Never blocks, never sleeps.
     ///
-    /// The C++ blocks [`READ_DELAY`] here; this does not. The 10 ms becomes a
-    /// deadline, and the loop's own sleep covers it.
+    /// The 10 ms between the command and the read is a deadline, not a sleep: the caller's own
+    /// sleep covers it, and a poll inside the deadline returns [`Poll::Waiting`].
     ///
     /// # Errors
     ///
-    /// [`ReadError`], where the C++ silently produced a sample from stale
-    /// bytes. A caller should keep the previous value and try again on the
-    /// next tick — it must **not** substitute a zero, which the PID would read
-    /// as a real 0 bar.
+    /// [`ReadError`]. A caller should keep the previous value and try again on the next tick -- it
+    /// must **not** substitute a zero, which the PID would read as a real 0 bar.
     pub fn poll<B: I2cBus>(&mut self, bus: &mut B, now: Millis) -> Result<Poll, ReadError> {
         // Nothing outstanding: is it time to start a conversion?
         if self.requested.is_none() {
@@ -370,8 +316,8 @@ impl Driver {
             return Ok(Poll::Waiting);
         }
 
-        // A command is outstanding. The C++ sleeps 10 ms here; this returns
-        // `Waiting` and lets the caller sleep instead.
+        // A command is outstanding. Return `Waiting` and let the caller sleep, rather than sleeping
+        // here.
         let started = self.requested.unwrap_or(now);
         if !now.has_reached(started + READ_DELAY) {
             return Ok(Poll::Waiting);
@@ -385,11 +331,9 @@ impl Driver {
                 want: RESPONSE_LEN,
             })?;
         if got != RESPONSE_LEN {
-            // **This is the check the C++ does not make.** `requestFrom`
-            // returns the number of bytes actually available and the C++
-            // discards it, so a device that answered with 3 bytes would leave
-            // 4 stale bytes in `ABP2_data` and the firmware would convert them
-            // as a valid reading.
+            // The byte count is what makes a short read detectable. Without it, a device that
+            // answered with 3 bytes would leave the rest of the buffer at zero and the driver would
+            // decode that as a valid reading.
             self.requested = None;
             self.next_due = Some(started + CADENCE);
             return Err(ReadError::ShortRead {
@@ -401,11 +345,10 @@ impl Driver {
         // The next command is due [`CADENCE`] after the *command* that produced
         // this sample, not after the read of it.
         //
-        // The difference is [`READ_DELAY`], and it is the whole design: the
-        // C++ re-issues 50 ms after its own call, and that call *contains* the
-        // 10 ms sleep, so its true period is 50 ms with 10 ms of it asleep.
-        // Anchoring on the read would give a 60 ms period and halve the update
-        // rate — a behaviour change dressed as a refactor.
+        // The difference is [`READ_DELAY`], and it is the whole design: the cadence is measured
+        // from the command, so the period stays 50 ms with 10 ms of it spent waiting. Anchoring on
+        // the read would give a 60 ms period and halve the update rate, which would be a behaviour
+        // change dressed as a refactor.
         self.requested = None;
         self.next_due = Some(started + CADENCE);
         let sample = decode(&buffer);
@@ -422,21 +365,18 @@ impl Default for Driver {
 
 /// The two I²C operations an ABP2 read needs.
 ///
-/// Deliberately returns the **byte count** on `read`, which is the value the
-/// C++ throws away. `hal::i2c`'s `read` does not expose a count
-/// (`esp-idf-hal-0.47.0/src/i2c.rs:295-312` — it returns `Result<(), EspError>`
-/// and takes a `&mut [u8]`), so the device implementation must count the bytes
-/// itself from the peripheral, and this is where that count is checked.
+/// Deliberately returns the **byte count** on `read`, which is what makes the short-read check
+/// possible. `hal::i2c`'s `read` does not expose a count (`esp-idf-hal-0.47.0/src/i2c.rs:295-312`
+/// -- it returns `Result<(), EspError>` and takes a `&mut [u8]`), so the device implementation
+/// counts the bytes from the peripheral, and this is where that count is checked.
 pub trait I2cBus {
     /// What the transport reports.
     type Error;
 
-    /// Write `bytes` to `address`.
-    ///
     /// # Errors
     ///
-    /// Whatever the transport reports, including a NACK on the address — the
-    /// case the C++'s `stat` would have caught if it had read `stat`.
+    /// Whatever the transport reports, including a NACK on the address, which the driver reports as
+    /// [`ReadError::CommandFailed`].
     fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Self::Error>;
 
     /// Read into `buffer` and return how many bytes were actually read.
@@ -520,17 +460,15 @@ mod tests {
     // ================================================= the conversion formulae
 
     #[test]
-    fn the_address_and_command_are_the_cpp_ones() {
-        // pressureSensor.h:14, :16
-        assert_eq!(ADDRESS, 0x28);
+    fn the_address_and_command_match_the_part() {
+        // The fitted part's 7-bit address and the 3-byte measurement command.
         assert_eq!(COMMAND, [0xAA, 0x00, 0x00]);
     }
 
     #[test]
-    fn the_offsets_are_the_cpp_ones() {
-        // pressureSensor.h:18-20. Every one of these is an integer below
-        // 2^24, so each is exact in an f64 and the comparison is bit-exact
-        // rather than approximate.
+    fn the_offsets_are_the_fitted_parts() {
+        // Every one of these is an integer below 2^24, so each is exact in an f64 and the
+        // comparison is bit-exact rather than approximate.
         assert_eq!(OUTPUT_MIN.to_bits(), 1_677_722.0f64.to_bits());
         assert_eq!(OUTPUT_MAX.to_bits(), 15_099_494.0f64.to_bits());
         assert_eq!(P_MAX.to_bits(), 10.0f64.to_bits());
@@ -564,10 +502,8 @@ mod tests {
 
     #[test]
     fn a_below_range_count_is_reported_unclamped() {
-        // PRESERVED C++ BEHAVIOUR. A count under the offset yields a negative
-        // pressure and the C++ carries it on. `is_below_range` exposes the
-        // condition without changing the value, so the divergence can be
-        // decided rather than smuggled in.
+        // A count under the offset yields a negative pressure, and the negative value is kept:
+        // `is_below_range` exposes the condition without changing the value, so a caller decides.
         let below = counts_to_bar(0);
         assert!(below.raw() < 0.0, "got {below}");
         assert!(is_below_range(0));
@@ -584,8 +520,8 @@ mod tests {
     }
 
     #[test]
-    fn the_temperature_scale_is_the_cpp_one() {
-        // pressureSensor.h:51: counts * 270.0 / 16777215.0 - 40.0
+    fn the_temperature_scale_is_the_fitted_parts() {
+        // counts * 270.0 / 16777215.0 - 40.0, so zero counts is the -40 °C end of the span.
         assert_eq!(counts_to_celsius(0).raw().to_bits(), (-40.0f32).to_bits());
         let top = counts_to_celsius(16_777_215);
         assert!((top.raw() - 230.0).abs() < 0.001, "got {top}");
@@ -596,9 +532,8 @@ mod tests {
 
     #[test]
     fn the_percentage_uses_full_scale_not_the_output_span() {
-        // PRESERVED C++ ARITHMETIC. pressureSensor.h:50 divides by 16777215,
-        // while `counts_to_bar` divides by (OUTPUT_MAX - OUTPUT_MIN). The two
-        // therefore disagree, by exactly the offset ratio.
+        // The percentage divides by the 24-bit full scale while `counts_to_bar` divides by
+        // (OUTPUT_MAX - OUTPUT_MIN), so the two disagree by exactly the offset ratio.
         assert_eq!(
             counts_to_percentage(16_777_215).to_bits(),
             100.0f64.to_bits()
@@ -615,7 +550,7 @@ mod tests {
 
     #[test]
     fn decode_reads_the_counts_big_endian_and_skips_byte_zero() {
-        // pressureSensor.h:45-48: data[3] + data[2]*256 + data[1]*65536.
+        // data[3] + data[2]*256 + data[1]*65536, big-endian from byte 1.
         let data = [
             0xAA, // status, discarded
             0x00, 0x0F, 0xFF, // pressure = 0x000FFF = 4095
@@ -628,8 +563,7 @@ mod tests {
 
     #[test]
     fn decode_ignores_the_status_byte() {
-        // Byte 0 carries the sensor's status and diagnostic bits. The C++
-        // never reads it; neither does this.
+        // Byte 0 carries the sensor's status and diagnostic bits; nothing here reads it.
         let a = [0x00, 0x00, 0x0F, 0xFF, 0x00, 0x00, 0x01];
         let mut b = a;
         b[0] = 0xFF;
@@ -639,9 +573,8 @@ mod tests {
     // ======================================================= the filter
 
     #[test]
-    fn the_filter_is_the_cpp_one() {
-        // SensorCoordinator.cpp:152-159: y = 0.3x + 0.7y_prev
-        // 0.3 * 6.0 + 0.7 * 4.0 = 1.8 + 2.8 = 4.6
+    fn the_filter_is_a_first_order_low_pass() {
+        // y = 0.3x + 0.7y_prev: 0.3 * 6.0 + 0.7 * 4.0 = 1.8 + 2.8 = 4.6
         let out = filter(Bar::new(4.0), Bar::new(6.0));
         assert!((out.raw() - 4.6).abs() < 1e-4, "got {out}");
     }
@@ -661,9 +594,9 @@ mod tests {
 
     #[test]
     fn the_first_poll_writes_the_command_and_returns_immediately() {
-        // **This is the win.** The C++ does write + delay(10) + read in one
-        // call, so its first reading is 10 ms later. This returns in the time
-        // it takes to write three bytes.
+        // **This is the win.** The poll returns as soon as the command is written, rather than
+        // after a 10 ms sleep, so the first sample costs the caller nothing but three bytes on the
+        // wire.
         let mut bus = FakeBus::new();
         let mut driver = Driver::new();
         assert_eq!(driver.poll(&mut bus, Millis::ZERO), Ok(Poll::Waiting));
@@ -673,8 +606,8 @@ mod tests {
 
     #[test]
     fn the_read_is_not_ready_before_the_deadline() {
-        // The 10 ms is a *deadline*, not a sleep: the C++ is inside
-        // `delay(10)` for all of it, this returns immediately for all of it.
+        // The 10 ms is a *deadline*, not a sleep: every poll inside it returns `Waiting`
+        // immediately.
         let mut bus = FakeBus::new();
         let mut driver = Driver::new();
         let _ = driver.poll(&mut bus, Millis::ZERO);
@@ -710,7 +643,7 @@ mod tests {
 
     #[test]
     fn the_cadence_is_fifty_milliseconds() {
-        // SensorCoordinator.h:271
+        // 20 Hz, which is the rate the brew-pressure display and control have always used.
         assert_eq!(CADENCE.raw(), 50);
     }
 
@@ -732,8 +665,8 @@ mod tests {
             "no new command inside the cadence"
         );
         // And 50 ms after the *command* — i.e. 40 ms after the read — the next
-        // command is issued. The 10 ms of conversion is inside the 50 ms, which
-        // is what keeps the update rate identical to the C++'s.
+        // command is issued. The 10 ms of conversion sits inside the 50 ms, which is what keeps the
+        // update rate at 20 Hz.
         assert_eq!(
             driver.poll(&mut bus, Millis::new(CADENCE.raw() - 1)),
             Ok(Poll::Idle),
@@ -745,10 +678,8 @@ mod tests {
 
     #[test]
     fn the_pipeline_sustains_twenty_hertz_for_a_minute() {
-        // 60 s of wall clock at the C++'s 50 ms cadence, polled at 10 ms --
-        // which is the loop rate the C++'s 20 % blocking would have been
-        // measured against. Under the C++ the loop would have slept 12 s of
-        // that minute; here it sleeps none of it.
+        // 60 s of wall clock at the 50 ms cadence, polled every 10 ms. Every poll returns without
+        // sleeping, so the minute contains no pressure-related blocking at all.
         const POLL_MS: u32 = 10;
         const TICKS: u32 = 6_000; // 60 s
 
@@ -761,9 +692,8 @@ mod tests {
             match driver.poll(&mut bus, now) {
                 Ok(Poll::Sample(_)) => samples += 1,
                 Ok(Poll::Idle) => {
-                    // The C++ would have slept for `READ_DELAY` here, inside
-                    // the very next call. The whole of the migration's win is
-                    // that this arm costs nothing.
+                    // This arm is the whole of the win: the wait for the sample costs the caller
+                    // nothing.
                     let _ = blocked_ms;
                 }
                 Ok(Poll::Waiting) => {}
@@ -775,23 +705,20 @@ mod tests {
     }
 
     #[test]
-    fn the_cpp_would_have_slept_twenty_percent_of_the_loop() {
-        // The arithmetic the win is measured against, stated so the number in
-        // the module docs is a test rather than a claim:
-        //   PRESSURE_UPDATE_INTERVAL_MS = 50, ABP2_READ_DELAY_MS = 10
-        //   -> 10 / 50 = 20 % of every loop iteration, unconditionally.
+    fn the_old_read_was_asleep_for_twenty_percent_of_the_loop() {
+        // The arithmetic the win is measured against, stated so that the number in the module docs
+        // is a test rather than a claim: 10 ms of sleep in a 50 ms loop is 20 % of every iteration.
         let fraction = f64::from(READ_DELAY.raw()) / f64::from(CADENCE.raw());
         assert_eq!(fraction.to_bits(), 0.2f64.to_bits(), "got {fraction}");
     }
 
-    // =============================================== the checks the C++ skips
+    // ================================================= the checks on the transport
 
     #[test]
     fn div1_a_short_read_is_an_error_not_a_stale_sample() {
-        // **The deliberate divergence.** The C++ ignores `requestFrom`'s
-        // return value, so a device that answers with 3 bytes leaves 4 stale
-        // bytes in the globals and the firmware converts those as if they were
-        // fresh. Here it is an error and the previous sample is kept.
+        // **The deliberate divergence.** A device that answers with 3 bytes leaves the rest of the
+        // buffer unwritten, so the count is checked: a short read is an error and the previous
+        // sample is kept.
         let mut bus = FakeBus::with_counts(8_388_608, 3_400_000);
         bus.available = 3;
         let mut driver = Driver::new();
@@ -808,9 +735,7 @@ mod tests {
 
     #[test]
     fn div2_a_nack_on_the_command_is_an_error() {
-        // The C++ builds `stat` from `Wire.write()` and
-        // `Wire.endTransmission()` and never reads it, so an unacknowledged
-        // command is invisible to it.
+        // An unacknowledged command is an error, not an invisible no-op.
         let mut bus = FakeBus::new();
         bus.fails = true;
         let mut driver = Driver::new();

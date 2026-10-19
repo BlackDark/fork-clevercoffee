@@ -1,21 +1,15 @@
-//! # Schema, round-trip and redaction tests for `cc-config` — task R2-06.
+//! # Schema, round-trip and redaction tests for `cc-config`.
 //!
-//! The C++ oracle for this area is `test/test_config` (7 cases) and
-//! `test/test_config_json` (4 cases); the assertions below carry over the
-//! `test_config_json` cases that have a Rust equivalent (`usesFlatDotKeys`,
-//! nested get/set, sibling preservation, missing-path handling) and add the ones
-//! the C++ cannot express because it has no typed configuration value.
+//! The schema's shape is pinned here rather than in the crate: 98 registered keys,
+//! every key readable, every key's compiled-in default equal to the same field's
+//! value in `Config::default()`, and the round trip through both JSON entry points
+//! intact. Those are the properties a schema change breaks.
 //!
 //! # There is no store fake in this file
 //!
-//! There used to be a `MemStore` here (`tests/support/`) implementing the
-//! `ConfigStore` trait, and seven tests driving it. Both are gone. `MemStore`
-//! stored a `Config` in an `Option`, so all seven asserted that the fake worked,
-//! not that the firmware's store does — and six of the seven had a twin in
-//! `src/blob_store.rs` that drives the real [`cc_config::BlobConfigStore`] over
-//! `MemoryBackend`, a fake of the *medium* rather than of the format. Deleting
-//! `ConfigStore` (finding 4.6) removed the fake's reason to exist and this file
-//! dropped with it; the format is tested where it lives.
+//! The store is tested where it lives: [`cc_config::BlobConfigStore`] over
+//! `MemoryBackend`, a fake of the *medium* rather than of the format. A fake of the
+//! format — a `Config` in an `Option` — would only assert that the fake works.
 
 // `clippy::assert_is_empty` is new in clippy 1.99, the channel `just lint`
 // runs on when `CC_RUST_TOOLCHAIN=stable` (the CI host gate). It is silenced
@@ -41,15 +35,14 @@ use cc_domain::units::Celsius;
 #[test]
 fn the_schema_registers_ninety_eight_parameters() {
     assert_eq!(schema::SCHEMA.len(), 98);
-    // 96 registered by `Config::getAllConfigParams()`, plus the two the C++
-    // defines but forgets.
-    let cxx_registered = schema::SCHEMA.len() - 2;
-    assert_eq!(cxx_registered, 96);
+    // 96 editable over MQTT, plus the two `safety.*` parameters that are
+    // registered for persistence only.
+    let mqtt_visible = schema::SCHEMA.len() - 2;
+    assert_eq!(mqtt_visible, 96);
 }
 
-/// The regression test for finding 1 of 01 §10. Against the C++ this
-/// configuration change does not survive a reboot, and there is nothing to
-/// test.
+/// The emergency threshold survives a store round trip. A parameter that is not
+/// registered cannot be persisted, so this is the test that says these two are.
 #[test]
 fn the_emergency_temperature_is_persisted_and_comes_back() {
     let mut config = Config::default();
@@ -118,52 +111,28 @@ fn count_leaves(value: &serde_json::Value, count: &mut usize) {
 }
 
 #[test]
-fn defaults_match_the_cpp_defaults_h() {
+fn the_defaults_are_the_documented_values() {
     let c = Config::default();
-    assert!(!c.pid.enabled, "defaults.h / Config.h:733");
-    assert!(
-        (c.pid.ema_factor - 0.6).abs() < 1e-12,
-        "EMA_FACTOR, defaults.h:32"
-    );
-    assert!(
-        (c.pid.regular.kp - 62.0).abs() < 1e-12,
-        "AGGKP, defaults.h:24"
-    );
-    assert!(
-        (c.pid.regular.tn - 52.0).abs() < 1e-12,
-        "AGGTN, defaults.h:25"
-    );
-    assert!(
-        (c.pid.regular.tv - 11.5).abs() < 1e-12,
-        "AGGTV, defaults.h:26"
-    );
+    assert!(!c.pid.enabled, "pid.enabled");
+    assert!((c.pid.ema_factor - 0.6).abs() < 1e-12, "pid.ema_factor");
+    assert!((c.pid.regular.kp - 62.0).abs() < 1e-12, "pid.regular.kp");
+    assert!((c.pid.regular.tn - 52.0).abs() < 1e-12, "pid.regular.tn");
+    assert!((c.pid.regular.tv - 11.5).abs() < 1e-12, "pid.regular.tv");
     assert!(
         (c.pid.regular.i_max - 55.0).abs() < 1e-12,
-        "AGGIMAX, defaults.h:27"
+        "pid.regular.i_max"
     );
-    assert!(
-        (c.pid.steam.kp - 150.0).abs() < 1e-12,
-        "STEAMKP, defaults.h:28"
-    );
-    assert!(
-        (c.brew.setpoint - 95.0).abs() < 1e-12,
-        "SETPOINT, defaults.h:18"
-    );
-    assert!(
-        (c.brew.temp_offset - 0.0).abs() < 1e-12,
-        "TEMPOFFSET, defaults.h:19"
-    );
-    assert!(
-        (c.steam.setpoint - 120.0).abs() < 1e-12,
-        "STEAMSETPOINT, defaults.h:20"
-    );
+    assert!((c.pid.steam.kp - 150.0).abs() < 1e-12, "pid.steam.kp");
+    assert!((c.brew.setpoint - 95.0).abs() < 1e-12, "brew.setpoint");
+    assert!((c.brew.temp_offset - 0.0).abs() < 1e-12, "brew.temp_offset");
+    assert!((c.steam.setpoint - 120.0).abs() < 1e-12, "steam.setpoint");
     assert!(
         (c.safety.emergency_temp - 150.0).abs() < 1e-12,
-        "Config.h:815"
+        "safety.emergency_temp"
     );
     assert!(
         (c.safety.emergency_hysteresis - 5.0).abs() < 1e-12,
-        "Config.h:824"
+        "safety.emergency_hysteresis"
     );
     assert_eq!(
         c.hardware.relays.heater.trigger_type,
@@ -182,8 +151,7 @@ fn defaults_match_the_cpp_defaults_h() {
 }
 
 #[test]
-fn derived_pid_tunings_match_the_cpp_calculation() {
-    // ProcessController::calculatePIDParameters(), src/control/ProcessController.cpp:382-390
+fn derived_pid_tunings_are_kp_over_tn_and_tv_times_kp() {
     let c = Config::default();
     let (kp, ki, kd) = c.pid_tunings();
     assert!((kp - 62.0).abs() < 1e-12);
@@ -193,7 +161,7 @@ fn derived_pid_tunings_match_the_cpp_calculation() {
 
 #[test]
 fn a_zero_tn_gives_a_zero_ki_rather_than_a_division_by_zero() {
-    // ProcessController.cpp:383-387 explicitly guards this.
+    // The division is guarded, not left to IEEE infinity.
     let mut c = Config::default();
     c.pid.regular.tn = 0.0;
     let (_, ki, _) = c.pid_tunings();
@@ -202,20 +170,18 @@ fn a_zero_tn_gives_a_zero_ki_rather_than_a_division_by_zero() {
 }
 
 #[test]
-fn an_integrator_ceiling_of_zero_is_no_integral_action_not_the_library_default() {
-    // `pid.regular.i_max` is bounded `0 ..= 100` by `SCHEMA`, because the C++
-    // bounds it that way (`defaults.h:71`, `PID_I_MAX_REGULAR_MIN`). The
-    // firmware's only use of it is `SetIntegratorLimits(0, i_max)`
-    // (`ProcessController.cpp:211`), and `PID_v1` **refuses** a window whose
-    // `min >= max` (`PID_v1.cpp:220-231`) — so `i_max == 0` was rejected and
-    // the controller kept `PID_v1`'s own `-100 ..= +100`
-    // (`Controller::DEFAULT_INTEGRATOR_MIN/MAX`). An operator asking for no
-    // integral action got an integrator free to wind to +/-100 of duty, and
-    // both call sites discarded the returned `bool`.
+fn an_integrator_ceiling_of_zero_is_no_integral_action() {
+    // `pid.regular.i_max` is bounded `0 ..= 100` by `SCHEMA` — the floor cannot be
+    // raised above zero without making the schema disagree with the Home Assistant
+    // number entity that publishes it. An integrator window whose `min >= max` is
+    // refused by the controller, so `i_max == 0` would otherwise leave it on its own
+    // `-100 ..= +100` default while reporting a configured ceiling of zero: an
+    // operator asking for no integral action would get an integrator free to wind to
+    // either end of the duty range.
     //
-    // `Ki == 0` is how this codebase already says "no integral action": it is
-    // what a `Tn` of 0 gives, and `Controller::set_tunings` pins the
-    // integrator to zero for it (`PID_v1.cpp:167-169`).
+    // `Ki == 0` is how this codebase already says "no integral action": it is what a
+    // `Tn` of 0 gives, and `Controller::set_tunings` pins the accumulator to zero for
+    // it. §28 of `docs/history/divergences.md` records the decision.
     let mut c = Config::default();
     c.pid.regular.i_max = 0.0;
     let (_, ki, _) = c.pid_tunings();
@@ -232,13 +198,12 @@ fn the_effective_brew_setpoint_includes_the_offset() {
     c.brew.temp_offset = 2.5;
     assert!(
         (c.effective_brew_setpoint() - 97.5).abs() < 1e-12,
-        "the offset compensates a probe that reads low"
+        "the offset compensates a probe that reads consistently off"
     );
 }
 
 #[test]
-fn the_heater_window_is_the_cpp_constant() {
-    // ProcessState.h:183 windowSize_ = 1000
+fn the_heater_window_is_one_second() {
     assert_eq!(Config::HEATER_WINDOW_MS, 1000);
 }
 
@@ -279,8 +244,7 @@ fn a_fully_customised_configuration_survives_a_round_trip() {
 }
 
 #[test]
-fn enums_serialise_as_integers_like_the_cpp() {
-    // Config.h:423 writes `static_cast<int>(currentValue_)`.
+fn enums_serialise_as_integers() {
     let text = json_export(&Config::default()).expect("export");
     assert!(
         text.contains("\"mode\":0"),
@@ -298,7 +262,6 @@ fn enums_serialise_as_integers_like_the_cpp() {
 
 #[test]
 fn the_json_is_nested_not_flat() {
-    // ConfigJson::setNested, src/ConfigJson.cpp:83-106
     let text = json_export(&Config::default()).expect("export");
     let value: serde_json::Value = serde_json::from_str(&text).expect("valid json");
     let kp = value
@@ -314,7 +277,7 @@ fn the_json_is_nested_not_flat() {
 
 #[test]
 fn a_partial_document_leaves_every_other_parameter_at_its_default() {
-    // Config.cpp:328-331 skips absent parameters, exactly as this does.
+    // A key the document does not mention keeps its default.
     let parsed = json_import(r#"{"brew":{"setpoint":88.0}}"#).expect("import");
     assert!((parsed.brew.setpoint - 88.0).abs() < 1e-12);
     assert!(
@@ -326,7 +289,7 @@ fn a_partial_document_leaves_every_other_parameter_at_its_default() {
 
 #[test]
 fn sibling_keys_under_a_shared_parent_are_preserved() {
-    // test_config_json / PreservesSiblingKeysUnderSharedParents
+    // A partial document must not drop the siblings it did not mention.
     let text = r#"{
         "brew": {
             "setpoint": 95.0,
@@ -352,13 +315,11 @@ fn sibling_keys_under_a_shared_parent_are_preserved() {
 
 #[test]
 fn an_empty_body_is_rejected() {
-    // Config.cpp:348
     assert_eq!(json_import(""), Err(ImportError::Empty));
 }
 
 #[test]
 fn a_non_object_root_is_rejected() {
-    // Config.cpp:364
     assert_eq!(json_import("[1,2,3]"), Err(ImportError::NotAnObject));
     assert_eq!(json_import("42"), Err(ImportError::NotAnObject));
     assert_eq!(json_import("\"hello\""), Err(ImportError::NotAnObject));
@@ -367,7 +328,6 @@ fn a_non_object_root_is_rejected() {
 
 #[test]
 fn unparseable_json_is_rejected() {
-    // Config.cpp:353
     assert!(matches!(json_import("{"), Err(ImportError::Syntax { .. })));
     assert!(matches!(
         json_import("not json"),
@@ -377,7 +337,6 @@ fn unparseable_json_is_rejected() {
 
 #[test]
 fn flat_dotted_keys_are_rejected_and_named() {
-    // test_config_json / DetectsFlatTopLevelKeys, and Config.cpp:370.
     match json_import(r#"{"brew.setpoint": 95.0}"#) {
         Err(ImportError::FlatDottedKeys { key }) => assert_eq!(key, "brew.setpoint"),
         other => panic!("expected a flat-key rejection, got {other:?}"),
@@ -386,9 +345,8 @@ fn flat_dotted_keys_are_rejected_and_named() {
 
 #[test]
 fn a_flat_document_with_nested_siblings_is_still_rejected() {
-    // test_config_json / DetectsFlatTopLevelKeys: the check is per *top-level*
-    // key, exactly as `usesFlatDotKeys` is. A dotted key buried inside a
-    // sub-object is not a flat key and is simply an unknown key.
+    // The check is per *top-level* key. A dotted key buried inside a sub-object is
+    // not a flat key; it is simply an unknown key.
     match json_import(r#"{"brew.setpoint": 95.0, "pid": {"enabled": true}}"#) {
         Err(ImportError::FlatDottedKeys { key }) => assert_eq!(key, "brew.setpoint"),
         other => panic!("expected a flat-key rejection, got {other:?}"),
@@ -403,7 +361,7 @@ fn a_flat_document_with_nested_siblings_is_still_rejected() {
 
 #[test]
 fn an_object_with_no_known_key_is_rejected() {
-    // Config.cpp:344: `return updatedCount > 0;`
+    // An import that applied nothing is a failed import, not a successful one.
     assert_eq!(
         json_import(r#"{"nonsense": {"a": 1}}"#),
         Err(ImportError::NoKnownParameters)
@@ -413,7 +371,6 @@ fn an_object_with_no_known_key_is_rejected() {
 
 #[test]
 fn an_oversized_document_is_rejected() {
-    // Config.cpp:359 (`doc.overflowed()`), here an explicit policy.
     let filler = "x".repeat(cc_config::json::MAX_TEXT_LEN + 64);
     let text = format!(r#"{{"system":{{"hostname":"{filler}"}}}}"#);
     assert!(
@@ -427,8 +384,8 @@ fn an_oversized_document_is_rejected() {
 
 #[test]
 fn a_value_over_its_range_rejects_the_whole_import() {
-    // Deliberately stricter than the C++, which logs a warning and continues
-    // (Config.cpp:331-342) and then reports success.
+    // All-or-nothing, deliberately: a warn-and-continue import answers `200` and
+    // leaves the machine on the old value.
     match json_import(r#"{"brew":{"setpoint":500.0}}"#) {
         Err(ImportError::InvalidValues { rejected }) => {
             assert_eq!(rejected.len(), 1);
@@ -511,7 +468,7 @@ fn a_legitimate_low_trigger_pump_relay_is_accepted() {
 
 #[test]
 fn a_leaf_where_an_object_belongs_is_treated_as_absent() {
-    // ConfigJson::getNested returns null and the parameter is skipped.
+    // The group is simply not present at that path, so the default stands.
     let parsed = json_import(r#"{"brew":{"setpoint":88.0,"by_time":7}}"#).expect("import");
     assert!(
         (parsed.brew.setpoint - 88.0).abs() < 1e-12,
@@ -533,8 +490,8 @@ fn unknown_keys_are_ignored_for_forward_compatibility() {
 
 // ================================================================= redaction —
 
-/// Skill rule 7. `format!("{cfg:?}")` must not contain a single character of
-/// any credential.
+/// `format!("{cfg:?}")` must not contain a single character of any credential: a
+/// credential in a log line is a disclosure with no local symptom.
 #[test]
 fn debug_of_a_config_contains_no_plaintext_credentials() {
     let mut config = Config::default();
@@ -619,18 +576,11 @@ fn the_safety_view_names_exactly_the_safety_relevant_values() {
 }
 
 #[test]
-fn the_default_temperature_sensor_is_the_cpps_tsic_306() {
-    // PARITY with `Config.h:1085-1092`, which defaults this to `TSIC_306`.
-    //
-    // An earlier revision defaulted it to `DALLAS_DS18B20` and made
-    // `cc_safety::validate_config` reject `TSIC_306`, so that a default the
-    // validator refuses could not be the machine's own configuration. Both of
-    // those are now reversed (R3-07): the driver exists, the validator accepts
-    // it, and the C++'s value is restored.
-    //
-    // The probe fitted to the attached machine is a DS18B20 and always has been
-    // — so a machine running these defaults reports a not-connected temperature
-    // sensor and says so, rather than silently reading a bus it does not own.
+fn the_default_temperature_sensor_is_tsic_306() {
+    // The default names the sensor this firmware is shipped to drive. A machine
+    // fitted with the other type reports a not-connected temperature sensor and
+    // says which type it asked for, rather than silently reading a bus it does not
+    // own. §7 of `docs/history/divergences.md` records the decision.
     let config = Config::default();
     assert_eq!(
         config.hardware.sensors.temperature.r#type,
@@ -645,8 +595,8 @@ fn the_default_temperature_sensor_is_the_cpps_tsic_306() {
         spec.default,
         ParamValue::Enum(TemperatureSensorType::Tsic306 as i8)
     );
-    // The wire value is unchanged: both enums are positional
-    // (`defaults.h:170-173`), so a C++-written NVS still parses.
+    // The discriminants are positional and fixed: changing one would silently
+    // repoint every stored configuration that carries it.
     assert_eq!(TemperatureSensorType::DallasDs18b20 as i8, 1);
     assert_eq!(TemperatureSensorType::Tsic306 as i8, 0);
 }
@@ -671,14 +621,10 @@ fn store_errors_render() {
 
 /// `docs/example_config.json` must import unchanged.
 ///
-/// **The shipped file, not a copy of it.** This used to inline a
-/// "representative subset", which meant the claim in its own doc comment -- and
-/// in `AGENTS.md` ("an import test parses that file") -- was false: nothing
-/// detected a key added to or removed from the file a user downloads, and
-/// nothing detected it drifting out of step with the schema. Fixed by `a407536b`.
-///
-/// `include_str!` is what makes the test a test rather than a snapshot of a
-/// snapshot: change the shipped file and this fails, which is the entire point.
+/// **The shipped file, not a copy of it**, and `include_str!` is what makes that
+/// true: it is the file a user downloads, so editing it and watching this test fail
+/// is the whole point. A copy inlined here would test the copy while the shipped
+/// file drifted — and `AGENTS.md` claims this test parses that file.
 #[test]
 fn the_shipped_example_config_imports_unchanged() {
     let text = include_str!("../../../docs/example_config.json");
@@ -759,9 +705,9 @@ fn walk_keys(value: &serde_json::Value, prefix: &str, out: &mut impl FnMut(&str)
     }
 }
 
-/// And the shape the C++ accepted, which the shipped file may not exercise: a
-/// nested document written out by hand, so the test above and this one fail for
-/// different reasons.
+/// A hand-written nested document, so that this test and the shipped-file test
+/// above fail for different reasons: the shipped file may not exercise every
+/// nesting depth.
 #[test]
 fn a_hand_written_nested_document_imports() {
     let text = r#"{
@@ -861,10 +807,9 @@ fn param_value_kinds_round_trip_through_the_spec() {
 ///
 /// The relay trigger types are the load-bearing case: `cc_safety::validate_config`
 /// refuses `LOW_TRIGGER` for every relay, and it can only do that if the view
-/// carries the values. When this port widened that refusal from the heater alone
-/// to all three relays, a reviewer's finding was that the *boot* path's
-/// `SafetyConfig` hard-coded two of them — so the view was fine and the copy
-/// downstream of it was not. This test pins the view half.
+/// carries the values. A check on three values cannot be built from two, so a view
+/// that dropped one would silently weaken the rule. This test pins the view half;
+/// the boot path's use of it is pinned in `cc-config/tests/config_repair.rs`.
 #[test]
 fn the_safety_view_carries_every_relay_trigger_type() {
     use cc_domain::hardware::RelayTriggerType;
@@ -926,14 +871,12 @@ fn an_upload_yields_the_pairs_the_document_carries() {
 
 #[test]
 fn an_upload_carries_only_the_keys_it_mentions() {
-    // **The whole reason this function exists and `json_import` is not used
-    // here.** `Config::importFromJsonObject` (`Config.cpp:328-331`) `continue`s
-    // past a parameter the document does not mention, so an upload of a partial
-    // document leaves the rest of the machine's configuration alone. A reader
-    // that returned a whole `Config` — with `#[serde(default)]` filling the
-    // gaps — would reset the other eighty-six keys to their compiled-in
-    // defaults, and an operator who uploaded one changed setpoint would silently
-    // lose their PID gains.
+    // **The whole reason this function exists and `json_import` is not used here.**
+    // An upload of a partial document must leave the rest of the machine's
+    // configuration alone. A reader that returned a whole `Config` — with
+    // `#[serde(default)]` filling the gaps — would reset the other eighty-six keys to
+    // their compiled-in defaults, and an operator who uploaded one changed setpoint
+    // would silently lose their PID gains.
     let document = r#"{"brew":{"setpoint":95.5}}"#;
     let got = pairs(document);
     assert_eq!(got.len(), 1);
@@ -1030,9 +973,8 @@ fn an_oversized_document_is_refused_rather_than_truncated() {
 }
 
 #[test]
-fn an_upload_rejects_a_non_object_root_the_way_the_cpp_does() {
-    // WebServerManager.cpp:730-734 -> 400 "JSON body must be a top-level
-    // object".
+fn an_upload_rejects_a_non_object_root() {
+    // The route answers 400 with "JSON body must be a top-level object".
     for text in ["[1,2,3]", "42", "\"hello\"", "null"] {
         assert_eq!(
             document_pairs(text),
@@ -1044,8 +986,8 @@ fn an_upload_rejects_a_non_object_root_the_way_the_cpp_does() {
 
 #[test]
 fn an_upload_rejects_flat_dotted_keys_by_name() {
-    // WebServerManager.cpp:737-745. The same rule as `json_import`, because it
-    // is the same prologue (`parse_document`).
+    // The same rule as `json_import`, because it is the same prologue
+    // (`parse_document`).
     match document_pairs(r#"{"brew.setpoint": 95.0}"#) {
         Err(ImportError::FlatDottedKeys { key }) => assert_eq!(key, "brew.setpoint"),
         other => panic!("expected a flat-key rejection, got {other:?}"),
@@ -1054,9 +996,8 @@ fn an_upload_rejects_flat_dotted_keys_by_name() {
 
 #[test]
 fn an_upload_with_no_known_key_is_refused() {
-    // `Config::importFromJsonObject` returns `updatedCount > 0`
-    // (`Config.cpp:344`); a document that names nothing this firmware knows
-    // imported nothing.
+    // A document that names nothing this firmware knows imported nothing, and an
+    // import that applied nothing is a failed import.
     assert_eq!(
         document_pairs(r#"{"nothing":{"like":{"this":1}}}"#),
         Err(ImportError::NoKnownParameters)
@@ -1095,28 +1036,29 @@ fn an_unparseable_upload_is_refused() {
 }
 
 #[test]
-fn an_unknown_key_in_an_upload_is_ignored_as_in_the_cpp() {
-    // Forward compatibility, and `Config.cpp:328-331`'s behaviour: a document
-    // exported by a newer firmware must still import into this one.
+fn an_unknown_key_in_an_upload_is_ignored() {
+    // Forward compatibility: a document exported by a newer firmware must still
+    // import into this one.
     let got = pairs(r#"{"future":{"setting":1},"brew":{"setpoint":95.0}}"#);
     assert_eq!(got, vec![("brew.setpoint", "95.0")]);
 }
 
-// ============================================== the C++ hand-off (config.json)
+// ====================================== the operator upgrade path (config.json)
 
-/// Every key the deleted C++ firmware exported is still a key this schema knows.
+/// Every key a previously exported `config.json` carries is still a key this
+/// schema knows.
 ///
-/// **The operator procedure this pins.** Decided 2026-10-06: there is no NVS
-/// migration between the firmwares, and an operator moves their settings by
-/// downloading `config.json` from the C++ UI and uploading it here. That only
-/// works while the key names agree, and nothing else in the suite would notice
-/// a rename — the C++ side is deleted, so there is no counterparty left to fail.
-/// The fixture is the C++'s own key list, recovered from `9fa8c834`; a key
-/// added to or removed from the Rust schema that touches this surface fails
-/// here rather than on a machine.
+/// **The operator procedure this pins.** There is no NVS migration between the old
+/// store and this one (§32 of `docs/history/divergences.md`), so an operator moves
+/// their settings by downloading `config.json` from the machine's web UI and
+/// uploading it here. That only works while the key names agree, and nothing else in
+/// the suite would notice a rename: the counterparty that produced these keys is
+/// gone, so there is no machine left to fail against. The fixture is that key list,
+/// one key per line; a key added to or removed from the schema that touches this
+/// surface fails here rather than on an operator's machine.
 #[test]
-fn every_cxx_config_key_is_still_a_key_the_schema_knows() {
-    let fixture = include_str!("fixtures/cxx_config_keys.txt");
+fn every_key_an_older_config_json_carries_is_still_a_key_the_schema_knows() {
+    let fixture = include_str!("fixtures/exported_config_keys.txt");
     let known: Vec<&str> = schema::SCHEMA.iter().map(|spec| spec.key).collect();
 
     let mut missing = Vec::new();
@@ -1132,28 +1074,28 @@ fn every_cxx_config_key_is_still_a_key_the_schema_knows() {
 
     assert!(
         missing.is_empty(),
-        "the C++ exported these keys and this firmware no longer knows them, so \
-         an operator's config.json would silently lose them: {missing:?}"
+        "an operator's previously exported config.json carries these keys and \
+         this firmware no longer knows them, so the import would silently lose \
+         them: {missing:?}"
     );
 }
 
-/// A document shaped like the C++'s `exportToJsonObject` output imports whole.
+/// A document shaped like an operator's downloaded `config.json` imports whole.
 ///
 /// Three properties of that document are the procedure's real dependencies, and
 /// only the first is obvious:
 ///
-/// * **The key names are the C++'s dotted names.** Pinned by the test above.
+/// * **The key names are the dotted names this schema declares.** Pinned by the
+///   test above.
 /// * **Secrets are plaintext.** `Secret` serialises transparently
 ///   (`cc-domain/src/secret.rs`), so `mqtt.password` and `system.wifi.password`
 ///   arrive as the real credentials — which is what makes the hand-off work, and
 ///   what makes the downloaded file something to delete afterwards.
-/// * **It carries keys this firmware does not have.** The C++'s export walks
-///   `getAllConfigParams()` and nothing else, so it is pure parameters; a
-///   document assembled by any other route — or a firmware newer than this one —
-///   also carries keys here that are unknown, and the import must ignore them
-///   rather than reject the whole file.
+/// * **It carries keys this firmware does not have.** A document exported by a
+///   newer firmware, or hand-edited, carries keys that are unknown here, and the
+///   import must ignore them rather than reject the whole file.
 #[test]
-fn a_cxx_shaped_config_document_imports_with_its_values() {
+fn a_previously_exported_config_document_imports_with_its_values() {
     let document = r#"{
         "brew": { "setpoint": 94.5, "mode": 1 },
         "pid": { "regular": { "kp": 62.0 } },
@@ -1169,7 +1111,7 @@ fn a_cxx_shaped_config_document_imports_with_its_values() {
         "legacy": { "a_removed_parameter": true }
     }"#;
 
-    let parsed = json_import(document).expect("a C++-shaped config.json must import");
+    let parsed = json_import(document).expect("a downloaded config.json must import");
 
     assert!((parsed.brew.setpoint - 94.5).abs() < 1e-9);
     assert!((parsed.pid.regular.kp - 62.0).abs() < 1e-9);
@@ -1177,8 +1119,7 @@ fn a_cxx_shaped_config_document_imports_with_its_values() {
     assert_eq!(
         parsed.display.language,
         cc_domain::system::Language::German,
-        "an enum is carried as a plain integer by the C++ (Config.h:423), so \
-         `1` must still mean German here"
+        "an enum is carried as a plain integer, so `1` must still mean German"
     );
     assert_eq!(
         parsed.mqtt.password.expose(),
@@ -1188,8 +1129,8 @@ fn a_cxx_shaped_config_document_imports_with_its_values() {
     );
     assert_eq!(
         parsed.system.wifi.ssid, "silvia",
-        "the SSID is the one value whose loss is actually felt — see \
-         divergences.md §32"
+        "the SSID is the one value whose loss is actually felt — see §32 of \
+         docs/history/divergences.md"
     );
     // The unknown keys are the point of the third property: `state`,
     // `computed` and `legacy` are in the document and none of them is a key.
@@ -1197,7 +1138,7 @@ fn a_cxx_shaped_config_document_imports_with_its_values() {
 }
 
 #[test]
-fn a_cxx_shaped_config_document_yields_only_the_keys_this_schema_has() {
+fn a_previously_exported_config_document_yields_only_the_keys_this_schema_has() {
     // The same document, checked through the *upload* path rather than
     // `json_import`, because that is the one the operator's browser takes and
     // it is the one that hands pairs to the control task. Every pair must be a

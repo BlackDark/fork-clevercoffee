@@ -1,32 +1,24 @@
 //! Where the configuration lives.
 //!
-//! # One blob, not 98 keys
+//! # One blob, not one key per parameter
 //!
-//! The C++ writes each parameter separately into the `config` NVS namespace
-//! under an FNV-1a-hashed key (`Config.h:318-332, 487-501`): `"p" + 8 hex
-//! digits` of `fnv1a(key)`. That has three consequences worth naming:
+//! [`BlobConfigStore`](crate::BlobConfigStore) moves one
+//! [`Config`](crate::Config) value in one NVS entry. A store that wrote each
+//! parameter separately, under a hashed key, would fail in three ways:
 //!
-//! * A partial write is possible. `saveAll()` writes 98 keys one at a time
-//!   (`Config.cpp:154-171`), so a power cut mid-way leaves a configuration
-//!   where some parameters are new and the rest are old. For a machine that
-//!   heats to 150 °C, "some new" is a configuration nobody ever chose.
-//! * The keys are unreadable. `p1a2b3c4d` tells you nothing, so a field
-//!   diagnosis of a customer's NVS is impossible without this source tree.
-//! * The hashes are not stable against reordering. They are, actually, but they
-//!   are *opaque*, and a collision would silently alias two parameters.
-//!
-//! The oracle firmware stored **one nested JSON blob** in a single namespace,
-//! 2071 bytes (08 §3, 08 §5.3), and 08 §6 recommends it. This port does the
-//! same: [`BlobConfigStore`](crate::BlobConfigStore) moves one
-//! [`Config`](crate::Config) value. Atomic, readable, and one NVS entry instead
-//! of 98.
+//! * A partial write is possible. Writing the parameters one at a time means a
+//!   power cut mid-way leaves some parameters new and the rest old. For a machine
+//!   that heats to 150 °C, "some new" is a configuration nobody ever chose.
+//! * The keys are unreadable. A hashed key tells an operator nothing, so
+//!   diagnosing a customer's NVS needs a key-derivation program.
+//! * A hash collision would silently alias two parameters.
 //!
 //! # Wiring the fail-closed rule
 //!
 //! [`BlobConfigStore`](crate::BlobConfigStore) deliberately does **not** know
-//! about `cc-safety`, because `cc-config` may not depend on it (04 §6). The
-//! fail-closed rule from 08 §4.1 — discard a stored configuration that is
-//! unsafe to run — is therefore applied by the caller, in three lines:
+//! about `cc-safety`, because `cc-config` may not depend on it. Discarding a
+//! stored configuration that is unsafe to run is therefore the caller's rule,
+//! applied in three lines:
 //!
 //! ```text
 //! let Some(stored) = store.load()? else { return Ok(Config::default()) };

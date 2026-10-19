@@ -1,7 +1,5 @@
 //! A bit-level `ZACwire` waveform synthesiser, for the host tests only.
 //!
-//! Owner: **R3-07**.
-//!
 //! # 🔴 What this is, and what a passing test of it is worth
 //!
 //! This module **generates** a GPIO waveform; [`decode`](super::decode) **reads**

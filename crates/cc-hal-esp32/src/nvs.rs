@@ -1,12 +1,10 @@
 //! The NVS backend: [`EspNvsBlob`].
 //!
-//! Owner: **R3-08** (task A).
-//!
 //! # What this file is
 //!
 //! The entire device half of the configuration store, and it is about thirty
 //! lines because everything worth testing — the namespace, the key, the JSON
-//! encoding, the schema version, the C++-written-NVS behaviour — lives in
+//! encoding, the schema version, the predecessor-written-NVS behaviour — lives in
 //! `cc_config::BlobConfigStore` and is a host test. This is the same split
 //! `heater.rs` uses: the decision is portable, the peripheral is not.
 //!
@@ -37,8 +35,8 @@
 //!   point of view, because NVS is copy-on-write at page granularity and the
 //!   commit is the only thing that publishes the new page. A power cut before
 //!   the commit leaves the previous page intact. This is the property
-//!   `BlobConfigStore::save` promises and `a_failed_save_leaves_the_previous_
-//!   configuration_in_place` pins.
+//!   `BlobConfigStore::save` promises, and
+//!   `a_failed_save_leaves_the_previous_configuration_in_place` pins.
 //! * **`get_blob` does not shrink its buffer.** It writes `len` into the `inout`
 //!   length parameter and returns `&buf[..len]`, so the buffer must be at least
 //!   as large as the stored value. `blob_len` first is therefore not an
@@ -51,7 +49,8 @@
 //! and there is no `Sync`. So the store can be *moved* to the diagnostics task
 //! but not *shared*. It is therefore owned by one task — the firmware's network
 //! task — and the web server reaches it through the same bounded command queue
-//! everything else uses (04 §3.2), not by borrowing it.
+//! everything else uses ([target-architecture.md
+//! §3](../../../docs/history/target-architecture.md)), not by borrowing it.
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -116,15 +115,15 @@ impl EspNvsBlob {
 /// namespace, and it is deliberately the smallest thing that answers the
 /// question: open `config` **read-only**, take the first key name, drop the
 /// handle. Key names and values are never read, nothing is written, and
-/// nothing is erased — a machine whose settings came from the C++ keeps every
-/// byte of them, which is what makes the boot line
+/// nothing is erased: a partition written by an earlier firmware keeps every
+/// byte it holds, which is what makes the boot line
 /// [`cc_config::predecessor::startup_notice`] promises when it says "not
 /// deleted".
 ///
 /// Read-only is load-bearing. `nvs_open` with `NVS_READWRITE` **creates** a
 /// namespace that does not exist (`nvs.rs:341-347`), so opening `config`
-/// read-write on a machine that never ran the C++ would manufacture the very
-/// namespace whose absence is the signal. Read-only on a missing namespace
+/// read-write on a machine whose settings were never written would manufacture
+/// the very namespace whose absence is the signal. Read-only on a missing namespace
 /// returns `ESP_ERR_NVS_NOT_FOUND` instead, which is [`PredecessorProbe::Absent`].
 ///
 /// The decision of **whether** to look — and the words to print if one does —
@@ -138,7 +137,8 @@ pub fn probe_predecessor(nvs: &EspNvsBlob) -> PredecessorProbe {
     let opened = EspNvs::new(nvs.partition.clone(), CPP_NAMESPACE, false);
     let handle = match opened {
         Ok(handle) => handle,
-        // Not an error: no `config` namespace means the C++ never ran here, or
+        // Not an error: no `config` namespace means no earlier firmware wrote here,
+        // or
         // something erased it. Both are "nothing there", which is the answer
         // the caller wants and not a fault to report.
         Err(err) if err.code() == esp_idf_sys::ESP_ERR_NVS_NOT_FOUND => {
@@ -235,11 +235,10 @@ impl BlobBackend for EspNvsBlob {
 /// prefix so a human reading `nvs_dump` can tell which firmware wrote what.
 ///
 /// **A separate key rather than a field in the configuration blob.** A tare is
-/// not a parameter: it is not in the C++'s 98 `ParamDef`s, it has no range, no
-/// default and no UI, and `GET /api/parameters` would gain an entry that the
-/// web UI would then have to render. The C++ keeps the tare in a `long` member
-/// (`HX711_ADC.h:66`) and loses it on every reset; this is where it goes
-/// instead.
+/// not a parameter: it has no range, no default and no UI, and
+/// `GET /api/parameters` would gain an entry that the web UI would then have to
+/// render. It also has to survive a reset, which a RAM member does not; this is
+/// where it goes instead.
 pub const TARE_KEY: &str = "cc.scale.tare";
 
 /// Read the stored tare, if there is a readable one.
@@ -279,23 +278,18 @@ pub fn save_tare(nvs: &mut EspNvsBlob, record: TareRecord) -> Result<(), StoreEr
 /// `cc.maint.shots` — 13 characters, inside the same 15-character NVS limit as
 /// [`TARE_KEY`], in the same `cc` namespace and under the same `cc.` prefix.
 ///
-/// **Not the C++'s location, deliberately.** The C++ keeps this in its own
-/// `Preferences` namespace, `maintenance`, under the key `shots_since_bf`
-/// (`defaults.h:48-49`), because the C++ writes every one of its 98 parameters
-/// as a separate key and the counter is a 99th. This firmware writes one
-/// configuration blob and puts the handful of values that are *not*
-/// configuration beside it — the tare is the first, this is the second. One
-/// namespace, one owner, one place to look. The C++'s namespace is not ours and
+/// **A separate key rather than a field in the configuration blob**, like
+/// [`TARE_KEY`]: this firmware writes one configuration blob and puts the
+/// handful of values that are *not* configuration beside it. One namespace, one
+/// owner, one place to look. The predecessor's namespace is a different one and
 /// is not read; see `cc_config::blob_store`'s module documentation on why a
-/// C++-written partition must be invisible.
+/// partition written by another firmware must be invisible.
 pub const SHOTS_SINCE_BACKFLUSH_KEY: &str = "cc.maint.shots";
 
 /// Read the stored shot count, or `None` if there is not a readable one.
 ///
-/// `MaintenanceCoordinator::begin` (`MaintenanceCoordinator.cpp:17-27`) is the
-/// C++'s equivalent, and its `getInt(..., 0)` default is the same `None`: a
-/// device whose partition was erased, or that is running this firmware for the
-/// first time, starts at zero.
+/// A device whose partition was erased, or that is running this firmware for
+/// the first time, starts at zero.
 ///
 /// # Errors
 ///
@@ -317,20 +311,17 @@ pub fn load_shots_since_backflush(nvs: &EspNvsBlob) -> Result<Option<i32>, Store
 
 /// Write the shot count.
 ///
-/// `MaintenanceCoordinator::persistShotsSinceBackflush`
-/// (`MaintenanceCoordinator.cpp:76-88`), down to the `> 0` success test the
-/// `Preferences` call made and the four-byte width of the value.
+/// The count is four bytes, little-endian, like the tare.
 ///
 /// # Errors
 ///
 /// [`StoreError::WriteFailed`] or [`StoreError::Unavailable`]. **A failed write
 /// leaves the previous count in place**, which is the same property
 /// [`cc_config::BlobConfigStore::save`] relies on, and it is why the in-memory
-/// count is not reverted to match: the C++ reverts (`MaintenanceCoordinator.cpp:43-47`)
-/// so that memory and storage agree, but here the two agree *eventually* anyway —
-/// the next counted brew writes the then-current value, which includes this one
-/// — so reverting would throw away a real shot to buy a temporary agreement.
-/// The failure is logged as an `error!` at the call site instead.
+/// count is not reverted to match: the two agree *eventually* anyway — the next
+/// counted brew writes the then-current value, which includes this one — so
+/// reverting would throw away a real shot to buy a temporary agreement. The
+/// failure is logged as an `error!` at the call site instead.
 pub fn save_shots_since_backflush(nvs: &mut EspNvsBlob, shots: i32) -> Result<(), StoreError> {
     nvs.set(
         SHOTS_SINCE_BACKFLUSH_KEY,

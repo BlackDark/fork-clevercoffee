@@ -2,12 +2,12 @@
 //!
 //! # What this is for
 //!
-//! The claim `cc-display` wants to make is "these are the pixels the C++ firmware
-//! draws". That claim is only worth something if it is checked against something
-//! outside this crate, and there are two ways to do that:
+//! The claim this crate makes is "these are the pixels the panel shows". That
+//! claim is only worth something if it is checked against something outside this
+//! crate, and there are two ways to do that:
 //!
 //! 1. **Engine parity.** A scenario file is a list of draw calls, in the format
-//!    `tools/oracle/display_oracle.cpp` reads. The oracle replays it against the
+//!    `tools/oracle/display_oracle.cpp` reads. That tool replays it against the
 //!    *real* U8g2 the firmware links; this module replays the same file against
 //!    [`Display`]. If the two framebuffers are identical, every draw call this
 //!    crate can make produces the U8g2 pixel, and the templates -- which are
@@ -33,7 +33,7 @@
 //! device build**. That way `examples/render_scenario`, `tests/parity.rs` and
 //! `tests/goldens.rs` all drive the *same* interpreter. Having it only in
 //! `tests/support/` would have meant the example had to carry a second copy --
-//! a second parser for one format is exactly the drift the two-sided oracle is
+//! a second parser for one format is exactly the drift a two-sided comparison is
 //! meant to catch.
 //!
 //! # The format is duplicated, not generated
@@ -44,7 +44,7 @@
 //! line-oriented format is the point: a disagreement shows up as a failing diff
 //! rather than as two copies of the same mistake.
 //!
-//! Grammar, matching the oracle exactly:
+//! Grammar, matching the replay tool exactly:
 //!
 //! ```text
 //! rot        R0|R1|R2|R3
@@ -75,7 +75,7 @@
 //! ```
 //!
 //! Inside a quoted string, `\xNN` is a raw byte and `\n` is a newline, which
-//! `drawStr` stops at. The oracle's query ops (`width`, `ascent`, `dispw`, ...)
+//! `draw_str` stops at. The replay tool's query ops (`width`, `ascent`, `dispw`,
 //! print to stdout instead of drawing, so they never appear in a scenario; they
 //! are covered by `tests/glyph_parity.rs` against measured tables.
 //!
@@ -97,7 +97,7 @@ use crate::display::{Display, Rotation};
 use crate::fmt::{format_fixed, format_int};
 use crate::font::{self, Font};
 
-/// Every op the oracle dispatches, with the number of numeric arguments it
+/// Every op the replay tool dispatches, with the number of numeric arguments it
 /// takes. Used both to dispatch and to build the arity error message, so the
 /// two cannot drift apart.
 const OPS: &[(&str, usize)] = &[
@@ -228,7 +228,7 @@ pub fn run(scenario: &str) -> Result<crate::display::Framebuffer, Error> {
 /// a typo a silent no-op, and a scenario that quietly stops testing what it
 /// says it tests is worse than a scenario that fails to run.
 fn parse_line(raw: &str) -> Result<Option<Op>, Error> {
-    // A `#` starts a comment, as in the oracle: the whole line is dropped, so a
+    // A `#` starts a comment, as in the replay tool: the whole line is dropped, so
     // scenario can carry prose without a separate syntax.
     if raw.trim_start().starts_with('#') {
         return Ok(None);
@@ -249,7 +249,7 @@ fn parse_line(raw: &str) -> Result<Option<Op>, Error> {
     };
 
     // After the op name, bare integers are numbers and anything else is the
-    // text. The oracle makes the same split by trying `strtol` on each token.
+    // text. The replay tool makes the same split by trying `strtol` on each token.
     let mut nums = Vec::new();
     let mut text = String::new();
     for tok in tokens {
@@ -372,7 +372,7 @@ fn apply(d: &mut Display, line: usize, op: &Op) -> Result<(), Error> {
             "all" => d.set_font_ref_height_all(),
             _ => d.set_font_ref_height_extended_text(),
         },
-        // The oracle passes the raw byte to `setDrawColor`, whose argument is a
+        // The replay tool passes the raw byte to `setDrawColor`, whose argument is a
         // `uint8_t`; U8g2 treats anything but 0 as "set" and 1 as "erase". The
         // clamp keeps a scenario's `color 5` from wrapping to 0 and erasing.
         "color" => d.set_draw_color(op.num(0).clamp(0, 2) as u8),
@@ -385,7 +385,7 @@ fn apply(d: &mut Display, line: usize, op: &Op) -> Result<(), Error> {
         "utf8" => {
             d.draw_string_utf8(op.num(0), op.num(1), &op.text);
         }
-        // The oracle re-sets the cursor to its own current value before
+        // The replay tool re-sets the cursor to its own current value before
         // `print`, which is a no-op kept for symmetry with `Print`. Doing it
         // here too means a scenario that mixes `cursor` and `print` steps the
         // same way on both sides.
@@ -402,7 +402,7 @@ fn apply(d: &mut Display, line: usize, op: &Op) -> Result<(), Error> {
             d.set_cursor(op.num(0), op.num(1));
             d.print(format_fixed(value, digits).as_str());
         }
-        // The oracle reads the value from the *third* token, not the second, so
+        // The replay tool reads the value from the *third* token, not the second, so
         // the number is the text token and the position is the two numbers.
         "printi" => {
             d.set_cursor(op.num(0), op.num(1));
@@ -575,9 +575,9 @@ mod tests {
 
     #[test]
     fn a_newline_escape_stops_the_string_at_the_newline() {
-        // U8g2's `drawStr` stops at `\n` and draws nothing after it, which is
-        // how one string can hold several lines and how `displayWrappedMessage`
-        // works. The tail is *dropped*, not moved to another row.
+        // U8g2's `drawStr` stops at `\n` and draws nothing after it, which is how
+        // one string can hold several lines. The tail is *dropped*, not moved to
+        // another row.
         let with_tail = run("font p17\npos top\nclear\nstr 0 0 \"ab\\ncd\"\n").expect("valid");
         let only_head = run("font p17\npos top\nclear\nstr 0 0 \"ab\"\n").expect("valid");
         let only_tail = run("font p17\npos top\nclear\nstr 0 0 \"cd\"\n").expect("valid");

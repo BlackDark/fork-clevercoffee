@@ -2,47 +2,35 @@
 //!
 //! # The rule
 //!
-//! `Effect` is a description. Something has to turn descriptions into GPIO
-//! writes, and this module is the only thing allowed to. There is exactly one
-//! function that does it — [`apply`] — and it is a `match` over [`Effect`] with
-//! no wildcard arm, so a new effect cannot be added without someone deciding
-//! what it does to the hardware.
+//! `Effect` is a description. Something has to turn descriptions into GPIO writes, and this
+//! module is the only thing allowed to. There is exactly one function that does it --
+//! [`apply`] -- and it is a `match` over [`Effect`] with no wildcard arm, so a new effect
+//! cannot be added without someone deciding what it does to the hardware.
 //!
-//! 04 §3.1: "A new state cannot accidentally poke a relay, because it has no
-//! way to reach one — it can only return an `Effect`." That sentence is only
-//! true if this module is the sole exit. `tests/ported_state_flow_integration.rs`
-//! greps the crate for the actuator call sites to keep it that way honest.
+//! Nothing else in this crate may call an actuator, and `tests/state_flow_integration.rs`
+//! greps the crate for actuator call sites to keep that true. Without that check, "a state
+//! cannot poke a relay" would be a convention rather than a property.
 //!
 //! # Three traits, and why
 //!
-//! * [`Actuators`] is safety-critical. **No method has a default body**, so a new
-//!   actuator method is a compile error in every implementation rather than a
-//!   silently-skipped call.
-//! * [`MachineChannels`] is the machine's own bookkeeping: everything whose
-//!   loss is a *defect* rather than a missing log line — the shot counter, the
-//!   reboot. **No method has a default body either**, and that is the point of
-//!   the split. It used to be one fourteen-method trait with nine silent `{}`
-//!   bodies, and `on_record_brew` was one of them: the reducer emitted the
-//!   effect (`states.rs`, `BrewFinished`), `FirmwareSide` did not override it,
-//!   and so `/api/status` reported `shotsSinceBackflush: 0` and
-//!   `backflushReminderDue: false` for the life of the firmware with no compiler
-//!   error, no failing test and no log line. A default body on a method whose
-//!   absence changes what the machine *does* is a lie the type system tells on
-//!   every call site, and the only defence against it is that there is no such
-//!   method.
-//! * [`Diagnostics`] is observability — the state-transition log, the flag
-//!   mirrors, the watchdog line. It is reached through one optional accessor so
-//!   that "this side channel has no diagnostics" is a single `None` instead of
-//!   a body per method, and it does keep default bodies: a gap in a log is
-//!   visible in the log's absence, which is the property that was missing from
-//!   [`MachineChannels`] and is present here.
+//! * [`Actuators`] is safety-critical. **No method has a default body**, so a new actuator
+//!   method is a compile error in every implementation rather than a silently-skipped call.
+//! * [`MachineChannels`] is the machine's own bookkeeping: everything whose loss is a *defect*
+//!   rather than a missing log line -- the shot counter, the reboot. **No method has a default
+//!   body either**, and that is the point of the split. A default body on a method whose
+//!   absence changes what the machine *does* is a lie the type system tells at every call
+//!   site: a side channel that forgets one would still compile, drop the write, and show up
+//!   only as a status field that never moves.
+//! * [`Diagnostics`] is observability -- the state-transition log, the flag mirrors, the
+//!   watchdog line. It is reached through one optional accessor so that "this side channel has
+//!   no diagnostics" is a single `None` instead of a body per method, and it does keep default
+//!   bodies: a gap in a log is visible in the log's absence, which is the property
+//!   [`MachineChannels`] cannot afford.
 //!
-//! The dividing line is therefore not "important" versus "unimportant". It is
-//! **whether the reducer has already applied the change to
-//! [`Machine`][`crate::machine::Machine`]**. If it has, the channel is told about
-//! it and dropping the call loses a line of telemetry. If it has not, dropping
-//! the call loses the change — and that is [`MachineChannels`].
-
+//! The dividing line is therefore not "important" versus "unimportant". It is **whether the
+//! reducer has already applied the change to [`Machine`][`crate::machine::Machine`]**. If it
+//! has, the channel is told about it and dropping the call loses a line of telemetry. If it
+//! has not, dropping the call loses the change -- and that is [`MachineChannels`].
 use cc_domain::state::MachineState;
 
 use crate::effect::Effect;
@@ -50,53 +38,46 @@ use crate::machine::Machine;
 
 /// The safety-critical port: pump, valves, heater, and the two shutdowns.
 ///
-/// Every method is mandatory. The trait is deliberately *not* `dyn`-only — the
-/// firmware will implement it over `cc-hal-esp32`'s `Actuators`
-/// (R3-03) and `HeaterOutput` (R3-04), and a host test over a recorder.
+/// Every method is mandatory. The trait is deliberately *not* `dyn`-only: the firmware
+/// implements it over `cc-hal-esp32`'s actuators and heater output, and a host test over a
+/// recorder.
 pub trait Actuators {
-    /// `HardwareManager::enablePump()`.
+    /// Energise the pump relay.
     fn enable_pump(&mut self);
-    /// `HardwareManager::disablePump()`.
+    /// De-energise the pump relay.
     fn disable_pump(&mut self);
-    /// `HardwareManager::openWaterValve()`.
+    /// Open the water valve.
     ///
-    /// Must update the facade's own `valveState_`, which is the whole reason
-    /// the C++ closes the valve through `HardwareManager` and not through the
-    /// relay: poking the relay leaves `valveState_ == WATER_OPEN` while the relay
-    /// is off, and the next `openWaterValve()` short-circuits as "already open".
-    /// That regression is `test_brew_handler`'s
-    /// `ValveSafetyShutdownClosesValveViaHardwareAbstraction`.
+    /// The implementation owns the open/closed bookkeeping, which is why the valve is
+    /// switched through this trait rather than by poking the relay: a relay forced off while
+    /// the bookkeeping still says "open" leaves the next open call short-circuiting as
+    /// already done, and the valve stays shut.
     fn open_water_valve(&mut self);
-    /// `HardwareManager::closeWaterValve()`.
+    /// Close the water valve.
     fn close_water_valve(&mut self);
-    /// `HardwareManager::openSteamValve()`.
+    /// Open the steam valve.
     ///
-    /// **Never emitted by the reducer** — see [`Effect::OpenSteamValve`] and
-    /// `09-cpp-findings.md` §2. The gate is `cc_safety::steam_flow_allowed`,
-    /// enforced in the reducer's tail (`CloseSteamValve` outside
-    /// `STEAM_RUNNING`) and again in the device implementation's
-    /// `may_open_steam` check (R3-03). It exists on the port because the port
-    /// has to be able to say it.
+    /// **Gated, deliberately: §2 of `docs/history/divergences.md`.** The gate is
+    /// `cc_safety::steam_flow_allowed`, enforced in the reducer's tail (`CloseSteamValve`
+    /// outside `STEAM_RUNNING`) and again in the device implementation's `may_open_steam`
+    /// check. The method exists because the machine has to be able to express the action even
+    /// where the whitelist will refuse it.
     fn open_steam_valve(&mut self);
-    /// `HardwareManager::closeSteamValve()`.
+    /// Close the steam valve.
     fn close_steam_valve(&mut self);
-    /// `HardwareManager::enableHeater()`.
+    /// Enable the heater output, so the PID's duty may reach it.
     fn enable_heater(&mut self);
-    /// `HardwareManager::disableHeater()`.
+    /// Drive the heater off.
     fn disable_heater(&mut self);
-    /// The heater duty, 0-1000, as the ISR's PWM window expects (`isr.h:96-118`).
+    /// The heater duty, 0-1000, as the ISR's PWM window expects.
     fn set_heater_duty(&mut self, duty: f32);
-    /// `HardwareManager::emergencyShutdown()`.
+    /// All relays off, and **latched**.
     ///
-    /// Must **latch**: after this, `enable_pump` / `open_water_valve` /
-    /// `set_heater_duty` are refused until the latch is cleared. That is S2, and
-    /// it is why [`Effect::EmergencyShutdown`] is a distinct variant from the
-    /// three "off" effects it also implies.
+    /// After this, `enable_pump` / `open_water_valve` / `set_heater_duty` are refused until the
+    /// latch is cleared. That is S2, and it is why [`Effect::EmergencyShutdown`] is a distinct
+    /// variant from the three "off" effects it also implies.
     fn emergency_shutdown(&mut self);
-    /// `HardwareManager::safeHardwareShutdown()`.
-    ///
-    /// The same relays off **without** the latch, so the machine can come back
-    /// after standby (`ProcessController.cpp:489-500`).
+    /// The same relays off **without** the latch, so the machine can come back after standby.
     fn safe_hardware_shutdown(&mut self);
 }
 
@@ -109,34 +90,25 @@ pub trait Actuators {
 pub trait MachineChannels {
     /// A brew finished, and the reducer has already decided whether it counts.
     ///
-    /// `MaintenanceCoordinator::recordBrewIfQualified`
-    /// (`MaintenanceCoordinator.cpp:30-49`). `counted` is the reducer's answer —
-    /// `Machine::shots_since_backflush` has already been incremented if it is
-    /// `true` — and `shots_since_backflush` is that counter. An implementation
-    /// must **persist `shots_since_backflush` when `counted`**, and must not
-    /// re-derive the decision: `cc_machine::maintenance::qualifies_as_counted_shot`
-    /// is the C++'s rule and the reducer is where the C++ evaluates it
-    /// (`BrewStates.cpp:306-312`).
+    /// `counted` is the reducer's answer -- `Machine::shots_since_backflush` has already been
+    /// incremented if it is `true` -- and `shots_since_backflush` is that counter. An
+    /// implementation must **persist `shots_since_backflush` when `counted`**, and must not
+    /// re-derive the decision: [`crate::maintenance::qualifies_as_counted_shot`] is the rule,
+    /// and the reducer is where it is evaluated.
     fn on_record_brew(&mut self, counted: bool, shots_since_backflush: i32);
 
-    /// The shot counter was cleared, and `shots_since_backflush` is its new
-    /// value.
+    /// The shot counter was cleared, and `shots_since_backflush` is its new value.
     ///
-    /// `MaintenanceCoordinator::resetSinceBackflush()`
-    /// (`MaintenanceCoordinator.cpp:52-64`). This is the same write as
-    /// [`Self::on_record_brew`], and it is a separate effect because the C++ is:
-    /// `BackflushFinishedState::onEntryImpl` (`BackflushStates.cpp:144`) calls a
-    /// different method than `BrewFinishedState::onEntryImpl` does. It is also
-    /// the path the C++'s `POST /api/maintenance/reset-backflush-counter` takes
-    /// (`WebServerManager.cpp:528-537`).
+    /// The same write as [`Self::on_record_brew`], and a separate effect because the two
+    /// arrive from different places: a finished brew, a finished backflush, and the
+    /// `POST /api/maintenance/reset-backflush-counter` route.
     fn on_reset_shots_since_backflush(&mut self, shots_since_backflush: i32);
 
     /// A reboot was requested.
     ///
-    /// The device implementation shows `POWER_REBOOT_DISPLAY_MS` of
-    /// "REBOOTING", performs a safe shutdown, waits again, and restarts
-    /// (`PowerHandler.h:177-192`). It is the only place in the firmware allowed
-    /// to sleep.
+    /// The device implementation shows [`crate::timing::POWER_REBOOT_DISPLAY_MS`] of
+    /// "REBOOTING", performs a safe shutdown, waits again, and restarts. It is the only place
+    /// in the firmware allowed to sleep.
     fn on_request_reboot(&mut self);
 
     /// The optional observability sink, or `None`.
@@ -153,31 +125,27 @@ pub trait MachineChannels {
     }
 }
 
-/// Everything that is a notification rather than a change: the state-transition
-/// log, the flag mirrors the reducer has already applied, and the free-form log
-/// line.
+/// Everything that is a notification rather than a change: the state-transition log, the flag
+/// mirrors the reducer has already applied, and the free-form log line.
 ///
-/// Reached through [`MachineChannels::diagnostics`], and deliberately allowed to
-/// have default bodies — see the module documentation. Everything the reducer
-/// has **not** already written into [`Machine`] belongs on
-/// [`MachineChannels`] instead.
+/// Reached through [`MachineChannels::diagnostics`], and deliberately allowed to have default
+/// bodies -- see the module documentation. Everything the reducer has **not** already written
+/// into [`Machine`] belongs on [`MachineChannels`] instead.
 ///
-/// Five methods, and every one of them earns its place by having an
-/// implementation: `on_enter_state` and `on_exit_state` are the C++'s
-/// `logStateEntry`/`logStateExit`, `on_pid_runtime` and `on_steam_mode` mirror
-/// two flags, and `on_log` is where `Effect::PumpTimeoutFired` reaches the
-/// field log (`intentional-diffs.md` §1 is a claim about a *log line*, so a
-/// method nobody implements would make that divergence document false).
+/// Five methods, and every one of them earns its place by having an implementation:
+/// `on_enter_state` and `on_exit_state` are the state-transition lines, `on_pid_runtime` and
+/// `on_steam_mode` mirror two flags, and `on_log` is where [`Effect::PumpTimeoutFired`]
+/// reaches the field log. §1 of `docs/history/divergences.md` is a claim about a *log line*,
+/// so a method nobody implements would make that record false.
 pub trait Diagnostics {
-    /// The state was left. The C++'s `logStateExit` plus the state-name log.
+    /// The state was left.
     fn on_exit_state(&mut self, _state: MachineState) {}
-    /// The state was entered. The C++'s `logStateEntry`.
+    /// The state was entered.
     fn on_enter_state(&mut self, _state: MachineState) {}
     /// The runtime PID flag changed.
     ///
-    /// A mirror, not a change: `Machine::pid::runtime_enabled` is already
-    /// written by the time this runs (`handlers.rs`, `Command::SetUserPidEnabled`
-    /// — `SystemUtils.h:34-40`).
+    /// A mirror, not a change: `Machine::pid::runtime_enabled` is already written by the time
+    /// this runs, in `handlers::SetUserPidEnabled`.
     fn on_pid_runtime(&mut self, _enabled: bool) {}
     /// Steam mode changed. A mirror of [`Machine::steam_mode`], likewise.
     fn on_steam_mode(&mut self, _enabled: bool) {}
@@ -190,29 +158,27 @@ pub trait Diagnostics {
 ///
 /// # Order
 ///
-/// Front to back, no reordering, no coalescing. Two effects that write the same
-/// relay in one tick resolve by position, and the C++'s order is the reference:
-/// `update()` → `onExit` → `onEntry` → the S5 valve check. Coalescing
-/// (`EnablePump` then `DisablePump` → do nothing) would be faster and wrong:
-/// `EmergencyShutdown` followed by `EnablePump` is not a no-op, it is an
-/// energise request that the latch is supposed to refuse, and collapsing it
-/// would hide the refusal.
+/// Front to back, no reordering, no coalescing. Two effects that write the same relay in one
+/// tick resolve by position, and the reducer's emission order is the contract: the old
+/// state's exit, the new state's entry, then the tick's own effects and the S5 valve check.
+///
+/// Coalescing (`EnablePump` then `DisablePump` -> do nothing) would be faster and wrong:
+/// `EmergencyShutdown` followed by `EnablePump` is not a no-op, it is an energise request that
+/// the latch is supposed to refuse, and collapsing it would hide the refusal.
 ///
 /// # Why generic rather than `&mut dyn`
 ///
-/// Both bounds are `?Sized`, so a caller holding a trait object still compiles,
-/// but the firmware passes concrete types and so gets **static** dispatch: this
-/// monomorphises once per `(A, M)` pair and every `actuators.…` below inlines
-/// into the match. That is the whole point on the safety path — findings 4.3
-/// measured 4-5 `reduce` calls plus this call over up to
-/// [`MAX_EFFECTS_PER_EVENT`](crate::effect::MAX_EFFECTS_PER_EVENT) effects every
-/// 10 ms tick, so the indirect calls were on the order of a thousand a second,
-/// and `dyn` is precisely what stops
-/// the optimiser seeing that `EnablePump` is one pin write.
+/// Both bounds are `?Sized`, so a caller holding a trait object still compiles, but the
+/// firmware passes concrete types and so gets **static** dispatch: this monomorphises once per
+/// `(A, M)` pair and every `actuators.…` below inlines into the match. That is the whole point
+/// on the safety path: four to five `reduce` calls plus this call over up to
+/// [`MAX_EFFECTS_PER_EVENT`](crate::effect::MAX_EFFECTS_PER_EVENT) effects run every 10 ms
+/// tick, so indirect calls would number in the thousands per second, and `dyn` is precisely
+/// what stops the optimiser seeing that `EnablePump` is one pin write.
 ///
-/// The trait seam is untouched, so host-testability is too: a recorder is still
-/// just a type implementing [`Actuators`], and the device build still has one
-/// implementation of each trait.
+/// The trait seam is untouched, so host-testability is too: a recorder is still just a type
+/// implementing [`Actuators`], and the device build still has one implementation of each
+/// trait.
 pub fn apply<A: Actuators + ?Sized, M: MachineChannels + ?Sized>(
     actuators: &mut A,
     side: &mut M,
@@ -251,11 +217,9 @@ pub fn apply_one<A: Actuators + ?Sized, M: MachineChannels + ?Sized>(
 
         // ---- the counter the machine keeps but cannot write down itself -----
         //
-        // These two carry `machine`'s value rather than being asked to compute
-        // it. The reducer owns `shots_since_backflush` and has already applied
-        // the C++'s qualification rule; what the side channel has to do is
-        // remember it, and that is the write the C++ does inside the same call
-        // (`MaintenanceCoordinator.cpp:44,59`).
+        // These two carry `machine`'s value rather than being asked to compute it: the reducer
+        // owns `shots_since_backflush` and has already applied the qualification rule, and the
+        // side channel's job is to remember it.
         Effect::RecordBrew { counted } => {
             side.on_record_brew(counted, machine.shots_since_backflush);
         }
@@ -276,40 +240,32 @@ pub fn apply_one<A: Actuators + ?Sized, M: MachineChannels + ?Sized>(
         Effect::SetPidRuntime { enabled } => observe(side, |d| d.on_pid_runtime(enabled)),
         Effect::SetSteamMode { enabled } => observe(side, |d| d.on_steam_mode(enabled)),
 
-        // These five report a change the reducer has already written into
-        // `Machine` and that nothing outside `Machine` can want, so they are
-        // delivered to no one. They used to be [`Diagnostics`] obligations with
-        // default bodies, which read as "a side channel may implement this"
-        // and in practice none did — three of them never had an
-        // implementation in this workspace at all. A no-op arm says the same
-        // thing with no trait surface to keep in step:
+        // These five report a change the reducer has already written into `Machine` and that
+        // nothing outside `Machine` can want, so they are delivered to no one. They were
+        // [`Diagnostics`] obligations with default bodies, which read as "a side channel may
+        // implement this" and in practice none did. A no-op arm says the same thing with no
+        // trait surface to keep in step:
         //
         // * `ClearActionRequests` / `ClearStaleStopRequests` mirror
-        //   [`Machine::requests`](crate::machine::Machine::requests), which the
-        //   reducer drained itself (`MachineStateContext.h:615-639`).
-        // * `ResetStandbyTimer` mirrors [`Machine::standby`], which `set_request`
-        //   has already re-armed (`MachineStateContext.cpp:217-267`).
-        // * `ResetMqttReconnectCount` is
-        //   `networkCoordinator().resetMqttConnectionAttempts()`
-        //   (`MachineStateContext.cpp:327-329`); the port's MQTT client lives in
-        //   `cc-hal-esp32::mqtt` and is not reachable from here.
-        // * `WakeDisplay` is `exitStandbyMode()`'s `display->setPowerSave(0)`
-        //   (`MachineStateContext.cpp:411-417`), and does not need doing: the
-        //   panel is blanked from [`Machine::standby`]'s
-        //   `should_turn_off_display()` at frame-publish time, and both of the
-        //   C++'s wake paths out of standby request normal operation, which
-        //   re-arms that timer (`MachineStateContext.cpp:254-260`).
+        //   [`Machine::requests`](crate::machine::Machine::requests), which the reducer drained
+        //   itself.
+        // * `ResetStandbyTimer` mirrors [`Machine::standby`], which `set_request` has already
+        //   re-armed.
+        // * `ResetMqttReconnectCount`: reconnection is `esp-mqtt`'s own, configured in
+        //   `cc-hal-esp32::mqtt`, so there is no attempt counter here to reset.
+        // * `WakeDisplay` does not need doing: the panel is blanked from
+        //   [`Machine::standby`]'s `should_turn_off_display()` at frame-publish time, and both
+        //   wake paths out of standby request normal operation, which re-arms that timer.
         Effect::ClearActionRequests
         | Effect::ClearStaleStopRequests
         | Effect::ResetStandbyTimer
         | Effect::ResetMqttReconnectCount
         | Effect::WakeDisplay => {}
 
-        // `BrewHandler::checkPumpTimeout`'s `logError("Pump timeout - stopping
-        // for safety")` and the hot-water equivalent. In the C++ these lines are
-        // unreachable (09 §11); here they are the only way a field operator can
-        // learn that a watchdog fired, which is the point of the effect. The
-        // action that follows is a separate effect, in the C++'s order.
+        // The log line for a pump watchdog trip is the only way a field operator learns that
+        // one fired, which is why the effect exists. The action that follows (stop the brew,
+        // disable the pump) is a separate effect, so the order is deliberate rather than a
+        // side effect of logging.
         Effect::PumpTimeoutFired { watchdog } => observe(side, |d| d.on_log(watchdog.message())),
     }
 }
@@ -400,8 +356,8 @@ mod tests {
 
     #[test]
     fn an_enable_then_disable_pair_is_not_collapsed() {
-        // Collapsing would be an optimisation and would be wrong: the C++ calls
-        // both, and the second call is what actually leaves the relay off.
+        // Collapsing would be an optimisation and would be wrong: both effects are applied,
+        // and the second is what actually leaves the relay off.
         let mut act = Recorder::default();
         let mut side = Bookkeeping::default();
         let machine = Machine::cold();

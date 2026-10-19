@@ -1,38 +1,14 @@
-//! Port of `test/test_hot_water_handler` — 13 C++ cases, 15 Rust cases
-//! (9 live + 6 `#[ignore]`d "no crash" records) plus 2 the C++ does not have.
+//! The hot-water switch: a pump, not a state.
 //!
-//! ## The C++ suite is almost entirely "no crash"
+//! The switch sets no request flag and moves the machine to no state. It marks
+//! [`Machine::hot_water_activity`](cc_machine::Machine) -- which re-arms the standby countdown --
+//! and the pump is then driven by the update of the state the machine is already in, `PID_NORMAL`
+//! or `STEAM_RUNNING`. [`the_hot_water_switch_sets_no_request_flag`] pins that, because a request
+//! flag would have implied a `HOT_WATER` state that does not exist.
 //!
-//! Six of `test_hot_water_handler`'s thirteen cases
-//! (`test_hot_water_handler/test_main.cpp:78-221`) assert nothing beyond "this
-//! call did not crash" — the handler is exercised with a null switch, a null
-//! context, a disabled config, both switch types, in both polarities, and each
-//! case's body is a comment saying so. A gMock "no crash" test is a real
-//! regression guard for a null pointer, but the Rust handler has no pointer and
-//! no nullable context, so those eleven have nothing to guard.
-//!
-//! They are kept as `#[ignore]`d records so the count is comparable, and the
-//! four that *do* assert something are ported for real.
-//!
-//! ## Case mapping
-//!
-//! | C++ case (`test_hot_water_handler/test_main.cpp`) | Rust test |
-//! | --- | --- |
-//! | `ConstructsWithSystemContext` (:78) | `constructing_with_no_switch_is_a_mock_case` (`#[ignore]`) |
-//! | `SetHardwareSetsSwitch` (:83) | `set_hardware_sets_switch_is_a_mock_case` (`#[ignore]`) |
-//! | `NullSwitchReturnsFalse` (:95) | `a_null_switch_is_a_mock_case` (`#[ignore]`) |
-//! | `DetectsHotWaterActive` (:104) | `detects_hot_water_active` |
-//! | `DetectsHotWaterInactive` (:112) | `detects_hot_water_inactive` |
-//! | `ProcessReturnsEarlyWhenDisabled` (:124) | `the_handler_is_a_no_op_when_disabled` |
-//! | `ProcessReturnsEarlyWithNullSwitch` (:133) | — (no null switch) |
-//! | `ProcessReturnsEarlyWithNullMachineStateContext` (:139) | — (no null context) |
-//! | `ProcessDeniesPermissionWhenWaterTankEmpty` (:147) | [`permission_is_denied_when_the_water_tank_is_empty`] |
-//! | `ProcessGrantsPermissionInNormalState` (:157) | [`permission_is_granted_in_pid_normal`] |
-//! | `ProcessDetectsSwitchActivation` (:168) | `detects_switch_activation` (`#[ignore]`) |
-//! | `ToggleSwitchLogsSwitchActivation` (:187) | `a_toggle_switch_press_is_handled` (`#[ignore]`) |
-//! | `MomentarySwitchLogsSwitchPress` (:204) | `a_momentary_switch_press_is_handled` (`#[ignore]`) |
-//! | — | [`the_hot_water_switch_sets_no_request_flag`] |
-//! | — | [`the_hot_water_switch_does_not_wake_the_machine_from_standby`] |
+//! Two consequences look surprising and are deliberate: pressing the switch in standby pushes the
+//! countdown out without waking the machine, and an empty tank refuses the pump through the
+//! handler's own permission check as well as through the safety verdict.
 
 mod common;
 
@@ -40,30 +16,6 @@ use cc_domain::hardware::SwitchType;
 use cc_domain::state::MachineState;
 use cc_machine::{Effect, Request, SwitchId};
 use common::Harness;
-
-#[test]
-#[ignore = "C++ case asserts only 'no crash'"]
-fn constructing_with_no_switch_is_a_mock_case() {}
-
-#[test]
-#[ignore = "C++ case asserts only 'no crash'"]
-fn set_hardware_sets_switch_is_a_mock_case() {}
-
-#[test]
-#[ignore = "C++ case asserts only 'no crash'"]
-fn a_null_switch_is_a_mock_case() {}
-
-#[test]
-#[ignore = "C++ case asserts only 'no crash'"]
-fn detects_switch_activation() {}
-
-#[test]
-#[ignore = "C++ case asserts only 'no crash'"]
-fn a_toggle_switch_press_is_handled() {}
-
-#[test]
-#[ignore = "C++ case asserts only 'no crash'"]
-fn a_momentary_switch_press_is_handled() {}
 
 #[test]
 fn detects_hot_water_active() {
@@ -105,8 +57,7 @@ fn permission_is_granted_in_pid_normal() {
     let mut h = Harness::in_state(MachineState::PidNormal);
     let fx = h.press(SwitchId::HotWater);
     assert!(h.machine.hot_water_activity, "{fx:?}");
-    // The activity is recorded even though the handler's own permission layer
-    // does nothing else with it.
+    // The activity is recorded even with standby disabled, where nothing consumes it.
     assert_eq!(
         fx,
         Vec::new(),
@@ -114,12 +65,11 @@ fn permission_is_granted_in_pid_normal() {
     );
 }
 
-/// The hot-water handler sets **no** request flag (`HotWaterHandler.h:79-112`).
+/// The hot-water switch sets **no** request flag.
 ///
-/// It calls `setHotWaterActivity(true)` and logs. The pumping is done by
-/// `PidNormalState::update` and `SteamRunningState::update` reading the level. A
-/// handler that set a flag would have produced a `HOT_WATER` state, and there
-/// isn't one (`PidStates.cpp:69`).
+/// The pump is driven from the switch level by the update of the state the machine is already
+/// in, so a request flag -- and with it a `HOT_WATER` state -- would be inventing a phase this
+/// machine does not have.
 #[test]
 fn the_hot_water_switch_sets_no_request_flag() {
     let mut h = Harness::in_state(MachineState::PidNormal);
@@ -132,12 +82,11 @@ fn the_hot_water_switch_sets_no_request_flag() {
     assert!(common::has(&fx, Effect::EnablePump), "{fx:?}");
 }
 
-/// `setHotWaterActivity` resets the standby timer (`MachineStateContext.cpp:262-267`)
-/// but is **not** `hasUserActivity()`, which is a stub returning `false`
-/// (`MachineStateContext.cpp:419-429`).
+/// The water switch re-arms the standby countdown without waking the machine.
 ///
-/// So pressing the water switch while in standby pushes the countdown out and
-/// does nothing else: no pump, no wake. Preserved deliberately, and reported.
+/// It is activity for the timer and nothing else: `STANDBY`'s update does not read the switch, so
+/// the pump stays off until something else wakes the machine. Deliberate -- a held water switch is
+/// not a request to brew.
 #[test]
 fn the_hot_water_switch_does_not_wake_the_machine_from_standby() {
     let mut h = Harness::in_state(MachineState::Standby);
@@ -169,7 +118,7 @@ fn the_hot_water_switch_does_not_wake_the_machine_from_standby() {
     assert_eq!(
         common::count(&fx, Effect::EnablePump),
         0,
-        "StandbyState::update does not read the water switch: {fx:?}"
+        "standby's update does not read the water switch: {fx:?}"
     );
 }
 
@@ -205,9 +154,9 @@ fn an_empty_tank_refuses_the_pump_even_without_the_handler_layer() {
     assert!(!h.requested(Request::BrewStart));
 }
 
-/// The hot-water handler's switch type is read but nothing branches on it
-/// (`HotWaterHandler.h:83` reads it only to pick a log message). Pinned so a
-/// future refactor does not start branching on it silently.
+/// The switch type is read but nothing branches on it: momentary and toggle behave identically,
+/// because the pump follows the level rather than an edge. Pinned so a refactor cannot start
+/// branching on it without a test noticing.
 #[test]
 fn the_switch_type_is_read_but_nothing_branches_on_it() {
     for switch_type in [SwitchType::Momentary, SwitchType::Toggle] {

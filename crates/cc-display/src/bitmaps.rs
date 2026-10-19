@@ -6,15 +6,14 @@
 //!
 //! # Why a table rather than a bare array
 //!
-//! The bytes are eleven standalone `static` arrays, each with its own width and
-//! height. That is a *better* interface at the call site -- the dimensions sit
-//! next to the data and renaming an array is a compile error everywhere it is
-//! used.
+//! The bytes are standalone `static` arrays, each with its own width and height.
+//! That is a *better* interface at the call site -- the dimensions sit next to
+//! the data, and renaming an array is a compile error everywhere it is used.
 //!
 //! A name table adds a second way in, and it is worth being explicit about why
 //! that is acceptable: the only caller that needs names is the parity scenario
 //! runner, which has to agree with `tools/oracle/display_oracle.cpp` -- a
-//! *string* table in C++ for the same reason. The production call sites keep
+//! *string* table there for the same reason. The production call sites keep
 //! using [`bitmaps_data`] directly.
 
 use crate::bitmaps_data as data;
@@ -38,7 +37,8 @@ pub struct Bitmap {
 
 /// Every bitmap the firmware ships.
 ///
-/// The order matches the oracle's `BITMAPS[]` so the two are read side by side.
+/// The order matches the replay tool's `BITMAPS[]` so the two are read side by
+/// side.
 pub const ALL: [Bitmap; 11] = [
     Bitmap {
         name: "antenna_ok",

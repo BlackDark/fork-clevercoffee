@@ -9,19 +9,19 @@
 //!
 //! Three reductions, each with a reason:
 //!
-//! 1. **State names are the C++'s strings.** [`MachineState::name`], i.e.
-//!    `BREW_PREINFUSION`, because the C++ baseline was captured from the C++
-//!    firmware's log and the two have to be comparable.
+//! 1. **State names are [`MachineState::name`] strings**, i.e.
+//!    `BREW_PREINFUSION`, because the comparison is string-for-string against a
+//!    captured log.
 //! 2. **Effect values are dropped, except for the three that carry the safety
 //!    argument.** `SetHeaterDuty` becomes `SetHeaterDuty` with no number,
 //!    because the duty is a float computed from a live probe and no two runs
 //!    agree on it; `EnterState`/`ExitState` keep their state name because the
 //!    transition *is* the observation; `PumpTimeoutFired` keeps its watchdog
 //!    because which watchdog fired is the whole point of
-//!    `intentional-diffs.md` §1.
+//!    `divergences.md` §1.
 //! 3. **Timestamps are kept, coarsely.** They are the difference between "the
 //!    pump stopped one loop after the state changed" and "the pump stopped
-//!    immediately", which 09 §15 is entirely about. They are recorded to the
+//!    immediately", which is a one-loop ordering bug. They are recorded to the
 //!    millisecond because the `dry_run` driver has an exact clock; a hardware
 //!    run rounds to the tick, which the format doc says is 10 ms.
 
@@ -39,7 +39,7 @@ pub enum ObservedEffect {
     Plain,
     /// `EnterState` / `ExitState` — the state name is the observation.
     State {
-        /// The C++ `SCREAMING_SNAKE` state name.
+        /// The `SCREAMING_SNAKE` state name.
         state: String,
     },
     /// `SetPidRuntime` / `SetSteamMode` — the flag is the observation.
@@ -107,18 +107,19 @@ fn watchdog_name(w: PumpWatchdog) -> &'static str {
 /// checks it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Actuators {
-    /// `HardwareManager::isPumpRunning()`.
+    /// Whether the pump is running.
     pub pump: bool,
-    /// `ValveState` — the water valve.
+    /// Whether the water valve is open.
     pub water_valve: bool,
-    /// `ValveState` — the steam valve. The same physical relay (09 §2), which
+    /// Whether the steam valve is open. It is the same physical relay as the
+    /// water valve, which
     /// is why both are recorded separately: a scenario that opened the steam
     /// valve outside `STEAM_RUNNING` would be invisible if they were one field.
     pub steam_valve: bool,
     /// The heater duty, 0..=1000. `actuator_safe` requires `0`.
     pub heater_duty: u32,
-    /// `emergencyMode_`. `actuator_safe` requires **not** set — a routine
-    /// shutdown must not latch (06 §Definitions).
+    /// Whether emergency mode is latched. `actuator_safe` requires it **not**
+    /// set — a routine shutdown must not latch.
     pub emergency_latched: bool,
 }
 
@@ -143,12 +144,12 @@ impl Default for Actuators {
 pub struct Observation {
     /// The scenario this came from.
     pub scenario: String,
-    /// The firmware: `cpp` or `rust`.
+    /// Which side produced the observation.
     pub firmware: String,
     /// The ordered states entered, deduplicated on consecutive repeats.
     ///
     /// Consecutive repeats are collapsed because the reducer's self-transition
-    /// skip (`StateMachine.cpp:107-111`) makes them a bookkeeping artefact, not
+    /// skip makes them a bookkeeping artefact, not
     /// a behaviour. A state that is entered, left, and re-entered still appears
     /// twice, which is the case that matters.
     pub states: Vec<String>,
@@ -251,7 +252,7 @@ mod tests {
 
     #[test]
     fn the_pump_watchdog_name_is_kept() {
-        // Which watchdog fired is the whole of intentional-diffs §1.
+        // Which watchdog fired is the whole of `divergences.md` §1.
         let e = ObservedEffect::of(&Effect::PumpTimeoutFired {
             watchdog: PumpWatchdog::Brew,
         });

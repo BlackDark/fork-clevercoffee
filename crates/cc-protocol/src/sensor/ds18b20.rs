@@ -1,15 +1,4 @@
-//! The DS18B20 driver: a non-blocking pipeline, and the C++'s accept/reject
-//! decision.
-//!
-//! Owner: **R1-03** (the DS18B20 half) and **R3-06**.
-//!
-//! # What this replaces
-//!
-//! `TempSensorDallas` (`src/hardware/tempsensors/TempSensorDallas.cpp`) over
-//! `DallasTemperature` 4.0.6. The C++ is already non-blocking — it calls
-//! `setWaitForConversion(false)` and issues the next `CONVERT T` immediately
-//! after reading the scratchpad (`TempSensorDallas.cpp:24-31`) — and this port
-//! keeps that shape rather than inventing a blocking one.
+//! The DS18B20 driver: a non-blocking pipeline with an accept/reject decision.
 //!
 //! # The pipeline
 //!
@@ -19,131 +8,81 @@
 //!                                                       CONVERT T ───┘
 //! ```
 //!
-//! The C++'s cadence is the caller's: `SensorCoordinator::updateTemperature`
-//! calls `startRead()` every `TEMP_UPDATE_INTERVAL_MS` and `tryGetValue()` on
-//! every loop, and `Timing::TEMPERATURE_SENSOR_INTERVAL_MS` is **400 ms**
-//! (`constants/Timing.h:42`). [`CADENCE`] is that number.
+//! The cadence belongs to the caller: `Timing::TEMPERATURE_SENSOR_INTERVAL_MS` is **400 ms** and
+//! [`CADENCE`] is that number.
 //!
-//! 400 ms against an 11-bit conversion time of 375 ms leaves 25 ms of slack,
-//! which is what makes the C++'s design work at all: the conversion it started
-//! on the previous tick has always finished. [`Driver::poll`] enforces the
-//! conversion time explicitly rather than relying on the caller's cadence being
-//! long enough, so a caller that polls faster than 375 ms gets
-//! [`Poll::Waiting`] instead of a stale reading — a difference from the C++
-//! that is recorded in `intentional-diffs.md`.
+//! 400 ms against an 11-bit conversion time of 375 ms leaves 25 ms of slack, so the conversion
+//! started on the previous tick has always finished. [`Driver::poll`] enforces the conversion time
+//! explicitly rather than relying on the caller's cadence being long enough, so a caller that polls
+//! faster than 375 ms gets [`Poll::Waiting`] instead of a stale reading.
 //!
 //! # The accept/reject decision
 //!
-//! `TempSensorDallas::sample_temperature` (`TempSensorDallas.cpp:26-43`) is two
-//! `if` blocks and one assignment, and the port reproduces all of it plus one
-//! check the C++ defines and never performs.
+//! Every value the bus can report is either a temperature or one of seven named faults: the six the
+//! datasheet defines, plus `OutOfRange`, which this driver adds.
 //!
-//! | fault | the C++'s *value* | the C++ rejects? | this port |
-//! | --- | --- | --- | --- |
-//! | `Disconnected` | -127 | yes (`:29-31`) | rejected, reported as `Disconnected` |
-//! | `Open` | -127 | yes (via the fold) | rejected, reported as `Open` |
-//! | `ShortGnd` | -127 | yes (via the fold) | rejected, reported as `ShortGnd` |
-//! | `ShortVdd` | -127 | yes (via the fold) | rejected, reported as `ShortVdd` |
-//! | `PowerOnReset` | -127 | yes (via the fold) | rejected, reported as `PowerOnReset` |
-//! | `InsufficientPower` | -127 | yes (via the fold) | rejected, reported as `InsufficientPower` |
-//! | `OutOfRange` | *nothing* | **no check exists** | **rejected — added by this port** |
+//! | fault | the value on the wire | rejected? |
+//! | --- | --- | --- |
+//! | `Disconnected` | -127 | yes |
+//! | `Open` | -127 | yes |
+//! | `ShortGnd` | -127 | yes |
+//! | `ShortVdd` | -127 | yes |
+//! | `PowerOnReset` | -127 | yes |
+//! | `InsufficientPower` | -127 | yes |
+//! | `OutOfRange` | a real count outside `-50 ..= 150` | yes |
 //!
 //! Two things to read out of that table.
 //!
-//! **The "via the fold" column is the finding.** `TempSensorDallas` compares
-//! against `DEVICE_DISCONNECTED_C` and the three `DEVICE_FAULT_*_C` values, but
-//! `DallasTemperature::rawToCelsius` (`DallasTemperature.cpp:406-410`) has
-//! already turned *every* one of the six raw sentinels into -127, because all
-//! six raws are at or below `DEVICE_DISCONNECTED_RAW`
-//! (`DallasTemperature.h:33-55`). So the second `if` block is dead code, and a
-//! DS18B20 that reports a power-on reset is logged as
-//! *"Temperature sensor not connected"* (`TempSensorDallas.cpp:30`). The
-//! decision is right; the diagnostic points an operator at the wiring when the
-//! fault is on the probe. Pinned by
-//! `cc_protocol::sensor::onewire::div7_every_ds18b20_fault_is_rejected_by_the_cpp`.
+//! **Every fault carries the same -127 sentinel, and that is the finding.** The scratchpad decode
+//! folds all six of the datasheet's fault values to one, so a caller that reads only the sentinel
+//! cannot tell a power-on reset from an unplugged probe, and the diagnostic it prints points an
+//! operator at the wiring when the fault is on the probe. This driver keeps the [`Ds18b20Fault`],
+//! so the reason survives to the log line and to `SENSOR_ERROR`. Pinned by
+//! `cc_protocol::sensor::onewire::div7_every_ds18b20_fault_is_rejected`.
 //!
-//! **The last row is a divergence and it is deliberate.**
-//! `TempSensor::isValidTemperature` (`TempSensor.h:91-93`) is a
-//! `static constexpr` predicate for -50..150 °C that is **never called** — not
-//! from `updateTemperature` (`:31-54`), not from `tryGetValue` (`:110-146`),
-//! not from anywhere in the tree (09 §18). So on the Dallas path a 165 °C
-//! reading is cached, folded into the 15-sample moving average and handed to the
-//! PID. The TSIC driver, by contrast, has its own range reject at
-//! `temp <= 0.0 || temp >= 180.0` (`TempSensorTSIC.cpp:59-62`).
-//!
-//! This port applies the check that `isValidTemperature` was written for, at
-//! the driver, so the two families cannot disagree about what a plausible
-//! reading is. **The trade-off is real and is recorded in
-//! `intentional-diffs.md`:** a genuine 155 °C over-temperature now reports as a
-//! *sensor read failure* rather than as a hot reading, so after ten such
-//! readings the machine reaches `SENSOR_ERROR` rather than S1's
-//! `EMERGENCY_STOP`. The over-temperature is still stopped — the heater is off
-//! in both — but the operator is told "sensor error" instead of "too hot", and
-//! the DS18B20's own alarm configuration is the right place to make that
-//! distinction precise. Failing the other way (accepting 165 °C into the PID)
-//! is what the C++ does today.
+//! **The last row is a deliberate divergence.** A reading above 150 °C is refused, so a 155 °C
+//! reading -- which the sensor can put on the wire but which is outside the DS18B20's specified
+//! -55..125 °C span -- arrives as a *sensor read failure* rather than as a temperature. After ten
+//! of them the machine reaches `SENSOR_ERROR` instead of handing the number to the PID. The heater
+//! is off in both cases, so nothing unsafe is accepted; what changes is what the operator is told.
+//! Reasoning: [`divergences.md` §8](../../../docs/history/divergences.md#d08).
 
 pub use crate::sensor::onewire::Ds18b20Fault;
 use crate::sensor::onewire::{self, OneWireBus, OneWireError, Rom, RomSelection, ScratchPad};
 use crate::sensor::probe::{ProbeFault, ProbeReading, ProbeSource};
 use cc_domain::units::Millis;
 
-/// The reading cadence, in milliseconds.
-///
-/// `Timing::TEMPERATURE_SENSOR_INTERVAL_MS` (`constants/Timing.h:42`), which
-/// `SensorCoordinator` uses for `TEMP_UPDATE_INTERVAL_MS`. 2.5 Hz.
+/// The cadence this driver expects the caller to keep, from
+/// `Timing::TEMPERATURE_SENSOR_INTERVAL_MS`.
+/// 2.5 Hz.
 pub const CADENCE: Millis = Millis::new(400);
 
-/// The number of consecutive failed reads before the driver reports itself
-/// faulty.
+/// The number of consecutive failed reads before the driver reports itself faulty.
 ///
-/// `TempSensor::max_bad_readings_` (`TempSensor.h:57`) is 10, and
-/// `updateTemperature` sets `error_` at that count
-/// (`TempSensor.h:50-53`). The C++ then reports `isConnected() == false`
-/// (`TempSensor.h:148`), which is what drives `SENSOR_ERROR` in the state
-/// machine. **This is the DS18B20's contribution to safety path S1** and it is
-/// preserved exactly: ten, not three.
+/// Ten is S1's debounce budget, and reaching it is what drives `SENSOR_ERROR` in the state machine.
+/// **This is the DS18B20's contribution to safety path S1**, and it is the count S1 was written
+/// against -- not three, and not configurable here.
 pub const MAX_BAD_READINGS: u8 = 10;
 
-/// The resolution the C++ configures, and the driver here.
+/// The resolution this driver configures: 11 bits.
 ///
-/// `TempSensorDallas.cpp:22`: `setResolution(sensorDeviceAddress_, 11)`.
-/// 11-bit is 0.0625 °C, which is finer than the 400 ms cadence can use and
-/// costs 375 ms of conversion — 25 ms inside the cadence.
+/// 11-bit is 0.0625 °C, which is finer than the 400 ms cadence can use and costs 375 ms of
+/// conversion -- 25 ms inside the cadence. 12-bit would cost 750 ms, longer than the cadence, so
+/// the resolution is chosen for the timing rather than for the precision.
 pub const RESOLUTION_BITS: u8 = 11;
 
-/// The range a reading must fall in for the driver to accept it.
+/// The range a reading must fall in for the driver to accept it: -50 °C to +150 °C.
 ///
-/// **This is `TempSensor::isValidTemperature`'s range, applied.**
-/// `TempSensor.h:91-93`:
-///
-/// ```cpp
-/// static constexpr bool isValidTemperature(double temp) noexcept {
-///     return temp >= -50.0 && temp <= 150.0; // Practical range for coffee machines
-/// }
-/// ```
-///
-/// It is `static constexpr`, it is never called (09 §18), and the range that
-/// *is* enforced downstream is S1's, in
-/// `EmergencyStopManager::checkEmergencyConditions`
-/// (`EmergencyStopManager.cpp:25-30`): `Temperature::MIN_VALID_TEMP_C` = 0.0
-/// and `MAX_VALID_TEMP_C` = 200.0, outside which emergency stop trips
-/// immediately with no debounce.
-///
-/// The two ranges are not the same and the difference matters: `PLAUSIBLE_RANGE`
-/// says "a probe cannot physically be here", `S1_RANGE` says "the machine must
-/// stop if it reads here". A reading between 150 and 200 is physically possible
-/// for a DS18B20 (its range is -55..125 by spec, so actually not) and is a
-/// genuine over-temperature; a reading between -50 and 0 is a probe that is too
-/// cold for the boiler. Rejecting both at the driver is a **behaviour change**
-/// and is recorded as one.
+/// The bounds are narrower than S1's at both ends. S1 accepts 0.0 ..= 200.0 and trips outside it
+/// with no debounce; here, a probe reading -1 °C is a *sensor read failure* rather than an
+/// emergency, and a reading at 155 °C is a read failure rather than a temperature inside S1's own
+/// band. The two ranges answer different questions -- "can a probe physically be here" against
+/// "must the machine stop" -- and the driver's is deliberately the stricter one, a behaviour change
+/// recorded in [`divergences.md` §8](../../../docs/history/divergences.md#d08).
 pub const PLAUSIBLE_RANGE: (f32, f32) = (-50.0, 150.0);
 
-/// S1's range, which the driver does **not** apply.
-///
-/// Named so that the two are visibly different numbers in the same file.
-/// `constants/Temperature.h:14-15`, enforced by
-/// `EmergencyStopManager.cpp:25-30`.
+/// S1's band, kept beside [`PLAUSIBLE_RANGE`] so that the two are visibly different numbers in the
+/// same file: 0.0 °C to 200.0 °C, outside which emergency stop trips with no debounce.
 pub const EMERGENCY_RANGE: (f32, f32) = (0.0, 200.0);
 
 /// Whether a decoded temperature is inside [`PLAUSIBLE_RANGE`].
@@ -180,14 +119,13 @@ pub struct Reading {
     pub value: Result<f32, Ds18b20Fault>,
     /// Consecutive failed reads, saturating at [`MAX_BAD_READINGS`].
     pub bad_readings: u8,
-    /// Whether the C++ would report this sensor as faulty.
+    /// Whether ten consecutive bad readings have latched this probe as faulty.
     ///
-    /// `TempSensor::error_` (`TempSensor.h:56`): set once `bad_readings_`
-    /// reaches [`MAX_BAD_READINGS`], cleared by any successful read.
+    /// Set once `bad_readings` reaches [`MAX_BAD_READINGS`], cleared by any successful read.
     pub error: bool,
 }
 
-/// The DS18B20 driver: a ROM code, a phase, and the C++'s error counter.
+/// The DS18B20 driver: a ROM selection, a pipeline phase, and the bad-reading counter.
 ///
 /// Generic over [`OneWireBus`] so the whole pipeline is host-testable against
 /// the fake bus in `cc_protocol::sensor::onewire`'s tests. The device crate supplies a
@@ -215,15 +153,10 @@ pub struct Driver {
 impl Driver {
     /// A driver for a specific device.
     ///
-    /// `selection` defaults to addressing the device by ROM, because the C++
-    /// does: `TempSensorDallas` discovers the ROM in its constructor
-    /// (`getAddress(sensorDeviceAddress_, 0)`, `TempSensorDallas.cpp:20`) and
-    /// every subsequent command goes through `DallasTemperature`'s
-    /// `requestTemperaturesByAddress` / `readScratchPad`, which call
-    /// `_wire->select(deviceAddress)` (`DallasTemperature.cpp:489`, `:210`).
-    /// Skip-ROM is available for a bus known to hold one device, and is the
-    /// same code path the C++ takes for a bus-wide conversion
-    /// (`DallasTemperature.cpp:469`).
+    /// `selection` defaults to addressing the device by ROM, which is what a bus holding more than
+    /// one device needs: a bus-wide conversion would convert every DS18B20 on the line and each
+    /// would answer with its own value into the same read. Skip-ROM is available for a bus known to
+    /// hold exactly one device, and it is the cheaper command -- no ROM bytes on the wire.
     #[must_use]
     pub const fn new(rom: Rom) -> Self {
         Self {
@@ -258,7 +191,7 @@ impl Driver {
         self.last
     }
 
-    /// Whether the C++ would report this sensor as faulty.
+    /// Whether ten consecutive bad readings have latched this probe as faulty.
     #[must_use]
     pub const fn has_error(&self) -> bool {
         self.error
@@ -266,36 +199,26 @@ impl Driver {
 
     /// Advance the pipeline by one step.
     ///
-    /// The caller drives this; the driver never blocks and never sleeps. Call
-    /// it at least every [`CADENCE`], which is what the C++'s coordinator does.
+    /// The caller drives this; the driver never blocks and never sleeps. Call it at least every
+    /// [`CADENCE`].
     ///
     /// # Errors
     ///
-    /// Propagates a bus or presence failure. A **presence** failure is not
-    /// counted as a bad reading: the C++'s `readScratchPad` returns false, which
-    /// `isConnected` turns into `DEVICE_DISCONNECTED_C`, and that *is* counted
-    /// by `TempSensor::updateTemperature`'s `bad_readings_`. So a bus that
-    /// reports an error and a bus that reports "no device" are the same event
-    /// to the C++, and this matches it: the caller should count the error
-    /// through `Driver::record_bus_failure`, which is what
-    /// [`Self::poll`] does before returning.
+    /// Propagates a bus or presence failure. A **presence** failure is not a bad reading on its
+    /// own: the caller counts it through `Driver::record_bus_failure`, which is what [`Self::poll`]
+    /// does before returning the error.
     pub fn poll<B: OneWireBus>(
         &mut self,
         bus: &mut B,
         now: Millis,
     ) -> Result<Poll, OneWireError<B::Error>> {
         let Some(started) = self.convert_started else {
-            // Nothing outstanding: start one. The C++ does this in its
-            // constructor (`TempSensorDallas.cpp:31`) and then after every
-            // successful read (`:41`).
+            // Nothing outstanding: start one. A conversion is in flight at all times after the
+            // first poll, so the pipeline never idles.
             let issued = onewire::request_conversion(bus, self.selection);
             if let Err(err) = issued {
-                // No device, or a bus failure. The C++'s
-                // `requestTemperaturesByAddress` sets `result = false` for a
-                // device that will not answer
-                // (`DallasTemperature.cpp:482-486`) and the read is never
-                // taken; `updateTemperature` counts it
-                // (`TempSensor.h:47-49`). Count it.
+                // No device, or a bus failure. A device that will not answer is a disconnection,
+                // and it counts as a bad reading like any other:
                 self.record_failure(Some(Ds18b20Fault::Disconnected));
                 return Err(err);
             }
@@ -303,8 +226,8 @@ impl Driver {
             return Ok(Poll::Started);
         };
 
-        // A conversion is outstanding. Wait for it, as the C++ does by virtue
-        // of its 400 ms cadence exceeding the conversion time.
+        // A conversion is outstanding. Wait for it: the caller's 400 ms cadence normally exceeds
+        // the conversion time, but a faster caller must not read a half-finished conversion.
         if now.since(started) < self.conversion_time() {
             return Ok(Poll::Waiting);
         }
@@ -320,12 +243,9 @@ impl Driver {
             }
         };
 
-        // The C++'s accept/reject decision, plus this port's range check.
-        //
-        // `interpret` is the C++'s *decode* and the C++'s six sentinel
-        // rejections; the range check is applied here, at the driver, because
-        // that is the layer the C++'s `TempSensor::sample_temperature` is
-        // modelled on and the layer the C++ forgot to finish.
+        // The accept/reject decision: the scratchpad decode names the fault, and the range check
+        // below rejects a real count outside the probe's window. Both are applied here, at the
+        // driver, so nothing downstream ever sees a value the sensor could not have measured.
         let decoded = pad.interpret(self.rom);
         let value = match decoded {
             Ok(celsius) if !is_plausible(celsius) => Err(Ds18b20Fault::OutOfRange),
@@ -339,10 +259,9 @@ impl Driver {
         }
         self.convert_started = None;
 
-        // Start the next conversion so the pipeline never goes idle, which is
-        // what the C++ does after a *good* read only —
-        // `TempSensorDallas.cpp:41` sits after both early returns. See
-        // `s9_a_rejected_read_does_not_start_a_new_conversion`.
+        // Start the next conversion so the pipeline never goes idle, but only after a *good* read:
+        // a rejected read leaves it idle, and the next poll re-issues `CONVERT T`. See
+        // `a_rejected_read_does_not_start_a_new_conversion`.
         if !rejected {
             onewire::request_conversion(bus, self.selection)?;
             self.convert_started = Some(now);
@@ -352,10 +271,8 @@ impl Driver {
 
     /// The conversion time for the device's configured resolution.
     ///
-    /// The C++ reads it back from the device each time
-    /// (`DallasTemperature::getResolution`, `DallasTemperature.cpp:378-396`).
-    /// Reading it back on every poll would be a second bus transaction per tick
-    /// for a value that cannot change, so this is read once during
+    /// Read once, during calibration. Reading it back on every poll would be a second bus
+    /// transaction per tick for a value that cannot change, so this is read once during
     /// [`Driver::calibrate`] and cached.
     #[must_use]
     pub const fn conversion_time(&self) -> Millis {
@@ -364,24 +281,21 @@ impl Driver {
 
     /// Set the resolution and cache the conversion time.
     ///
-    /// Mirrors the tail of `TempSensorDallas`'s constructor: read the scratchpad,
-    /// set the configuration register, persist it, and remember the conversion
-    /// time that implies (`TempSensorDallas.cpp:20-24`). The C++ reads the
-    /// resolution back on every conversion; the value is the same, so it is
-    /// read once here.
+    /// Read the scratchpad, set the configuration register, persist it, and remember the conversion
+    /// time that implies. The resolution is read back once rather than on every conversion: it
+    /// cannot change unless this method changes it.
     ///
     /// # Errors
     ///
-    /// Propagates a bus or presence failure. A device that will not answer the
-    /// scratchpad read cannot be configured, and the C++ leaves the resolution
-    /// at its power-on default (12-bit) in that case.
+    /// Propagates a bus or presence failure. A device that will not answer the scratchpad read
+    /// cannot be configured, and its resolution stays at the power-on default (12-bit), which is
+    /// the slowest conversion time the part has.
     pub fn calibrate<B: OneWireBus>(&mut self, bus: &mut B) -> Result<(), OneWireError<B::Error>> {
         let mut pad = onewire::read_scratchpad(bus, self.selection)?;
         if pad.resolution() != RESOLUTION_BITS {
             pad = pad.with_resolution(RESOLUTION_BITS).with_valid_crc();
             onewire::write_scratchpad(bus, self.selection, &pad)?;
-            // The C++'s `saveScratchPad` waits 20 ms for the EEPROM write
-            // (`DallasTemperature.cpp:255-256`). This does not: the readback
+            // No 20 ms wait for the EEPROM write: the readback
             // below happens after a 20 ms `delay` that the *caller* already
             // owes, and the next thing the firmware does is sleep for the
             // conversion anyway. See `write_scratchpad`'s docs.
@@ -391,17 +305,13 @@ impl Driver {
         Ok(())
     }
 
-    /// Count a failure the way `TempSensor::updateTemperature` does.
+    /// Count a failure: the counter increments and saturates, and the error flag is set at
+    /// [`MAX_BAD_READINGS`] and cleared by any success.
     ///
-    /// `bad_readings_` increments and saturates; `error_` is set at
-    /// [`MAX_BAD_READINGS`] and cleared by any success
-    /// (`TempSensor.h:41-53`).
-    ///
-    /// `fault` is **kept**, unlike the C++'s single `error_` flag. The C++
-    /// cannot: `rawToCelsius` has already collapsed all six sentinels to -127
-    /// by the time `TempSensorDallas` sees them, so the only thing it can
-    /// report is "not connected". Keeping the reason is the whole point of
-    /// [`Ds18b20Fault`], and it costs one byte.
+    /// `fault` is **kept**, which a flag alone cannot do: the scratchpad decode has already
+    /// collapsed all six fault values into one by the time the driver sees them, so a flag could
+    /// only ever say "not connected". Keeping the reason is the whole point of [`Ds18b20Fault`],
+    /// and it costs one byte.
     pub fn record_failure(&mut self, fault: Option<Ds18b20Fault>) {
         self.bad_readings = self.bad_readings.saturating_add(1);
         if self.bad_readings >= MAX_BAD_READINGS && !self.error {
@@ -489,7 +399,7 @@ mod tests {
     use alloc::vec;
     use alloc::vec::Vec;
 
-    /// The ROM the board answered with (08 §4), in the device's byte order.
+    /// The ROM the board answered with, in the device's byte order.
     ///
     /// The recovered boot log printed it as `0x41af78cdaa376928`, which is the
     /// same bytes **reversed** — 1-Wire is clocked out least-significant bit
@@ -685,13 +595,11 @@ mod tests {
         (driver, now)
     }
 
-    // ============================================== the C++'s error counter
+    // ================================================== the bad-reading counter
 
     #[test]
     fn ten_consecutive_failures_raise_the_error_flag() {
-        // `TempSensor::max_bad_readings_` is 10 (`TempSensor.h:57`) and
-        // `updateTemperature` sets `error_` when `bad_readings_ >= 10`
-        // (`TempSensor.h:50-53`). The tenth failure is the one that raises it.
+        // The tenth failure is the one that raises it: the test is at the threshold, not above it.
         let mut driver = Driver::new(LIVE_ROM);
         assert!(!driver.has_error());
         for i in 1..MAX_BAD_READINGS {
@@ -700,17 +608,17 @@ mod tests {
         }
         driver.record_failure(Some(Ds18b20Fault::Disconnected));
         assert!(driver.has_error(), "the tenth failure must raise it");
-        // And it stays raised: the C++'s `if (bad_readings_ >= max && !error_)`
-        // only sets it, and only a successful read clears it.
+        // And it stays raised: the flag is only ever set here, and only a successful read clears
+        // it.
         driver.record_failure(Some(Ds18b20Fault::Disconnected));
         assert!(driver.has_error());
     }
 
     #[test]
     fn the_bad_reading_counter_keeps_counting_past_the_threshold() {
-        // The C++'s `bad_readings_++` (`TempSensor.h:48`) has no cap, so the
-        // count is a diagnostic and the flag is the decision. Saturation here
-        // would lose that.
+        // The counter saturates at `u8::MAX` only because of its type: the flag is the decision,
+        // and the count is the diagnostic. A tighter cap would lose the answer to "how long has
+        // this been wrong".
         let mut driver = Driver::new(LIVE_ROM);
         for _ in 0..50 {
             driver.record_failure(Some(Ds18b20Fault::Disconnected));
@@ -721,8 +629,7 @@ mod tests {
 
     #[test]
     fn the_bad_reading_counter_is_cleared_by_a_success() {
-        // `updateTemperature` on success: `bad_readings_ = 0; error_ = false;`
-        // (`TempSensor.h:43-44`).
+        // A success clears both: the count goes back to zero and the flag drops.
         let mut driver = Driver::new(LIVE_ROM);
         for _ in 0..MAX_BAD_READINGS {
             driver.record_failure(Some(Ds18b20Fault::Disconnected));
@@ -737,16 +644,13 @@ mod tests {
 
     #[test]
     fn div6_every_ds18b20_fault_is_rejected_and_named() {
-        // Restated at the driver level, against the corrected finding: the C++
-        // rejects all six (they all arrive as -127 — see
-        // `cc_protocol::sensor::onewire::div7_*`), and the *only* thing this port
-        // adds is that it keeps the reason. Walk the whole pipeline rather than
-        // the enum, so a future refactor that starts folding the raws again —
-        // which is what `rawToCelsius` does — fails here.
-        // Each pad is stamped with a *valid* resolution and then a valid CRC, in
-        // that order: the resolution write invalidates the CRC, and a
-        // CRC-invalid scratchpad is `Disconnected`, which would make this test
-        // pass for the wrong reason on every case.
+        // Walk the whole pipeline rather than the enum: every fault is rejected at the driver, and
+        // the *only* thing this driver adds is that it keeps the reason. A refactor that starts
+        // folding the six values together again fails here. See
+        // `cc_protocol::sensor::onewire::div7_*`. Each pad is stamped with a *valid* resolution and
+        // then a valid CRC, in that order: the resolution write invalidates the CRC, and a
+        // CRC-invalid scratchpad is `Disconnected`, which would make this test pass for the wrong
+        // reason on every case.
         let mut pow = ScratchPad::power_on();
         pow.0[SP_TEMP_LSB] = 0x50;
         pow.0[SP_TEMP_MSB] = 0x05;
@@ -780,16 +684,15 @@ mod tests {
             let got = driver.poll(&mut device, due);
             assert_eq!(got, Ok(Poll::Reading(Err(fault))), "{fault}");
             // The reason survives into the cached reading, which is the whole
-            // point: the C++ can only say "not connected" for all three.
+            // point: folding the three into one value would lose which wiring fault it is.
             assert_eq!(driver.last_reading().map(|r| r.value), Some(Err(fault)));
         }
     }
 
     #[test]
-    fn div6_the_bad_reading_counter_reaches_s10_on_a_power_on_reset() {
-        // Ten power-on resets latch `error_`, exactly as ten disconnections do.
-        // The C++ gets this right for the wrong reason; this port gets it right
-        // for the right one and reports which.
+    fn div6_ten_power_on_resets_latch_the_error_flag() {
+        // Ten power-on resets latch the error flag, exactly as ten disconnections do, and
+        // the fault this driver reports says which of the two it was.
         let mut driver = Driver::new(LIVE_ROM);
         for _ in 0..MAX_BAD_READINGS {
             driver.record_failure(Some(Ds18b20Fault::PowerOnReset));
@@ -804,10 +707,9 @@ mod tests {
     // ==================================================== the plausibility range
 
     #[test]
-    fn div8_the_dallas_path_applies_the_range_check_it_never_applied() {
-        // 🔴 DIVERGENCE, added by this port. `TempSensor::isValidTemperature`
-        // is -50..150 (`TempSensor.h:91-93`) and is never called by anything.
-        // The range is now applied at the driver.
+    fn div8_the_dallas_path_applies_a_range_check() {
+        // 🔴 DIVERGENCE, added by this port: the driver applies a -50 ..= 150 window, which the
+        // temperature path would otherwise never check.
         assert_eq!(PLAUSIBLE_RANGE, (-50.0, 150.0));
         assert!(is_plausible(-50.0));
         assert!(is_plausible(0.0));
@@ -821,7 +723,7 @@ mod tests {
 
     #[test]
     fn div8_the_two_ranges_overlap_only_between_zero_and_a_hundred_and_fifty() {
-        // S1's range is 0.0..200.0 (`constants/Temperature.h:14-15`); the
+        // S1's range is 0.0..200.0; the
         // driver's is -50.0..150.0. They are not nested: each has a band the
         // other does not, and the driver's bands are exactly the readings this
         // port now turns into "sensor read failure" instead of a temperature.
@@ -830,7 +732,7 @@ mod tests {
         assert_ne!(PLAUSIBLE_RANGE, EMERGENCY_RANGE);
 
         // Plausible to the driver, an emergency to S1: a probe that is too cold
-        // for the boiler. Before this change the C++ passed these to the PID.
+        // for the boiler: plausible to the driver, and an emergency to S1.
         for celsius in [-49.0f32, -1.0] {
             assert!(is_plausible(celsius), "{celsius} is a plausible probe");
             assert!(is_emergency(celsius), "{celsius} would trip S1");
@@ -839,9 +741,9 @@ mod tests {
         for celsius in [0.0f32, 22.9, 149.0] {
             assert!(is_plausible(celsius) && !is_emergency(celsius), "{celsius}");
         }
-        // The fourth quadrant, which the C++ never had: implausible to the driver
-        // and *not* an emergency for S1. 150.5..200 is where an over-temperature
-        // used to arrive at S1 and now arrives as a sensor read failure.
+        // The fourth quadrant: implausible to the driver and *not* an emergency for S1. A reading
+        // in 150.5 ..= 200 is refused here, so what an operator sees is a sensor read failure
+        // rather than a temperature.
         for celsius in [150.5f32, 199.0] {
             assert!(!is_plausible(celsius), "{celsius} is not a plausible probe");
             assert!(!is_emergency(celsius), "{celsius} is inside S1's range");
@@ -856,14 +758,13 @@ mod tests {
         // asymmetry that matters: the driver refuses *below* zero where S1 also
         // would, and *above* 150 where S1 would not until 200. The 150..200 band
         // is where the operator's diagnostic changes from "over-temperature" to
-        // "sensor error". See the module docs and `intentional-diffs.md`.
+        // "sensor error". See the module docs.
         assert!(is_emergency(-1.0) && is_plausible(-1.0));
     }
 
     #[test]
     fn div8_a_reading_outside_the_range_is_a_read_failure_not_a_hot_temperature() {
-        // The trade-off made concrete: a 155 °C scratchpad — which the C++ would
-        // hand to the PID — is now a rejected read.
+        // The trade-off made concrete: a 155 °C scratchpad is a rejected read, not a temperature.
         let mut device = FakeDevice::at_celsius(155.0);
         let (mut driver, start) = running(&mut device);
         assert_eq!(
@@ -872,8 +773,7 @@ mod tests {
         );
         assert!(!driver.has_error(), "one bad read is not an error yet");
         assert_eq!(driver.last_reading().map(|r| r.bad_readings), Some(1));
-        // And it is NOT reported as a temperature, so nothing downstream can
-        // mistake it for a reading.
+        // And it is NOT a temperature, so nothing downstream can mistake it for a reading.
         assert_eq!(as_probe(Poll::Reading(Err(Ds18b20Fault::OutOfRange))), None);
     }
 
@@ -932,7 +832,7 @@ mod tests {
 
     #[test]
     fn the_conversion_time_is_read_from_the_device_not_assumed() {
-        // `DallasTemperature::millisToWaitForConversion` (`DallasTemperature.cpp:422-429`).
+        // The four conversion times the datasheet gives, one per resolution bit count.
         for (bits, expected) in [(9u8, 94u32), (10, 188), (11, 375), (12, 750)] {
             let mut pad = crate::sensor::onewire::ScratchPad([0x00; 9]);
             pad = pad.with_resolution(bits);
@@ -965,8 +865,7 @@ mod tests {
 
     #[test]
     fn the_first_poll_starts_a_conversion_and_blocks() {
-        // `TempSensorDallas.cpp:31` requests the first conversion in the
-        // constructor, and the read happens on a later tick.
+        // The first poll issues `CONVERT T` and returns waiting; the read happens on a later tick.
         let mut device = FakeDevice::at_celsius(22.9);
         let mut driver = Driver::new(LIVE_ROM);
         assert!(!driver.is_converting());
@@ -980,9 +879,9 @@ mod tests {
 
     #[test]
     fn polling_before_the_conversion_finishes_yields_waiting() {
-        // The C++ relies on its 400 ms cadence exceeding 375 ms. This port
-        // checks explicitly, so a faster caller gets `Waiting` rather than a
-        // stale reading.
+        // A 400 ms cadence exceeds 375 ms, but the driver does not rely on that: it checks the
+        // elapsed time explicitly, so a faster caller gets `Waiting` rather than a half-finished
+        // conversion.
         let mut device = FakeDevice::at_celsius(22.9);
         let (mut driver, start) = running(&mut device);
         assert_eq!(driver.conversion_time(), Millis::new(375));
@@ -1007,7 +906,7 @@ mod tests {
             Ok(Poll::Reading(Ok(f32::from(expected) / 128.0)))
         );
         // And the next conversion is already outstanding, so the pipeline never
-        // goes idle — which is what `TempSensorDallas.cpp:41` does.
+        // goes idle: the next `CONVERT T` was issued as soon as this reading was accepted.
         assert!(driver.is_converting());
         assert_eq!(
             device.commands(),
@@ -1021,9 +920,8 @@ mod tests {
 
     #[test]
     fn the_pipeline_sustains_two_and_a_half_hertz_for_two_hundred_ticks() {
-        // 200 ticks at the C++'s 400 ms cadence is 80 s. Every tick after the
-        // first must produce a reading, which is the C++'s steady state and
-        // the property the control loop depends on.
+        // 200 ticks at the 400 ms cadence is 80 s. Every tick after the first must produce a
+        // reading, which is the steady state the control loop depends on.
         let mut device = FakeDevice::at_celsius(23.25);
         let (mut driver, start) = running(&mut device);
 
@@ -1042,9 +940,8 @@ mod tests {
 
     #[test]
     fn a_temperature_change_is_followed_on_the_next_tick() {
-        // The C++'s `sample_temperature` reads and then re-arms, so a change
-        // on the bus is visible on the very next 400 ms tick with no extra
-        // latency.
+        // A read re-arms the pipeline, so a change on the bus is visible on the very next 400 ms
+        // tick with no extra latency.
         let mut device = FakeDevice::at_celsius(22.88);
         let (mut driver, start) = running(&mut device);
         assert_eq!(
@@ -1076,9 +973,9 @@ mod tests {
         // rock-steady room-temperature probe whose only movement is the two
         // adjacent points on the 11-bit grid.
         //
-        // These are the two raw counts the device reported, and the grid
-        // property (a multiple of 8) is what proves the port is reading a real
-        // DS18B20 rather than a plausible-looking number.
+        // These are the two raw counts the device reported. The grid property (a multiple of 8) is
+        // what proves the decode is reading a real DS18B20 register rather than producing a
+        // plausible-looking number.
         for (celsius, raw) in [(24.25f32, 3104i16), (24.375, 3120)] {
             assert_eq!(raw % 8, 0, "11-bit readings are a multiple of 8 raw");
             let mut device = FakeDevice::with_raw(raw);
@@ -1094,9 +991,8 @@ mod tests {
 
     #[test]
     fn the_measured_live_range_decodes_exactly() {
-        // The recovered image's boot log recorded 22.88 .. 23.25 °C
-        // (01 §"The temperature sensor fitted to this machine"). Both must
-        // round-trip through the 11-bit decode.
+        // The recovered firmware's boot log recorded 22.88 .. 23.25 °C. All of them must round-trip
+        // through the 11-bit decode.
         for log_line in [22.88, 22.9375, 23.0, 23.1875, 23.25] {
             let mut device = FakeDevice::at_celsius(log_line);
             let (mut driver, start) = running(&mut device);
@@ -1110,16 +1006,14 @@ mod tests {
 
     #[test]
     fn a_disconnected_sensor_counts_a_bad_reading_and_stops_re_arming() {
-        // A bus with nothing on it: `readScratchPad` returns false, the C++
-        // returns -127, `updateTemperature` increments `bad_readings_`
-        // (`TempSensor.h:47-49`), and `TempSensorDallas` returns before its
-        // re-arm at `:41`.
+        // A bus with nothing on it: the scratchpad read fails, the driver counts a disconnection as
+        // a bad reading, and it returns before re-arming, so the next poll has to start a
+        // conversion from scratch.
         let mut device = FakeDevice::at_celsius(22.9);
         device.present = false;
         let mut driver = Driver::new(LIVE_ROM);
         // `poll` records the failure itself, once per attempt, so this loop is
-        // the C++'s `updateTemperature` being called MAX_BAD_READINGS times
-        // with a bus that never answers.
+        // `record_failure` being called MAX_BAD_READINGS times with a bus that never answers.
         for _ in 0..MAX_BAD_READINGS {
             let _ = driver.poll(&mut device, Millis::ZERO);
         }
@@ -1130,11 +1024,8 @@ mod tests {
 
     #[test]
     fn s9_a_rejected_read_does_not_start_a_new_conversion() {
-        // `TempSensorDallas::sample_temperature` returns `false` at
-        // `TempSensorDallas.cpp:31` and `:35` — both *before* the
-        // `requestTemperaturesByAddress` at `:41`. So a rejected read leaves
-        // the pipeline idle and the next poll must re-issue `CONVERT T` from
-        // scratch. Preserved here.
+        // A rejected read leaves the pipeline idle, because the only arm that re-arms is the
+        // success arm, so the next poll must re-issue `CONVERT T` from scratch.
         let mut device = FakeDevice::new();
         let mut driver = Driver::new(LIVE_ROM);
         driver.conversion_ms = Millis::new(375);
@@ -1163,17 +1054,15 @@ mod tests {
 
     #[test]
     fn a_faulted_reading_still_counts_toward_the_error_flag() {
-        // Every rejected read goes through the C++'s `updateTemperature`
-        // `else if (!error_)` branch (`TempSensor.h:45-49`), so ten of them
-        // latch `error_` and the machine goes to `SENSOR_ERROR`.
+        // Every rejected read counts, so ten of them latch the error flag and the machine goes to
+        // `SENSOR_ERROR`.
         // A device that powers up and never converts: its scratchpad reads all
         // zeros, which is the one fault only the all-zeros check catches.
         let mut device = FakeDevice::new();
         let mut driver = Driver::new(LIVE_ROM);
         driver.conversion_ms = Millis::new(375);
-        // Two polls per read, because a *rejected* read leaves the pipeline
-        // idle (see `s9_*`) and the next poll has to re-issue `CONVERT T`.
-        // So ten rejected reads take twenty polls.
+        // Two polls per read, because a *rejected* read leaves the pipeline idle and the next poll
+        // has to re-issue `CONVERT T`. So ten rejected reads take twenty polls.
         let mut now = Millis::ZERO;
         let mut rejected = 0;
         for _ in 0..2 * MAX_BAD_READINGS {
@@ -1193,8 +1082,8 @@ mod tests {
 
     #[test]
     fn calibrate_sets_eleven_bit_and_caches_the_conversion_time() {
-        // `TempSensorDallas.cpp:22`: `setResolution(sensorDeviceAddress_, 11)`.
-        // The fake device powers on at 12-bit, so this is the interesting path.
+        // The fake device powers on at 12-bit, so this is the path where the configuration register
+        // actually has to change.
         let mut device = FakeDevice::at_celsius(22.9);
         let mut driver = Driver::new(LIVE_ROM);
         assert_eq!(driver.conversion_time(), Millis::new(750)); // uncalibrated
@@ -1224,9 +1113,9 @@ mod tests {
 
     #[test]
     fn calibrate_on_an_already_eleven_bit_device_does_not_rewrite() {
-        // The C++ only writes when `scratchPad[CONFIGURATION] != newValue`
-        // (`DallasTemperature.cpp:350-353`). Rewriting would cost an EEPROM
-        // cycle on every boot, which the DS18B20 is specified for 100k of.
+        // An 11-bit device is not rewritten: the configuration register is only written when it
+        // differs. Rewriting would cost an EEPROM cycle on every boot, and the part is specified
+        // for 100k of them.
         let mut device = FakeDevice::at_celsius(22.9);
         device.scratchpad = device.scratchpad.with_resolution(11).with_valid_crc();
         let mut driver = Driver::new(LIVE_ROM);
@@ -1246,8 +1135,8 @@ mod tests {
 
     #[test]
     fn match_rom_addresses_the_device_not_the_bus() {
-        // `TempSensorDallas` discovers the ROM and addresses it specifically
-        // on every command (`DallasTemperature.cpp:210`, `:489`).
+        // The driver addresses the device by ROM on every command, so a second DS18B20 on the bus
+        // cannot answer in its place.
         let mut device = FakeDevice::at_celsius(22.9);
         let (mut driver, start) = running(&mut device);
         let _ = driver.poll(&mut device, start + Millis::new(400));

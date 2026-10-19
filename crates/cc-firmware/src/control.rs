@@ -1,44 +1,39 @@
 //! The control loop's shell: the reducer, the PID, and the clock.
 //!
-//! Owner: **R4-01**.
-//!
 //! # What this is
 //!
-//! 04 §3.1's `tick()`, written out. Four steps, in this order, and the order is
-//! the C++'s (`LoopManager::update`, `src/core/LoopManager.cpp:90-253`):
+//! The tick, written out. Four steps, in this order:
 //!
 //! ```text
-//! SENSE   the shell reads hardware into plain values          (step 2, C++)
-//! DECIDE  fold events through cc_machine::reduce               (steps 3-5, C++)
-//! ACT     cc_machine::apply -> cc_hal_esp32::Actuators         (steps 3-5, C++)
-//! NOTIFY  publish telemetry to the slow consumers              (steps 6-8, C++)
+//! SENSE   the shell reads hardware into plain values
+//! DECIDE  fold events through cc_machine::reduce
+//! ACT     cc_machine::apply -> cc_hal_esp32::Actuators
+//! NOTIFY  publish telemetry to the slow consumers
 //! ```
 //!
-//! Everything in DECIDE is a pure function in `cc-machine` with 420 host tests
+//! Everything in DECIDE is a pure function in `cc-machine`, with a host test suite
 //! behind it. Everything in ACT is [`cc_hal_esp32::Actuators`], which is the only
 //! code in the firmware that can change an actuator pin. The shell's job is to
 //! be the *only* thing that knows both exist.
 //!
 //! # Why the PID lives here and not in the reducer
 //!
-//! The C++'s `PID` is a global `PID_v1` object the state machine reaches through
-//! `SystemContext`. `cc-domain`'s [`Controller`] is a bit-exact port of that
-//! library and is a **value**, and `cc-machine` takes its output as
-//! [`cc_machine::Event::PidOutput`] — a number the shell computed. So the
-//! division is the one 04 §3.1 asks for: the reducer decides whether a duty may
-//! *reach* the heater, and the shell decides what the duty *is*.
+//! `cc-domain`'s [`Controller`] is a **value**, and `cc-machine` takes its output
+//! as [`cc_machine::Event::PidOutput`] — a number the shell computed. So the
+//! division is deliberate: the reducer decides whether a duty may *reach* the
+//! heater, and the shell decides what the duty *is*.
 //!
 //! `apply_pid_output`'s own documentation records the one visible consequence:
-//! this port gates the emitted `SetHeaterDuty` where the C++ emits the value and
-//! zeroes it microseconds later. Same machine state, strictly safer ordering.
+//! this firmware gates the emitted `SetHeaterDuty` rather than emitting the value
+//! and zeroing it microseconds later. Same machine state, strictly safer ordering.
 //!
 //! # The clock
 //!
 //! One clock, read once per tick, published to the reducer as
 //! [`cc_machine::Event::Tick`] and to the actuator facade as
-//! [`cc_hal_esp32::Actuators::set_now`]. The reducer never reads a clock
-//! (04 §3.1) and the facade's methods take none, so this is the only place the
-//! two can be made to agree.
+//! [`cc_hal_esp32::Actuators::set_now`]. The reducer never reads a clock and the
+//! facade's methods take none, so this is the only place the two can be made to
+//! agree.
 
 use cc_config::Config;
 use cc_domain::pid::{Controller, ControllerDirection, Mode, ProportionalOn};
@@ -50,10 +45,9 @@ use log::{debug, info, warn};
 
 /// The heater chopper's window, in milliseconds.
 ///
-/// `ProcessState::windowSize_` (`include/clevercoffee/context/ProcessState.h:183`)
-/// and `cc_config::Config::HEATER_WINDOW_MS`. The PID's output limits and its
-/// sample time are both this number (`SystemInitializer.cpp:551-552`), so it is
-/// named once here rather than spelled three times.
+/// `cc_config::Config::HEATER_WINDOW_MS`. The PID's output limits and its sample
+/// time are both this number, so it is named once here rather than spelled three
+/// times.
 const WINDOW_MS: u32 = Config::HEATER_WINDOW_MS;
 
 /// The control task's view of the machine: the reducer's state, the PID, and the
@@ -67,23 +61,21 @@ const WINDOW_MS: u32 = Config::HEATER_WINDOW_MS;
 pub struct Control {
     /// `cc_machine::Machine` — the reducer's state.
     machine: Machine,
-    /// The `PID_v1` port, as a value.
+    /// The PID controller, as a value.
     pid: Controller,
     /// The `pid.enabled` value the reducer last decided, folded into the
     /// controller's `AUTOMATIC`/`MANUAL` mode.
     ///
-    /// `ProcessController::setPIDEnabled` (`ProcessController.cpp:261-275`):
-    /// enabling calls `SetMode(AUTOMATIC)`, which is the library's bumpless
-    /// transfer. Doing it here rather than inside the reducer is what keeps the
-    /// reducer free of the controller — and it is why the mode is applied
-    /// *after* the tick, because the tick is what decides it.
+    /// Enabling calls `SetMode(AUTOMATIC)`, which is the bumpless transfer: the
+    /// integrator keeps its value and the output does not jump. Doing it here rather
+    /// than inside the reducer is what keeps the reducer free of the controller — and
+    /// it is why the mode is applied *after* the tick, because the tick is what decides
+    /// it.
     pid_mode_enabled: bool,
     /// The machine state the PID tunings were last chosen for.
     ///
-    /// `ProcessController::updatePIDState`'s `lastMachineStatePid_`
-    /// (`ProcessController.cpp:174`). The tunings change **only** on a state
-    /// change, which is what stops the brew-detection gains from being applied
-    /// in `PID_NORMAL` by a stale assignment.
+    /// The tunings change **only** on a state change, which is what stops the
+    /// brew-detection gains from being applied in `PID_NORMAL` by a stale assignment.
     ///
     /// **Except** after a tuning is written at runtime — see
     /// [`Self::retune_now`], which clears this so the next tick re-chooses.
@@ -92,23 +84,18 @@ pub struct Control {
     safety: SafetyConfig,
     /// The active setpoint, °C.
     ///
-    /// `brew.setpoint + brew.temp_offset` normally, `steam.setpoint` while steam
-    /// mode is on — `ProcessController::updateSetpoint`
-    /// (`ProcessController.cpp:235-244`). The offset is applied to the
-    /// **setpoint**, not to the reading, which is the same arithmetic as the
-    /// C++'s subtracting it from the reading
-    /// (`ProcessController.cpp:138`) with the sign the parameter's help text
-    /// describes ("offset added to the user-visible setpoint", `Config.h:808`).
+    /// `brew.setpoint + brew.temp_offset` normally, `steam.setpoint` while steam mode
+    /// is on. The offset is applied to the **setpoint**, not to the reading, which is
+    /// equivalent arithmetic with the sign the parameter's help text describes: "offset
+    /// added to the user-visible setpoint".
     setpoint: f64,
 }
 
 impl Control {
     /// Bring the machine up, and say which state it starts in.
     ///
-    /// `SystemInitializer::finalizeMachineState`
-    /// (`src/core/SystemInitializer.cpp:604-641`), which reads the power switch
-    /// *before* the state machine exists and hands it both an initial state and
-    /// a runtime PID flag:
+    /// The power switch is read *before* the state machine exists and decides both the
+    /// initial state and the runtime PID flag:
     ///
     /// | power switch | initial state | runtime PID |
     /// | --- | --- | --- |
@@ -118,25 +105,21 @@ impl Control {
     /// | absent | `INIT` | `pid.enabled` |
     ///
     /// `shots_since_backflush` is an **argument** rather than something restored
-    /// afterwards, because this is where the C++ restores it:
-    /// `SystemInitializer.cpp:282` calls `maintenanceCoordinator().begin()` —
-    /// the NVS read — before the machine exists, so the counter is part of the
-    /// state the machine boots *into*. Passing it in also keeps the "the shell
-    /// may write exactly one `Machine` field" rule on
-    /// [`Self::reset_shots_since_backflush`] honest: the counter arrives as boot
-    /// state rather than as a second setter.
+    /// afterwards, because the counter is part of the state the machine boots *into*:
+    /// the NVS read happens before the machine exists, in `main`. Passing it in also
+    /// keeps the "the shell may write exactly one `Machine` field" rule on
+    /// [`Self::reset_shots_since_backflush`] honest — the counter arrives as boot state
+    /// rather than as a second setter.
     ///
     /// The effects are returned rather than applied here, because
     /// [`cc_hal_esp32::Actuators`] does not exist yet at this point in the boot
     /// sequence and the first effects are actuator writes.
     ///
-    /// The PID is constructed with the C++'s exact call
-    /// (`SystemInitializer.cpp:296-305`) followed by `initializePID`
-    /// (`:536-566`): the same gains, the same 1000 ms sample time, the same
-    /// `(0, 1000)` output limits, the same `(0, i_max)` integrator limits and
-    /// the same EMA factor, in the same order. The order matters — `SetSampleTime`
-    /// rescales `Ki` and `Kd` by the ratio of the periods, so setting the sample
-    /// time before the tunings would give a different controller.
+    /// The PID is constructed with the state's gains, a 1000 ms sample time, `(0,
+    /// 1000)` output limits, `(0, i_max)` integrator limits and an EMA factor — in that
+    /// order. **The order matters**: `SetSampleTime` rescales `Ki` and `Kd` by the
+    /// ratio of the periods, so setting the sample time before the tunings would give a
+    /// different controller.
     #[must_use]
     pub fn boot(
         config: &Config,
@@ -147,18 +130,14 @@ impl Control {
         let (initial, runtime_pid) = initial_state(config, power_switch_pressed);
         let ctx = Context::new(config, celsius(config.effective_brew_setpoint()));
         let (mut machine, effects) = cc_machine::boot_in(initial, runtime_pid, now, &ctx);
-        // `maintenanceCoordinator().begin()` (`MaintenanceCoordinator.cpp:17-27`)
-        // runs before any of the above in the C++ — line 282 of
-        // `SystemInitializer.cpp`, against `:604-641` for the state — so the
-        // value it loads is part of what this machine is born holding. A negative
-        // value cannot come from the stored form (four bytes of a count that
-        // starts at 0), but `0` is applied for it anyway so that nothing
-        // downstream has to reason about a counter below its floor.
+        // The stored count is part of what this machine is born holding. A negative
+        // value cannot come from the stored form (four bytes of a count that starts at
+        // 0), but `0` is applied for it anyway so that nothing downstream has to reason
+        // about a counter below its floor.
         machine.shots_since_backflush = shots_since_backflush.max(0);
 
-        // `SystemInitializer::initializePID` (`SystemInitializer.cpp:536-566`).
-        // `set_tunings` first, then `set_sample_time`: the latter rescales the
-        // former by the period ratio, and the C++ relies on that.
+        // `set_tunings` first, then `set_sample_time`: the latter rescales the former
+        // by the period ratio, so the reverse order gives different gains.
         let (kp, ki, kd) = config.pid_tunings();
         let mut pid = Controller::new(
             now,
@@ -170,12 +149,11 @@ impl Control {
         );
         let _ = pid.set_sample_time(Millis::new(WINDOW_MS));
         let _ = pid.set_output_limits(0.0, f64::from(WINDOW_MS));
-        // `SetIntegratorLimits(0, aggIMax_)` (`SystemInitializer.cpp:553`),
-        // guarded on a non-zero `i_max` because `PID_v1` refuses a window whose
-        // `min >= max` (`PID_v1.cpp:220-231`). The guard is not a workaround:
+        // `SetIntegratorLimits(0, i_max)`, guarded on a non-zero `i_max` because the
+        // controller refuses a window whose `min >= max`. The guard is not a workaround:
         // `Config::pid_tunings` reads `i_max == 0` as `Ki = 0`, which pins the
-        // integrator to zero (`PID_v1.cpp:167-169`), so there is no window left
-        // to set and the `bool` cannot be false for any value that reaches it.
+        // integrator to zero, so there is no window left to set and the `bool` cannot be
+        // false for any value that reaches it.
         if config.pid.regular.i_max > 0.0 {
             let _ = pid.set_integrator_limits(0.0, config.pid.regular.i_max);
         }
@@ -208,9 +186,8 @@ impl Control {
             safety: safety_config(config),
             setpoint,
         };
-        // The tunings are applied for the *initial* state, so the very first
-        // `compute` in the C++ (which happens on the first
-        // `updateProcessControl`, i.e. the first loop) uses the right gains.
+        // The tunings are applied for the *initial* state, so the first `compute` of
+        // the run uses the right gains.
         control.retune(config);
         info!(
             "control: booted in {initial:?} (runtime pid {runtime_pid}), \
@@ -232,12 +209,11 @@ impl Control {
         &self.machine
     }
 
-    /// The duty the PID last computed, in the C++'s 0-1000 units.
+    /// The duty the PID last computed, in 0-1000 units (promille).
     ///
     /// This is the machine's belief, not a measurement of the pin: the pin is the
-    /// 10 ms ISR's, and `cc_hal_esp32::Actuators::heater()` reports what the gate
-    /// let through. `/api/status`'s `heaterPower` is `output / 10`, which is the
-    /// C++'s own conversion (`WebServerManager.cpp:352`).
+    /// 10 ms ISR's, and `cc_hal_esp32::Actuators::heater()` reports what the gate let
+    /// through. `/api/status`'s `heaterPower` is `output / 10`, i.e. per cent.
     #[must_use]
     pub fn pid_output(&self) -> f32 {
         self.machine.pid.output
@@ -258,14 +234,11 @@ impl Control {
 
     /// The **active gains**, `(kp, ki, kd)`, as the operator entered them.
     ///
-    /// This is what the display's PID row is labelled with
-    /// (`DisplayTemplateBase.h:165` prints `pidKp()`, `pidKp()/pidKi()` and
-    /// `pidKd()/pidKp()`), and it is deliberately *not*
-    /// [`Self::pid_terms`]: those are the controller's last P, I and D
-    /// contributions, the I among them being an accumulator that grows without
-    /// bound. Feeding the row the terms produced `4444|81|0 - 100%` — the
-    /// report was "the numbers overlap and I do not know what they stand for",
-    /// which is the correct reaction to a PID row showing an integral.
+    /// This is what the display's PID row is labelled with, and it is deliberately
+    /// *not* [`Self::pid_terms`]: those are the controller's last P, I and D
+    /// contributions, the I among them being an accumulator that grows without bound.
+    /// Feeding the row the terms produced `4444|81|0 - 100%`, which is not a number an
+    /// operator can act on.
     #[must_use]
     pub fn pid_gains(&self) -> (f64, f64, f64) {
         self.pid.gains()
@@ -279,13 +252,11 @@ impl Control {
 
     /// Reset the shot counter — `POST /api/maintenance/reset-backflush-counter`.
     ///
-    /// `MaintenanceCoordinator::resetSinceBackflush()`
-    /// (`WebServerManager.cpp:528-537`). The counter lives in
-    /// `Machine::shots_since_backflush` and the reducer only ever clears it as a
-    /// *consequence* of entering `BACKFLUSH_FINISHED`
+    /// The counter lives in `Machine::shots_since_backflush` and the reducer only ever
+    /// clears it as a *consequence* of entering `BACKFLUSH_FINISHED`
     /// (`Effect::ResetShotsSinceBackflush`), so an operator-initiated reset has no
-    /// reducer event and this is the one place a shell may write a `Machine`
-    /// field directly.
+    /// reducer event and this is the one place a shell may write a `Machine` field
+    /// directly.
     ///
     /// **The caller must also persist it.** This only clears the value; the NVS
     /// write is `cc_hal_esp32::FirmwareSide::on_reset_shots_since_backflush`,
@@ -294,10 +265,10 @@ impl Control {
     /// through the same code, rather than being two behaviours that have to be
     /// kept in step.
     ///
-    /// It is deliberately the only such method. A second one would be the
-    /// beginning of "the shell can reach into the state machine", which is the
-    /// coupling 04 §3.1 exists to remove; one named operation the C++ also has is
-    /// a port, and a general `&mut Machine` accessor is not.
+    /// It is deliberately the only such method. A second one would be the beginning of
+    /// "the shell can reach into the state machine", which is the coupling the shell
+    /// exists to prevent: one named operation is a deliberate hole, and a general
+    /// `&mut Machine` accessor is not.
     pub fn reset_shots_since_backflush(&mut self) {
         self.machine.shots_since_backflush = 0;
         info!("control: shots since backflush reset to 0");
@@ -317,9 +288,9 @@ impl Control {
 
     /// The safety latch, as `cc-safety` last computed it.
     ///
-    /// The facade's mirror of this is set from here, every tick, which is what
-    /// makes the latch a single copy (see `cc_hal_esp32::actuators`'s module
-    /// documentation on why the C++'s two copies are a bug).
+    /// The facade's mirror of this is set from here, every tick, which is what makes
+    /// the latch a single copy (see `cc_hal_esp32::actuators`'s module documentation on
+    /// why two copies are a bug).
     #[must_use]
     pub const fn safety_state(&self) -> SafetyState {
         self.machine.safety
@@ -331,16 +302,15 @@ impl Control {
     /// The returned effects are to be applied **in order**, front to back, and
     /// are the complete actuator history of the period.
     ///
-    /// The event order is the C++'s and is load-bearing:
+    /// The event order is load-bearing:
     ///
-    /// 1. [`Event::SensorUpdated`] — C++ step 2, before anything reads a sensor.
-    /// 2. [`Event::Safety`] — C++ `testEmergencyConditions`, which
-    ///    `ProcessController.cpp:109-113` runs *before* the PID computes.
-    /// 3. the switch edges — C++ step 3, so a brew press sets `brew_start` and
-    ///    the [`Event::Tick`] in the same period consumes it.
-    /// 4. [`Event::PidOutput`] — C++ `computePID` (`:112`).
-    /// 5. [`Event::Tick`] — C++ steps 3-5: standby, the state machine, the
-    ///    handler tail, the valve fail-safes and process control.
+    /// 1. [`Event::SensorUpdated`] — before anything reads a sensor.
+    /// 2. [`Event::Safety`] — the safety verdict is computed *before* the PID.
+    /// 3. the switch edges — so a brew press sets `brew_start` and the [`Event::Tick`]
+    ///    in the same period consumes it.
+    /// 4. [`Event::PidOutput`].
+    /// 5. [`Event::Tick`] — standby, the state machine, the handler tail, the valve
+    ///    fail-safes and process control.
     ///
     /// [`Self::feed`] is public and is the same operation for one event, because
     /// the command queue is drained **before** the tick and a `POST /api/brew`
@@ -365,20 +335,16 @@ impl Control {
         // a three-reading debounce, so the counter is machine state and the
         // shell passes the outcome in whole rather than keeping a second copy.
         //
-        // The state in the telemetry is the machine's *current* state, which is
-        // the C++'s `MachineStateId` argument to `shouldPIDBeEnabled` and the
-        // `Telemetry::state` field's reason for existing: S5's whitelist is a
-        // function of the state, so the state is an input to the decision and not
-        // part of the latch.
+        // The state in the telemetry is the machine's *current* state, which is the
+        // `Telemetry::state` field's reason for existing: S5's whitelist is a function of
+        // the state, so the state is an input to the decision and not part of the latch.
         //
-        // **`sample_seq` is the probe's own conversion counter**, not a tick
-        // counter. S1's debounce is a count of *readings* — the C++ increments it
-        // once per `updateTemperature()` on a 400 ms cadence, so three readings is
-        // about 1.2 s. This tick runs ten times a second against that same
-        // probe, so without the sequence number one reading is counted forty
-        // times and the debounce trips in 30 ms: a probe spike latches an
-        // emergency stop in the middle of a brew, which the C++ rides out.
-        // See `cc_safety::Telemetry::sample_seq`.
+        // **`sample_seq` is the probe's own conversion counter**, not a tick counter.
+        // S1's debounce is a count of *readings*, and this tick runs ten times a second
+        // against a probe that converts every 400 ms. Without the sequence number one
+        // reading is counted forty times and the debounce trips in 30 ms: a probe spike
+        // latches an emergency stop in the middle of a brew. See
+        // `cc_safety::Telemetry::sample_seq`.
         let telemetry = Telemetry {
             sample_seq: sensors.sample_seq,
             ..Telemetry::new(
@@ -399,21 +365,18 @@ impl Control {
         }
 
         // ---- 4. the PID ---------------------------------------------------
-        // The setpoint selection is `updateSetpoint(steamActive)`, and the
-        // temperature is the reading the S1 check just accepted, so the PID and
-        // the safety monitor see the same number — which the C++ also achieves
-        // (`updateTemperature` runs before both).
+        // The setpoint selection is for the steam state, and the temperature is the
+        // reading the safety check just accepted, so the PID and the safety monitor see
+        // the same number.
         self.setpoint = effective_setpoint(config, self.machine.steam_mode);
         self.pid.input = f64::from(sensors.temperature.raw());
         self.pid.setpoint = self.setpoint;
         if self.pid.compute(now) {
-            // The C++'s `pidOutput_` is a `double` and `Effect::SetHeaterDuty`
-            // carries an `f32`, because the C++'s own consumer — the ISR's
-            // `currentPidOutput` — is compared against a `u32` counter of 10 ms
-            // steps, so the value that matters is 0..=1000 and every f32 holds
-            // that exactly. The narrowing is therefore lossless over the whole
-            // output range, which is the range `set_output_limits(0, window)`
-            // enforces.
+            // `Effect::SetHeaterDuty` carries an `f32` rather than the controller's
+            // `f64`, because the ISR compares it against a `u32` counter of 10 ms steps:
+            // the value that matters is 0..=1000 and every `f32` holds that exactly, so
+            // the narrowing is lossless over the whole range
+            // `set_output_limits(0, window)` enforces.
             #[allow(
                 clippy::cast_possible_truncation,
                 reason = "the PID's output is clamped to 0..=1000 by \
@@ -428,9 +391,9 @@ impl Control {
         self.feed(config, Event::Tick { now }, &mut effects);
 
         // ---- 6. post-tick: the PID mode and the tunings -------------------
-        // Both are consequences of what the tick decided, so both are applied
-        // after it. `set_mode(Automatic)` is the library's bumpless transfer and
-        // is what `ProcessController::setPIDEnabled` does (`:261-275`).
+        // Both are consequences of what the tick decided, so both are applied after it.
+        // `set_mode(Automatic)` is the bumpless transfer: the integrator keeps its value
+        // and the output does not jump.
         let permitted = self.machine.pid.mode_enabled;
         if permitted != self.pid_mode_enabled {
             self.pid.set_mode(if permitted {
@@ -451,9 +414,9 @@ impl Control {
 
     /// Fold one event through the reducer and append its effects.
     ///
-    /// Public because the command queue is drained between ticks and each command
-    /// is an event: 04 §3.2 requires a `POST /api/...` to become a `Command`
-    /// delivered on a bounded queue, never a direct call into control state.
+    /// Public because the command queue is drained between ticks and each command is an
+    /// event: a `POST /api/...` becomes a `Command` delivered on a bounded queue, never
+    /// a direct call into control state.
     pub fn feed(&mut self, config: &Config, event: Event, effects: &mut cc_machine::Effects) {
         let ctx = Context::new(config, celsius(self.setpoint));
         let (machine, produced) = reduce(&self.machine, &ctx, event);
@@ -463,22 +426,19 @@ impl Control {
 
     /// Re-choose the gains on the next tick, without waiting for a state change.
     ///
-    /// **A deliberate divergence from the C++**, approved on 2026-10-05. The C++
-    /// gates the retune on `lastMachineStatePid_ != machineState`
-    /// (`ProcessController.cpp:170`), so a `pid.regular.kp` written over HTTP is
-    /// stored and reported back by `GET /api/parameters` while the running PID
-    /// keeps the old gains until the machine happens to change state. Measured
-    /// on a bench ESP32: `POST /api/parameters pid.regular.kp=62` was accepted,
-    /// persisted across a reboot and reported by the `GET`, and `heaterPower`
-    /// stayed at the old tuning's 21.8 % until the PID was cycled off and on —
-    /// at which point it jumped to 100 % at a 65 K error.
+    /// **A deliberate divergence**, recorded as §34 of
+    /// `docs/history/divergences.md`. Gating the retune on the last *state* would store
+    /// and report back a `pid.regular.kp` written over HTTP while the running PID kept
+    /// the old gains until the machine happened to change state. Measured on a bench
+    /// ESP32: `POST /api/parameters pid.regular.kp=62` was accepted, persisted across a
+    /// reboot and reported by the `GET`, and `heaterPower` stayed at the old tuning's
+    /// 21.8 % until the PID was cycled off and on — at which point it jumped to 100 % at
+    /// a 65 K error.
     ///
-    /// The C++ behaviour is defensible (a tuning is a preference, not an
-    /// event) and this keeps the *state-change* rule intact — the same gains
-    /// are still chosen per state, brew detection still never leaks into
-    /// `PID_NORMAL`. The only change is that a write takes effect on the next
-    /// tick instead of on the next transition. Recorded in
-    /// `docs/history/divergences.md`.
+    /// Gating on a state change is defensible (a tuning is a preference, not an event)
+    /// and this keeps that rule intact — the same gains are still chosen per state, brew
+    /// detection still never leaks into `PID_NORMAL`. The only change is that a write
+    /// takes effect on the next tick instead of on the next transition.
     ///
     /// Called by the control task after a staged parameter write, so a tuning
     /// change is one control period old rather than one state change old.
@@ -488,14 +448,12 @@ impl Control {
 
     /// Apply the tunings for the current state, if the state changed.
     ///
-    /// `ProcessController::updatePIDState`'s switch
-    /// (`ProcessController.cpp:174-198`), which keys on `lastMachineStatePid_`:
-    /// the gains are chosen **on a state transition** and not before. The three
-    /// arms are the C++'s three.
+    /// The gains are chosen **on a state transition** and not before, which is what the
+    /// field this keys on is for.
     ///
-    /// A rejected tuning (`set_tunings` returns `false` on a negative gain) is
-    /// logged and otherwise ignored, which is what the C++ does — `SetTunings`
-    /// returns `void` there and the `if (Kp < 0 || ...) return;` swallows it.
+    /// A rejected tuning (`set_tunings` returns `false` on a negative gain) is logged
+    /// and otherwise ignored: keeping the old gains is the controller's own behaviour,
+    /// and the log is the only place that rejection becomes visible.
     fn retune(&mut self, config: &Config) {
         let state = self.machine.state;
         if self.tuned_for == Some(state) {
@@ -504,7 +462,7 @@ impl Control {
         self.tuned_for = Some(state);
 
         match state {
-            // `STEAM_RUNNING`: P only. `ProcessController.cpp:180-183`.
+            // Steam running: P only, so the boiler does not overshoot on the way up.
             MachineState::SteamRunning => {
                 let kp = config.pid.steam.kp;
                 if !self.pid.set_tunings(kp, 0.0, 0.0, ProportionalOn::Error) {
@@ -513,8 +471,8 @@ impl Control {
                 }
                 info!("control: PID tunings for STEAM_RUNNING: p={kp:.3} i=0.000 d=0.000");
             }
-            // The brew states: the brew-detection gains when `pid.bd.enabled`,
-            // otherwise the regular ones. `ProcessController.cpp:184-192`.
+            // The brew states: the brew-detection gains when `pid.bd.enabled`, otherwise
+            // the regular ones.
             MachineState::BrewPreinfusion
             | MachineState::BrewPreinfusionPause
             | MachineState::BrewRunning
@@ -527,16 +485,15 @@ impl Control {
                     self.apply_regular(config);
                 }
             }
-            // Everything else, including `PID_NORMAL` itself.
-            // `ProcessController.cpp:193-198`'s `default:` arm.
+            // Everything else, including `PID_NORMAL` itself: the regular gains.
             _ => self.apply_regular(config),
         }
     }
 
-    /// The regular (non-brew-detection) tuning, `setPIDTunings` and all.
+    /// The regular (non-brew-detection) tuning.
     ///
-    /// `ProcessController::setPIDTunings` (`:203-218`): the derived gains, the
-    /// integrator limit, and `P_ON_M` when `pid.use_ponm` is set.
+    /// Applies the derived gains, the integrator limit, and `P_ON_M` when
+    /// `pid.use_ponm` is set.
     fn apply_regular(&mut self, config: &Config) {
         let (kp, ki, kd) = config.pid_tunings();
         let pon_m = if config.pid.use_ponm {
@@ -548,7 +505,6 @@ impl Control {
             warn!("control: regular PID tuning rejected (kp={kp} ki={ki} kd={kd})");
             return;
         }
-        // `setPidIntegratorLimits(0, aggIMax_)` (`ProcessController.cpp:211`).
         // See the boot path's comment: `i_max == 0` is "no integral action" and
         // is already `Ki == 0`, so the call is skipped rather than made and its
         // rejection discarded.
@@ -568,12 +524,11 @@ impl Control {
     }
 }
 
-/// `SystemInitializer::finalizeMachineState`'s four arms
-/// (`src/core/SystemInitializer.cpp:604-641`).
+/// The four arms of the boot decision.
 ///
-/// `power_switch_pressed` is `None` when `hardware.switches.power.enabled` is
-/// false, which is the **default** (`Config.h:1023`) — so an unconfigured
-/// machine takes the last arm and follows `pid.enabled`.
+/// `power_switch_pressed` is `None` when `hardware.switches.power.enabled` is false,
+/// which is the **default** — so an unconfigured machine takes the last arm and follows
+/// `pid.enabled`.
 fn initial_state(config: &Config, power_switch_pressed: Option<bool>) -> (MachineState, bool) {
     use cc_domain::hardware::SwitchType;
     if config.hardware.switches.power.enabled {
@@ -582,11 +537,8 @@ fn initial_state(config: &Config, power_switch_pressed: Option<bool>) -> (Machin
                 info!("control: power switch is MOMENTARY — starting in PID_NORMAL");
                 (MachineState::PidNormal, true)
             }
-            // The toggle's *live* level decides, and `None` (no reading) is
-            // treated as off, which is the C++'s answer too: `isPressed()` is
-            // `currentState == HIGH` and `currentState` starts `LOW`
-            // (`IOSwitch.cpp:19`), so a toggle reads "off" until the debounce
-            // settles on it.
+            // The toggle's *live* level decides, and `None` (no reading) counts as off: a
+            // toggle switch reads "off" until the debounce settles on it.
             SwitchType::Toggle => {
                 if power_switch_pressed == Some(true) {
                     info!("control: power toggle is ON — starting in PID_NORMAL");
@@ -619,17 +571,14 @@ fn initial_state(config: &Config, power_switch_pressed: Option<bool>) -> (Machin
     }
 }
 
-/// `ProcessController::updateSetpoint` (`ProcessController.cpp:235-244`) plus
-/// `brew.temp_offset`.
+/// The active setpoint, including `brew.temp_offset`.
 ///
-/// The offset goes on the **setpoint**, not on the reading. The C++ subtracts it
-/// from the reading (`ProcessController.cpp:138`) and adds nothing to the
-/// setpoint, so `setpoint - (reading - offset)` and `(setpoint + offset) -
-/// reading` are the same number; `cc-config` names the second form
-/// (`Config::effective_brew_setpoint`) and its help text describes the parameter
-/// the same way ("offset added to the user-visible setpoint", `Config.h:808`), so
-/// that is the one used. `brew.temp_offset` defaults to `0.0`
-/// (`defaults.h:19`), so on a default machine the two are indistinguishable.
+/// The offset goes on the **setpoint**, not on the reading: `setpoint - (reading -
+/// offset)` and `(setpoint + offset) - reading` are the same number, and `cc-config`
+/// names the second form (`Config::effective_brew_setpoint`). Its help text describes
+/// the parameter the same way — "offset added to the user-visible setpoint" — and
+/// `brew.temp_offset` defaults to `0.0`, so on a default machine the two forms are
+/// indistinguishable.
 pub(crate) fn effective_setpoint(config: &Config, steam_mode: bool) -> f64 {
     if steam_mode {
         config.steam.setpoint
@@ -640,13 +589,13 @@ pub(crate) fn effective_setpoint(config: &Config, steam_mode: bool) -> f64 {
 
 /// A temperature, narrowed from the configuration's `f64` to [`Celsius`]'s `f32`.
 ///
-/// One place, so the justification is written once. `cc_config` uses `f64`
-/// because the C++ uses `double`; `cc_domain::units::Celsius` is `f32` because
-/// that is what the DS18B20's 0.0625 °C resolution needs. Over every range the
-/// schema allows — `brew.setpoint` 20..=110, `brew.temp_offset` −15..=15,
-/// `steam.setpoint` 100..=140, `safety.emergency_temp` 120..=180 — the loss is
-/// under 1e-5 °C, four orders of magnitude below the probe's own resolution.
-/// `cc_config::safety_view` narrows for exactly the same reason and says so.
+/// One place, so the justification is written once. `cc_config` uses `f64` because the
+/// schema's ranges are written that way; `cc_domain::units::Celsius` is `f32` because
+/// that is what the DS18B20's 0.0625 °C resolution needs. Over every range the schema
+/// allows — `brew.setpoint` 20..=110, `brew.temp_offset` 0..=20, `steam.setpoint`
+/// 100..=140, `safety.emergency_temp` 120..=180 — the loss is under 1e-5 °C, four
+/// orders of magnitude below the probe's own resolution. `cc_config::safety_view`
+/// narrows for exactly the same reason and says so.
 fn celsius(degrees: f64) -> Celsius {
     #[allow(
         clippy::cast_possible_truncation,

@@ -1,45 +1,22 @@
-//! Port of `test/test_maintenance_coordinator`.
-//!
-//! The C++ has ten cases in one file
-//! (`test/test_maintenance_coordinator/test_main.cpp`) and this port had none,
-//! which is why the backflush reminder was a dead feature for the whole life of
-//! the Rust firmware: `machine.shots_since_backflush` was assigned 0 and nothing
-//! else, so `/api/status` answered `shotsSinceBackflush: 0` and
-//! `backflushReminderDue: false` permanently and the display's reminder widget
-//! could not fire. Nothing failed, because nothing tested it.
+//! The shot counter and the backflush reminder, end to end.
 //!
 //! # What is real here and what is modelled
 //!
-//! **Real:** the reducer's increment, the C++'s qualification rule
-//! ([`cc_machine::maintenance::qualifies_as_counted_shot`]), the `Effect` the
-//! reducer emits, and [`cc_machine::apply`]'s routing of it. Every case below
-//! drives a machine through a real brew and a real transition, so a regression
-//! in any of those is a failing test here.
+//! **Real:** the reducer's increment, the qualification rule
+//! ([`cc_machine::maintenance::qualifies_as_counted_shot`]), the effect the reducer emits, and
+//! [`cc_machine::apply`]'s routing of it. Every case below drives a machine through a real brew and
+//! a real transition, so a regression in any of those fails here.
 //!
-//! **Modelled:** NVS and the shell's write. `Nvs` below is the C++'s
-//! `Preferences` mock (the C++ file calls `Preferences::resetTestStore()` in
-//! `SetUp`), and `Side` is the shape of `cc_hal_esp32::FirmwareSide` plus the
-//! control task's one drain step. Neither is host-testable where it lives — the
-//! store is an `esp_idf_svc::nvs::EspNvs` behind the control task's `&mut`, and
-//! the firmware's side channel is in a device crate — so the protocol is
-//! re-implemented here and the real implementations are held to it by review
-//! rather than by this file. What is *not* modelled is the thing the bug was:
-//! the increment and the effect.
+//! **Modelled:** the store and the shell's write. `Nvs` below stands in for the NVS partition, and
+//! `Side` is the shape of the firmware's side channel plus the control task's one drain step.
+//! Neither is host-testable where it lives -- the store is an `EspNvs` reached through the control
+//! task's `&mut`, and the side channel is in a device crate -- so the protocol is re-implemented
+//! here and the real implementations are held to it by review rather than by this file. What is
+//! *not* modelled is the part that once failed: the increment and the effect.
 //!
-//! | C++ case | here |
-//! | --- | --- |
-//! | `RejectsShortBrewWithoutScaleWeight` | [`rejects_short_brew_without_scale_weight`] |
-//! | `AcceptsMinimumDuration` | [`accepts_the_minimum_duration_and_not_a_millisecond_less`] |
-//! | `AcceptsWeightWhenScaleEnabled` | [`accepts_the_minimum_weight_when_a_scale_is_fitted`] |
-//! | `RejectsShortBrewWithLowWeightWhenScaleEnabled` | [`rejects_a_short_brew_below_the_minimum_weight`] |
-//! | `ReminderDueBoundary` | [`the_reminder_is_due_at_fifty_shots_and_not_at_forty_nine`] |
-//! | `CountsQualifiedBrewAndPersists` | [`a_qualified_brew_counts_and_survives_a_reboot`] |
-//! | `SkipsUnqualifiedBrew` | [`an_unqualified_brew_is_skipped_and_writes_nothing`] |
-//! | `ResetClearsCounter` | [`a_completed_backflush_clears_the_counter_and_survives_a_reboot`] |
-//! | `ReminderDueUsesConfigDefaults` | [`fifty_brews_make_the_reminder_due_at_the_default_threshold`] |
-//! | `DisabledReminderStillCountsButNotDue` | [`a_disabled_reminder_still_counts_but_is_never_due`] |
-//! | — | [`the_operator_reset_route_resets_and_persists`] (`WebServerManager.cpp:528-537`) |
-//! | — | [`a_failed_write_leaves_the_previous_value_and_is_retried`] |
+//! The counter only earns its place if the storage survives a reboot, so "reboot" here means
+//! the stored bytes are read back and handed to a fresh machine -- the same shape `Control::boot`
+//! (`cc-firmware/src/control.rs`) has.
 
 mod common;
 
@@ -53,18 +30,17 @@ use cc_machine::{Actuators, MachineChannels, Request};
 use common::Harness;
 
 // ---------------------------------------------------------------------------
-// `Maintenance::qualifiesAsCountedShot` — the pure rule
+// The qualification rule, which is pure
 // ---------------------------------------------------------------------------
 
-/// `RejectsShortBrewWithoutScaleWeight`. `BackflushReminderLogic.h:18-28`.
+/// A brew shorter than the minimum does not count when no scale is fitted.
 #[test]
 fn rejects_short_brew_without_scale_weight() {
     assert!(!qualifies_as_counted_shot(3_000.0, 0.0, false));
 }
 
-/// `AcceptsMinimumDuration`, with the other half of the boundary the C++ does not
-/// assert: one millisecond short must not count. `>=`, and that is the whole of
-/// the time arm.
+/// A brew exactly at the minimum counts, and one millisecond short does not: the time arm is a
+/// single `>=` and both sides of it are pinned.
 #[test]
 fn accepts_the_minimum_duration_and_not_a_millisecond_less() {
     assert!(qualifies_as_counted_shot(MIN_BREW_TIME_MS, 0.0, false));
@@ -95,8 +71,7 @@ fn rejects_a_short_brew_below_the_minimum_weight() {
     ));
 }
 
-/// `ReminderDueBoundary`. `BackflushReminderLogic.h:30-32`, through
-/// `isReminderDueForCount`.
+/// The reminder boundary: due at the threshold, not one shot before it.
 #[test]
 fn the_reminder_is_due_at_fifty_shots_and_not_at_forty_nine() {
     assert!(!is_reminder_due(49, true, BACKFLUSH_REMINDER_THRESHOLD));
@@ -108,13 +83,10 @@ fn the_reminder_is_due_at_fifty_shots_and_not_at_forty_nine() {
 // the coordinator — the counter, end to end
 // ---------------------------------------------------------------------------
 
-/// `CountsQualifiedBrewAndPersists`: one qualifying brew, then a *new*
-/// coordinator over the same storage.
+/// One qualifying brew, then a fresh machine over the same storage.
 ///
-/// "Reboot" here is what it is everywhere in this file: the stored bytes are
-/// read back and handed to a fresh machine, which is exactly what
-/// `MaintenanceCoordinator::begin` (`MaintenanceCoordinator.cpp:17-27`) does and
-/// what `Control::boot` is called with (`cc-firmware/src/control.rs`).
+/// "Reboot" is what it is everywhere in this file: the stored bytes are read back and handed to
+/// a new machine, which is what boot does with the count.
 #[test]
 fn a_qualified_brew_counts_and_survives_a_reboot() {
     let mut nvs = Nvs::default();
@@ -152,9 +124,9 @@ fn an_unqualified_brew_is_skipped_and_writes_nothing() {
     assert_eq!(nvs.stored(), None);
 }
 
-/// `ResetClearsCounter`: the reducer's `Effect::ResetShotsSinceBackflush`
-/// (`BackflushFinishedState::onEntryImpl`, `BackflushStates.cpp:142-146`),
-/// applied through the real applier, and then read back out of storage.
+/// Entering `BACKFLUSH_FINISHED` clears the counter: the reducer emits
+/// `Effect::ResetShotsSinceBackflush`, the real applier routes it, and the cleared count is read
+/// back out of storage.
 #[test]
 fn a_completed_backflush_clears_the_counter_and_survives_a_reboot() {
     let mut nvs = Nvs::default();
@@ -172,10 +144,8 @@ fn a_completed_backflush_clears_the_counter_and_survives_a_reboot() {
     assert_eq!(nvs.stored(), Some(0), "and it survives a reboot");
 }
 
-/// `ReminderDueUsesConfigDefaults`: the C++ loops `BACKFLUSH_REMINDER_THRESHOLD`
-/// times. So does this, through the real reducer and a real write each time — a
-/// loop over a helper that incremented a local would only re-test the
-/// arithmetic.
+/// The default threshold, reached through the real reducer with a real write on every shot. A loop
+/// over a helper that incremented a local would only re-test the arithmetic.
 #[test]
 fn fifty_brews_make_the_reminder_due_at_the_default_threshold() {
     let mut nvs = Nvs::default();
@@ -185,12 +155,12 @@ fn fifty_brews_make_the_reminder_due_at_the_default_threshold() {
     let enabled = h.config.maintenance.backflush_reminder.enabled;
     assert_eq!(
         threshold, BACKFLUSH_REMINDER_THRESHOLD,
-        "this case is the C++'s default-threshold loop"
+        "the shipped default threshold, and the loop runs exactly that many times"
     );
 
     for _ in 0..threshold {
-        // Back to `PID_NORMAL` between brews, as the C++'s loop is: each
-        // iteration is a separate machine lifetime apart from the counter.
+        // Back to `PID_NORMAL` between brews: each iteration is a separate brew, and the count is
+        // the only thing that carries across them.
         let fx = h.elapse(4_000);
         cc_machine::apply(&mut NoopActuators, &mut side, &h.machine, &fx);
         persist(&mut side, &mut nvs);
@@ -205,8 +175,8 @@ fn fifty_brews_make_the_reminder_due_at_the_default_threshold() {
     ));
 }
 
-/// `DisabledReminderStillCountsButNotDue`, including the C++'s last line:
-/// re-enabling the reminder makes it due, with no change to the count.
+/// The count still rises with the reminder disabled, and re-enabling the reminder makes it due with
+/// no change to the count.
 #[test]
 fn a_disabled_reminder_still_counts_but_is_never_due() {
     let mut nvs = Nvs::default();
@@ -235,15 +205,12 @@ fn a_disabled_reminder_still_counts_but_is_never_due() {
     ));
 }
 
-/// `WebServerManager.cpp:528-537`: the operator's
-/// `POST /api/maintenance/reset-backflush-counter`.
+/// The operator's reset route: `POST /api/maintenance/reset-backflush-counter`.
 ///
-/// There is no reducer event for it — the C++'s is a direct call into the
-/// coordinator from the HTTP handler — so this is the firmware's two lines
-/// (`Control::reset_shots_since_backflush` and
-/// `FirmwareSide::on_reset_shots_since_backflush`) and the drain. Before the fix
-/// the first line existed and the second did not: the counter cleared and came
-/// straight back on the next boot.
+/// There is no reducer event for it -- the count is not reducer state -- so this covers the
+/// firmware's two lines (`Control::reset_shots_since_backflush` and
+/// `FirmwareSide::on_reset_shots_since_backflush`) and the drain. The second line was the one
+/// missing once: the counter cleared and came straight back on the next boot.
 #[test]
 fn the_operator_reset_route_resets_and_persists() {
     let mut nvs = Nvs::default();
@@ -263,9 +230,8 @@ fn the_operator_reset_route_resets_and_persists() {
     assert_eq!(rebooted.machine.shots_since_backflush, 0);
 }
 
-/// A write that fails leaves the previous value in place, and the next counted
-/// brew writes the current one anyway — which is why the firmware does not
-/// revert the in-memory count the way `MaintenanceCoordinator.cpp:43-47` does.
+/// A failed write leaves the medium unchanged, and the count in memory is still right: the next
+/// counted shot carries it forward and writes it.
 #[test]
 fn a_failed_write_leaves_the_previous_value_and_is_retried() {
     let mut nvs = Nvs::default();
@@ -300,18 +266,16 @@ fn a_failed_write_leaves_the_previous_value_and_is_retried() {
 // fixtures
 // ---------------------------------------------------------------------------
 
-/// A machine configured the way the C++'s brew fixtures configure one, so a
-/// brew reaches `BREW_RUNNING` on its own: automatic, with 3 s of pre-infusion
-/// and a 2 s pause.
+/// A machine configured so that a brew reaches `BREW_RUNNING` on its own: automatic, with 3 s of
+/// pre-infusion and a 2 s pause.
 fn harness() -> Harness {
     let mut h = Harness {
         config: common::automatic_brew_with_preinfusion(),
         machine: cc_machine::Machine::cold(),
         now: 0,
     };
-    // The C++ fixtures' `setupMachineStateContext(MachineStateId::PID_NORMAL)`
-    // plus `Config::pidEnabled.set(true)`, which is what
-    // `test_state_flow_integration` does for the same reason.
+    // The fixture every brew case starts from: `PID_NORMAL` with the runtime PID on, so the
+    // machine is in the state the control loop spends its life in.
     h.machine = cc_machine::boot(Millis::new(0), &common::context_for(&h.config)).0;
     h.machine.state = MachineState::PidNormal;
     h.machine.pid.runtime_enabled = true;
@@ -353,14 +317,11 @@ fn brew_once(h: &mut Harness, side: &mut Side, nvs: &mut Nvs) {
     assert_eq!(h.state(), MachineState::BrewFinished);
 }
 
-/// One brew short enough **not** to count: manual, no pre-infusion, stopped
-/// immediately.
+/// One brew short enough **not** to count: manual, no pre-infusion, stopped immediately.
 ///
-/// `BrewStates.cpp:229-233`: the automatic brew timer includes the pre-infusion
-/// base and a manual one starts at zero, so this is the only way to reach
-/// `BREW_FINISHED` with a `processCurrentBrewTime()` under 5 s without reaching
-/// into the machine to lie about it. The C++'s fixture passes the number
-/// straight into `recordBrewIfQualified`; this one arrives at it honestly.
+/// An automatic brew's timer includes the pre-infusion base and a manual one starts at zero, so
+/// this is the only way to reach `BREW_FINISHED` with a brew time under the 5 s minimum without
+/// reaching into the machine to lie about it.
 fn short_brew(h: &mut Harness, side: &mut Side, nvs: &mut Nvs) {
     h.machine.requests.set(Request::BrewStart, true);
     step(h, side, nvs);
@@ -409,8 +370,7 @@ fn persist(side: &mut Side, nvs: &mut Nvs) {
     }
 }
 
-/// The C++'s `Preferences` mock, with the one failure path the coordinator has
-/// (`persistShotsSinceBackflush` returning false, `MaintenanceCoordinator.cpp:76-88`).
+/// The store, with its one failure path: a write that reports failure.
 #[derive(Default)]
 struct Nvs {
     blob: Option<Vec<u8>>,
@@ -418,13 +378,12 @@ struct Nvs {
 }
 
 impl Nvs {
-    /// `Preferences::getInt(MAINTENANCE_SHOTS_SINCE_BF_KEY, 0)` — absent reads
-    /// as "no stored count".
+    /// An absent key reads as "no stored count".
     fn load(&self) -> Option<i32> {
         self.stored()
     }
 
-    /// `Preferences::putInt(...)`, on the same four bytes.
+    /// A write, on the same four bytes.
     fn save(&mut self, shots: i32) -> Result<(), ()> {
         if self.fail_next_write {
             self.fail_next_write = false;
@@ -434,8 +393,8 @@ impl Nvs {
         Ok(())
     }
 
-    /// What `decode_shot_count` makes of the stored bytes — the raw read, so a
-    /// test asserts on what is on the medium rather than on a parsed copy of it.
+    /// What `decode_shot_count` makes of the stored bytes: the raw read, so a test asserts on what
+    /// is on the medium rather than on a parsed copy of it.
     fn stored(&self) -> Option<i32> {
         self.blob.as_deref().and_then(decode_shot_count)
     }

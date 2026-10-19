@@ -1,16 +1,13 @@
-//! Port of `include/clevercoffee/display/languages.h`.
+//! The display's strings, one struct per language.
 //!
-//! The C++ has a mutable set of `static const char*` globals initialised by
-//! `initLangStrings()` from a config switch, which means every string is a
-//! global that any code can reassign. That is not portable and not testable, so
-//! the port is a `match` on [`Language`]: the strings become `&'static str`
-//! constants reachable only through the language, and a missing one is a
-//! compile error rather than a null pointer.
+//! The strings are `&'static str` constants reachable only through a
+//! [`Language`] value, so a missing string is a compile error rather than a null
+//! pointer at draw time, and no code can reassign one.
 //!
 //! Only the strings the display layer actually draws are here. The radio
-//! provisioning screens (`langstring_wifirecon`, `langstring_connectwifi1`,
-//! `langstring_nowifi`) and the scale-calibration messages are drawn by code
-//! that is *not* in `display/`, and are R2-11's business.
+//! provisioning screens (reconnect, connect-to-WiFi, no-WiFi) and the
+//! scale-calibration messages are drawn by code that is *not* in the display
+//! layer, so their strings belong with that code.
 
 use crate::model::Language;
 
@@ -21,58 +18,59 @@ use crate::model::Language;
 /// exhaustive `match` with no "did you update all the strings?" question.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Lang {
-    /// `langstring_set_temp` — the setpoint label.
+    /// The setpoint label.
     pub set_temp: &'static str,
-    /// `langstring_current_temp` — the measured label.
+    /// The measured-temperature label.
     pub current_temp: &'static str,
-    /// `langstring_brew`
+    /// The brew label.
     pub brew: &'static str,
-    /// `langstring_weight`
+    /// The weight label.
     pub weight: &'static str,
-    /// `langstring_manual_flush`
+    /// The manual-flush label.
     pub manual_flush: &'static str,
-    /// `langstring_hot_water`
+    /// The hot-water label.
     pub hot_water: &'static str,
-    /// `langstring_pressure`
+    /// The pressure label.
     pub pressure: &'static str,
-    /// `langstring_uptime`
+    /// The uptime label.
     pub uptime: &'static str,
-    /// `langstring_offlinemode`
+    /// The offline-mode label.
     pub offline: &'static str,
-    /// `langstring_scale_Failure`
+    /// The scale-failure message.
     pub scale_failure: &'static str,
 
-    // -- Upright (portrait) variants, which are short
-    /// `langstring_set_temp_ur`
+    // -- Upright (portrait) variants: the same labels, shortened to fit the
+    // -- portrait column widths
+    /// The setpoint label, portrait.
     pub set_temp_ur: &'static str,
-    /// `langstring_current_temp_ur`
+    /// The measured-temperature label, portrait.
     pub current_temp_ur: &'static str,
-    /// `langstring_brew_ur`
+    /// The brew label, portrait.
     pub brew_ur: &'static str,
-    /// `langstring_manual_flush_ur`
+    /// The manual-flush label, portrait.
     pub manual_flush_ur: &'static str,
-    /// `langstring_hot_water_ur`
+    /// The hot-water label, portrait.
     pub hot_water_ur: &'static str,
-    /// `langstring_weight_ur`
+    /// The weight label, portrait.
     pub weight_ur: &'static str,
-    /// `langstring_pressure_ur`
+    /// The pressure label, portrait.
     pub pressure_ur: &'static str,
 
     // -- the backflush system screen
-    /// `langstring_backflush_press`
+    /// The backflush pressure line.
     pub backflush_press: &'static str,
-    /// `langstring_backflush_start`
+    /// The backflush start line.
     pub backflush_start: &'static str,
-    /// `langstring_backflush_finish`
+    /// The backflush finish line.
     pub backflush_finish: &'static str,
 
     // -- the maintenance footer, three lines
-    /// `langstring_backflush_reminder[0..3]`
+    /// The three footer lines.
     pub backflush_reminder: [&'static str; 3],
 
-    /// Landscape: `[0]`, the reading, `[1]`, `[2]`. `languages.h`.
+    /// The five landscape lines: the reading, then the advisory text around it.
     pub error_tsensor: [&'static str; 5],
-    /// Portrait lines. `languages.h`.
+    /// The five portrait lines, same order.
     pub error_tsensor_ur: [&'static str; 5],
 }
 
@@ -128,9 +126,9 @@ const GERMAN: Lang = Lang {
     backflush_start: "um zu starten...",
     backflush_finish: "um zu beenden...",
     backflush_reminder: ["Rueckspuelen", "Reiniger-", "Rueckspuelung"],
-    // Split: one line is 129 px in profont10 (`languages.h`).
+    // Split: one line is 129 px in profont10.
     error_tsensor: ["Fehler, Temp: ", "Temp.-Sensor", "ueberpruefen!", "", ""],
-    // Last word is 63 px in profont10, 75 in profont11 (`languages.h:155-159`).
+    // Last word is 63 px in profont10, 75 in profont11.
     error_tsensor_ur: ["Fehler", "Temp: ", "Temp.", "Sensor", "ueberpruefen!"],
 };
 
@@ -162,10 +160,9 @@ const SPANISH: Lang = Lang {
 
 /// The strings for `language`.
 ///
-/// The C++ `initLangStrings()` has an `else` arm for German, so an
-/// unrecognised value is German. That fallback is preserved here as an
-/// explicit arm rather than a catch-all `_`, because a new language should be
-/// a visible edit.
+/// The German arm is the fallback for an unrecognised value, written as an
+/// explicit arm rather than a catch-all `_` so that adding a language is a
+/// visible edit.
 #[must_use]
 pub const fn for_language(language: Language) -> &'static Lang {
     match language {
@@ -181,10 +178,8 @@ mod tests {
 
     #[test]
     fn every_language_fills_every_field() {
-        // The C++ initialises every global in each branch. A missed
-        // initialisation there is a null pointer at draw time; here the struct
-        // makes it impossible, and this test pins the three known values so a
-        // copy-paste slip is caught.
+        // The struct makes a missed string impossible; this test pins every
+        // known value so a copy-paste slip is caught.
         assert_eq!(for_language(Language::English).set_temp, "Set:   ");
         assert_eq!(for_language(Language::German).set_temp, "Soll:  ");
         assert_eq!(for_language(Language::Spanish).set_temp, "Obj:  ");
@@ -192,19 +187,17 @@ mod tests {
 
     #[test]
     fn labels_keep_their_trailing_padding() {
-        // `displayTemperatureInfo` does `setCursor(currentValueX, y)` with a
-        // hard-coded x, so the label's *rendered* width is not what positions
-        // the value -- but a label that loses a trailing space still shifts
-        // every glyph by a column in the wrapped-message path and in the
-        // `getStrWidth` probe. Pin the widths.
+        // The label's *rendered* width does not position the value, but a label
+        // that loses a trailing space shifts every glyph by a column in the
+        // wrapped-message path and in the width probe. Pin the widths.
         let f = crate::font::profont11();
         let en = for_language(Language::English);
         assert_eq!(en.current_temp, "Temp:  ", "7 chars including padding");
-        // Measured against the oracle (`getStrWidth` in profont11).
+        // Measured against U8g2, in profont11.
         assert_eq!(
             f.str_width(en.current_temp),
             42,
-            "matches the C++ getStrWidth"
+            "matches the oracle's width measurement"
         );
         assert_eq!(f.str_width(en.set_temp), 42);
         assert_eq!(f.str_width(en.brew), 36);

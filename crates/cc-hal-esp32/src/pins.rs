@@ -1,187 +1,128 @@
 //! The board's pin map — the one copy, checked twice.
 //!
-//! Owner: **2.4** of `32-findings-2026-10-03.md`, replacing the two copies this
-//! used to have: eight `u8` constants in `sensors::pins` that existed only to
-//! print a boot-log line, and the `peripherals.pins.gpioNN` fields in
-//! `cc-firmware`'s `bring_up` that were what the machine was *actually* wired
-//! to. Change either and the boot log silently lied about the other.
+//! The map and the traps in it are documented in
+//! [`pins.md`](../../../docs/hardware/pins.md); this module is the copy the
+//! firmware compiles against, and the two must agree.
 //!
 //! # What is checked, and where
 //!
-//! **Legal pins — at compile time.** [`assert_valid`] is a `const fn`, called
-//! by a `const _` item in this module, so a pin this chip does not have, a pin
-//! in the SPI-flash bank, an input driven as an output, or a wire claimed twice
-//! is a *build failure*. This is what the C++'s 21 `static_assert`s in
-//! `pinmapping.h:79-99` gave the oracle and what `04 §1.4`/`§6` promised as
-//! `Board::PINS.assert_valid()`.
+//! **Legal pins — at compile time.** [`assert_valid`] is a `const fn`, called by
+//! a `const _` item in this module, so a pin this chip does not have, a pin in
+//! the SPI-flash bank, an input driven as an output, or a wire claimed twice is a
+//! *build failure*.
 //!
 //! **The numbers agree with the wiring — at boot.** [`assert_wiring`] is a
-//! runtime check, and it is runtime because of a limit of `esp-idf-hal` 0.47,
-//! not a choice: a pin's number is reachable only through
-//! [`esp_idf_hal::gpio::Pin::pin`], which is a `fn` and not a `const fn`, and
-//! the reverse direction — turning a number into the concrete `Gpio17` field of
+//! runtime check, and it is runtime because of a limit of `esp-idf-hal` 0.47, not
+//! a choice: a pin's number is reachable only through
+//! [`esp_idf_hal::gpio::Pin::pin`], which is a `fn` and not a `const fn`, and the
+//! reverse direction — turning a number into the concrete `Gpio17` field of
 //! `Peripherals` — needs `AnyIOPin::steal`, which is `unsafe`, which this
-//! workspace denies. So the drift that actually bites ("someone rewires GPIO17
-//! to GPIO19 and the log still says 17") is caught once, at bring-up, with a
-//! panic that names the pin. That is a real check rather than a comment,
-//! which is the whole of what the two-copy arrangement did not have.
+//! workspace denies. So the drift that actually bites ("someone rewires GPIO17 to
+//! GPIO19 and the log still says 17") is caught once, at bring-up, with a panic
+//! that names the pin.
 //!
 //! # There is no `Board` trait
 //!
-//! `04 §1.4` promised one, and it is not here. This machine is one board —
-//! ESP32-DevKitC V4 on the original ESP32 — and a trait with one implementation
-//! is a `PinMap` const plus a name. What was actually missing was the
+//! This machine is one board and one pin map, so a trait with one implementation
+//! would be a `PinMap` const plus a name. The property that was missing is the
 //! *validation*, and that is what this module adds.
 
 use esp_idf_hal::gpio::Pin;
 use esp_idf_hal::peripherals::Peripherals;
 
 // ---- inputs -------------------------------------------------------------
-//
-// Every number is `pinmapping.h`'s, and the doc on each says which `#define`.
 
-/// `PIN_POWERSWITCH` (`pinmapping.h:17`). Standby and reboot.
+/// The power switch. Standby and reboot.
 pub const POWER_SWITCH: u8 = 39;
-/// `PIN_BREWSWITCH` (`pinmapping.h:18`). Brew, backflush, manual flush.
+/// The brew switch. Brew, backflush, manual flush.
 pub const BREW_SWITCH: u8 = 34;
-/// `PIN_STEAMSWITCH` (`pinmapping.h:19`).
+/// The steam switch.
 pub const STEAM_SWITCH: u8 = 35;
-/// `PIN_WATERSWITCH` (`pinmapping.h:20`) — the hot-water **button**.
+/// The hot-water **button**.
 ///
 /// Not the water *tank* float, which is [`WATER_TANK_SENSOR`] below: one is a
 /// button the user presses, the other is a float the water moves.
 pub const WATER_SWITCH: u8 = 36;
-/// `PIN_WATERTANKSENSOR` (`pinmapping.h:28`) — the tank **float**.
+/// The tank **float**.
 pub const WATER_TANK_SENSOR: u8 = 23;
-/// `PIN_TEMPSENSOR` (`pinmapping.h:27`) — the DS18B20 1-Wire bus.
+/// The DS18B20 1-Wire bus.
 ///
-/// **Measured on the board**: the recovered image's boot log reported a DS18B20
-/// answering on this line, and the same log named GPIO2/GPIO17/GPIO27 for
-/// heater/valve/pump exactly as `pinmapping.h` does. See
-/// [`cc_domain::onewire::FAMILY_DS18B20`].
+/// **Measured on the board**: a DS18B20 answers on this line, on a machine whose
+/// heater, valve and pump sit on GPIO2, GPIO17 and GPIO27. See
+/// [`cc_protocol::sensor::onewire::FAMILY_DS18B20`].
 pub const TEMP_SENSOR: u8 = 16;
-/// `PIN_HXDAT` (`pinmapping.h:29`) — the scale's first data line.
+/// The scale's first data line.
 pub const SCALE_DATA_1: u8 = 32;
-/// `PIN_HXDAT2` (`pinmapping.h:30`) — the scale's second data line.
+/// The scale's second data line.
 pub const SCALE_DATA_2: u8 = 25;
-/// UART0's RXD, the `GPIO3` the provisioning console reads.
+/// UART0's RXD — the pin the provisioning console reads.
 pub const UART_RX: u8 = 3;
 
 // ---- outputs ------------------------------------------------------------
 
-/// `PIN_HEATER` (`pinmapping.h:35`) — the heater relay.
+/// The heater relay.
 pub const HEATER: u8 = 2;
-/// `PIN_VALVE` (`pinmapping.h:33`) — the water valve relay.
+/// The water valve relay.
 pub const WATER_VALVE: u8 = 17;
-/// `PIN_PUMP` (`pinmapping.h:34`) — the pump relay.
+/// The pump relay.
 pub const PUMP: u8 = 27;
-/// `PIN_HXCLK` (`pinmapping.h:31`) — the scale's shared clock, bit-banged.
+/// The scale's shared clock, bit-banged.
 pub const SCALE_CLOCK: u8 = 33;
-/// UART0's TXD, the `GPIO1` the provisioning console writes.
+/// UART0's TXD — the pin the provisioning console writes.
 pub const UART_TX: u8 = 1;
 
-/// `PIN_STATUSLED` (`pinmapping.h:43`) — the near-setpoint LED.
+/// The near-setpoint LED.
 ///
-/// The `#define`'s comment reads "25 works with logging // Moved from pin 26
-/// (pin 26 had hardware issues)", which is a note about the *previous* pin, not a
-/// statement about this one: the value is 26 and that is what the C++ wires.
+/// 26, which is the pin the board wires it to. The note beside the number in the
+/// original map is about the *previous* pin, not this one.
 pub const STATUS_LED: u8 = 26;
-/// `PIN_BREWLED` (`pinmapping.h:44`) — the brew/flush LED.
+/// The brew/flush LED.
 pub const BREW_LED: u8 = 19;
 
 // ---------------------------------------------------------------------------
-// `PIN_STEAMLED` — deliberately absent. Read this before "fixing" it.
+// `STEAM_LED` — deliberately absent. Read this before "fixing" it.
 // ---------------------------------------------------------------------------
 //
-// `pinmapping.h:45` is one line, and it contradicts itself:
-//
-// ```c
-// #define PIN_STEAMLED  1  // 32 works with logging // Moved from pin 1 (UART TX
-//                          // - conflicts with serial logging)
-// ```
-//
-// The comment says the LED was *moved off* GPIO1 because GPIO1 is UART TX. **The
-// `#define` on that same line is still 1.** The migration was written down and
-// not made. So the C++ drives the steam LED on GPIO1 while `Serial.begin()` has
-// UART0 routed there — two owners of one line, last attach wins — and the
-// comment is the author telling us which of the two they meant to keep. It is not
-// parity with a working C++ feature; it is parity with a C++ bug.
+// GPIO1 is UART0's TX, and the steam LED's pin in the original map is still
+// GPIO1 beside a comment saying the LED should have moved off it. It never did,
+// so that map drives both the LED and the console on the same line. This
+// firmware wires the pin to the console only.
 //
 // # Why this firmware does not have a `STEAM_LED` constant
 //
-// Not because a conflict was not found, and not because the effect was judged
-// unimportant — because the pin cannot be had. `Peripherals::take()` hands out
-// each pin field exactly once, and the sole consumer of `peripherals.pins.gpio1`
-// in this firmware is the UART provisioning console
-// (`cc-firmware/src/main.rs:1027`). There is no second copy to share: a second
-// `PinDriver` needs `AnyIOPin::steal`, which is `unsafe`, and `unsafe_code` is
-// denied workspace-wide (`Cargo.toml:132`).
+// Because the pin cannot be had. `Peripherals::take()` hands out each pin field
+// exactly once, and the sole consumer of GPIO1 in this firmware is the UART
+// provisioning console. There is no second copy to share: a second `PinDriver`
+// needs `AnyIOPin::steal`, which is `unsafe`, and `unsafe_code` is denied
+// workspace-wide.
 //
-// Taking the pin for the LED would cost the **documented recovery path**. The
+// Taking the pin for the LED would cost the **documented recovery path**: the
 // console is what `wifi set` + `wifi apply` run on, and it is the only way to
-// point a machine that is joined to a nonexistent network at a real one
-// (`cc-firmware/src/main.rs:1000-1024` records that finding on the bench). Trading
-// that for an LED is the wrong end of the trade, and it is the opposite of what
-// `pinmapping.h:45` intended.
+// point a machine that is joined to a nonexistent network at a real one. Trading
+// that for an LED is the wrong end of the trade.
 //
 // So `hardware.leds.steam.*` is honoured as a **decision** — `LedOutput.steam`
 // is computed and tested — and not as a **write**. `cc_hal_esp32::leds` logs once
 // at boot when the parameter is enabled and the pin is not available, and
-// `intentional-diffs.md` carries the entry.
+// [divergences.md §30](../../../docs/history/divergences.md) carries the entry.
 //
-// # What moving it to GPIO 32 would cost
+// # What moving it would cost
 //
-// GPIO 32 is the alternative `pinmapping.h:45` itself names ("32 works with
-// logging"), so it is the obvious candidate and it is **already spoken for**:
+// The obvious alternative, GPIO32, is `SCALE_DATA_1` below — pinned by [`ALL`],
+// by a test in `scale.rs`, and by the pin trio that decides whether a scale is
+// fitted at all. **So a move is a hardware change, not a firmware change**: the
+// machine's case comes open and the HX711's data wire is re-terminated. The full
+// pin analysis, including the free pins and the strapping and input-only ones, is
+// in [`pins.md`](../../../docs/hardware/pins.md).
 //
-// * `SCALE_DATA_1` (`pins.rs:73` below) — the HX711's first data line
-//   (`pinmapping.h:29`, `PIN_HXDAT`). Wired in `cc-firmware/src/main.rs:689`,
-//   driven through `GpioHx711` in `cc-hal-esp32/src/scale.rs:74`, and re-exported
-//   to the device-test runner at `cc-device-tests/src/main.rs:208`.
-// * `cc-hal-esp32/src/scale.rs:1015` asserts `SCALE_DATA_1 == 32`, so the number
-//   is pinned by a test as well as by the map.
-// * GPIO 32 is also named in `cc-safety/src/lib.rs:195` and
-//   `cc-firmware/src/main.rs:392` as the pin trio that decides whether a scale is
-//   fitted at all (`32`/`25`/`33`).
-//
-// **So a move is a hardware change, not a firmware change.** With the machine in
-// hand, a person would have to open the case, trace the HX711 module's first data
-// wire off the ESP32's GPIO32 header pin, and re-terminate it on another pin.
-// Nothing about that is a five-minute job, and **the ESP32 is not out of pins:
-// two are free.** Of the 28 GPIOs this chip exposes (the set `is_gpio` below
-// admits), 18 are claimed by [`ALL`] and the remaining 10 are 0, 4, 5, 12, 13, 14,
-// 15, 18, 37 and 38. Of those ten:
-//
-// * **0, 5, 12 and 15 are strapping pins** (ESP32 Series Datasheet v5.3, Table 3-1,
-//   and `01-feature-inventory.md:120-122`), so their state at reset is a boot
-//   decision, not the firmware's. Unusable for a data line.
-// * **37 and 38 are input-only** with no output driver — `is_input_only` below
-//   exists for exactly this — so they cannot carry the HX711's clocked data at
-//   all. (34-39 share this.)
-// * **4, 5 and 18 are claimed by the C++** and are not merely free: `PIN_ROTARY_DT`
-//   (4), `PIN_ROTARY_SW` (5) and `PIN_ZC` (18, `pinmapping.h:22,24,48`) are on a
-//   board that has those peripherals. The rotary encoder and the zero-crossing
-//   dimmer are not ported, so those three are *unwired* here — but taking one
-//   forecloses a peripheral the C++ has.
-// * **13 and 14 are genuinely free**: absent from `pinmapping.h`, absent from the
-//   Rust tree, neither strapping nor input-only.
-//
-// **So 32 was never actually available either** — not because the chip ran out of
-// pins, but because the pin the comment names was already doing something else.
-// Relocating the scale to 13 or 14 *would* work and *is* what a person with the
-// machine should do if a steam LED is ever judged worth a solder joint.
-//
-// **Recommendation: leave the steam LED unwired.** The cost is a case opened and a
-// scale's data wire re-terminated, against an LED that duplicates the status
-// light's steam tolerance — `LedOutput` already lights `status` *and* `steam` in
-// `STEAM_RUNNING`. Nothing is lost that a person at the machine cannot read off
-// the panel, which is where the same information already appears.
+// The LED duplicates what the panel already shows too: `LedOutput` lights
+// `status` *and* `steam` in `STEAM_RUNNING`.
 
 // ---- bidirectional ------------------------------------------------------
 
-/// `PIN_I2CSDA` (`pinmapping.h:54`) — the ABP2 and the SSD1306, shared.
+/// The ABP2 and the SSD1306, shared.
 pub const I2C_SDA: u8 = 21;
-/// `PIN_I2CSCL` (`pinmapping.h:53`) — the same shared bus.
+/// The same shared bus's clock line.
 pub const I2C_SCL: u8 = 22;
 
 // ---------------------------------------------------------------------------

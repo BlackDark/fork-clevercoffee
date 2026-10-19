@@ -108,10 +108,9 @@ fn input() -> DisplayInput {
 fn config_off() -> Config {
     Config {
         language: Language::English,
-        // Spelled out because `Config::default()` used to have these **on** —
-        // the C++ defaults are `false` — so this function's "everything off" was
-        // everything on for exactly the three flags a parity bug was hiding
-        // behind.
+        // Spelled out rather than inherited: this function is the "everything
+        // off" half of the matrix, so each flag is set explicitly instead of
+        // relying on the default being off.
         fullscreen_brew_timer: false,
         fullscreen_manual_flush_timer: false,
         fullscreen_hot_water_timer: false,
@@ -881,8 +880,8 @@ fn every_display_input_field_changes_what_is_drawn() {
 fn the_two_configs_really_are_on_and_off() {
     let on = config();
     let off = config_off();
-    // `heating_logo` and `pid_off_logo` are `u8` in `Config` (the C++ stores 0/1)
-    // and are compared as `!= 0` here, so the table below is all `bool`.
+    // `heating_logo` and `pid_off_logo` are `u8` in `Config` and are compared as
+    // `!= 0` here, so the table below is all `bool`.
     for (name, on_value, off_value) in [
         (
             "fullscreen_brew_timer",
@@ -930,12 +929,11 @@ fn the_two_configs_really_are_on_and_off() {
 /// **Every rendering flag must change some frame.** A flag that changes no pixel
 /// anywhere is dead by definition.
 ///
-/// Three of them were, while the C++ baseline gates on them: the C++ conditions
-/// every fullscreen mode on `policy && config && state`
-/// (`DisplayTemplateBase.h:65-68`), and the port had `policy && state`. Since
-/// the config side defaults to **false** in both firmwares, a stock machine
-/// showed a fullscreen manual-flush and hot-water timer the C++ never shows —
-/// and the hot-water one fires on ordinary hot-water and steam use.
+/// Three of them were, because every fullscreen mode is conditioned on
+/// `policy && config && state` and the port checked only `policy && state`. The
+/// config side defaults to **false**, so a stock machine showed a fullscreen
+/// manual-flush and hot-water timer that should not appear — and the hot-water
+/// one fires on ordinary hot-water and steam use.
 ///
 /// A flag may legitimately be inert, but then it has to be listed below with its
 /// reason, so the list cannot grow silently.

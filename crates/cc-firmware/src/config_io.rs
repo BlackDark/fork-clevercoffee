@@ -12,12 +12,10 @@
 //! * [`drain_scale`] — the scale's *events*, drained every tick and persisted,
 //!   because dropping a completed tare loses an operator's action.
 //!
-//! **This is a move, not a redesign.** The functions are byte-identical to the
-//! ones that were in `main.rs`, including the two arguments that decide where
-//! they run: `push_into_machine` and the three `persist_*` calls stay at their
-//! call sites inside the control tick, and `drain_scale` stays at step 7b,
-//! *after* the applier, because its NVS commit must not sit between the
-//! reducer's decision and the pins.
+//! The call sites decide the behaviour: `push_into_machine` and the three `persist`
+//! calls run inside the control tick, and `drain_scale` runs at step 7b, *after* the
+//! applier, because its NVS commit must not sit between the reducer's decision and the
+//! pins.
 
 use cc_machine::Event;
 use log::{error, info, warn};
@@ -29,25 +27,22 @@ use crate::mqtt_link;
 ///
 /// # Why this is a function and not four lines in the handler
 ///
-/// Because there are now two writers into the same task — `POST
-/// /api/parameters` and an inbound `mqtt set` (`MQTTManager::assignParameter`,
-/// `MQTTManager.cpp:325-336`) — and the defect it fixes was **two spellings of
-/// the same step drifting apart**. The C++ has no such split because `Config` is
-/// a singleton the state machine reads directly on every tick; here the reducer
-/// owns its own copy, so a write has to be pushed into it explicitly.
+/// Because there are two writers into the same task — `POST /api/parameters` and an
+/// inbound `mqtt set` — and two spellings of the same step drift apart. The reducer owns
+/// its own `Config` copy rather than reading a shared one on every tick, so a write has
+/// to be pushed into it explicitly.
 ///
 /// # What it is
 ///
 /// `apply` writes the `Config` value and the value reaches NVS, so it survives a
-/// reboot — but two parameters are *also* cached in `cc_machine::Machine`, and
-/// nothing else copies them across:
+/// reboot — but two parameters are *also* cached in `cc_machine::Machine`, and nothing
+/// else copies them across:
 ///
 /// * `pid.enabled` is the case a human hit: `Machine::pid.mode_enabled` is the
 ///   flag `should_pid_be_enabled` consults, and it is only ever set by
-///   `SetUserPidEnabled` — which until now only `POST /api/pid?on=…` sent. So
-///   `POST /api/parameters pid.enabled=1` persisted the preference and did
-///   nothing to the machine until a reboot, and the handler answered
-///   `200 {"success":true}` throughout.
+///   `SetUserPidEnabled`. Without the push, `POST /api/parameters pid.enabled=1`
+///   persists the preference and does nothing to the machine until a reboot, while the
+///   handler answers `200 {"success":true}` throughout.
 /// * `brew.setpoint` is cached by `Control::set_setpoint`, and `brew.setpoint` is
 ///   what `effective_setpoint` reads on every tick — so a write to it has to be
 ///   pushed too, or the display and the PID keep targeting the old temperature.
@@ -55,10 +50,10 @@ use crate::mqtt_link;
 /// `before` is `(pid.enabled, brew.setpoint)` **read before** the apply, which is
 /// the only way to tell whether either actually moved.
 ///
-/// `written` is the `(key, value)` pairs the apply consumed, and it is here for
-/// one reason: the PID's **gains** are not cached in the machine at all, so a
-/// write to `pid.regular.kp` reaches the running PID only if the controller is
-/// told to re-choose them. See [`touches_pid_gains`].
+/// `written` is the `(key, value)` pairs the apply consumed, and it is here for one
+/// reason: the PID's **gains** are not cached in the machine at all, so a write to
+/// `pid.regular.kp` reaches the running PID only if the controller is told to re-choose
+/// them. See [`touches_pid_gains`].
 pub(crate) fn push_into_machine(
     control: &mut control::Control,
     config: &cc_config::Config,
@@ -89,8 +84,8 @@ pub(crate) fn push_into_machine(
         );
     }
     if touches_pid_gains(written) {
-        // The C++ would wait for the next state change; this does not. See
-        // `Control::retune_now`.
+        // Waiting for the next state change would leave the old gains running until the
+        // machine happened to transition. See `Control::retune_now`.
         control.retune_now();
         info!(
             "config: PID gains re-chosen for the running machine without waiting for a \
@@ -109,7 +104,8 @@ fn validate_for_repair(config: &cc_config::Config) -> Option<&'static [&'static 
         .map(cc_safety::ConfigViolation::implicated_keys)
 }
 
-/// Finding #12. Revert implicated keys. See [`cc_config::repair_unsafe`].
+/// Revert the keys an unsafe configuration implicates. See
+/// [`cc_config::repair_unsafe`].
 pub fn repair_unsafe(config: &mut cc_config::Config) -> cc_config::config::Repair {
     cc_config::config::repair_unsafe(config, validate_for_repair)
 }
@@ -128,21 +124,19 @@ pub fn touches_pid_gains(written: &[(String, String)]) -> bool {
 
 /// Persist `brew.setpoint` and report the outcome.
 ///
-/// `WebServerManager.cpp:400` persists it inside the same handler that sets it,
-/// so the two cannot disagree. Here the split is because the *running* setpoint
-/// belongs to the control task's `Control` and the *stored* one belongs to the
-/// store, and the store is the only durable thing — so the write is what makes
-/// the change survive a reboot, and a failure to write is an `error!` rather than
-/// a silent divergence.
+/// The *running* setpoint belongs to the control task's `Control` and the *stored* one
+/// belongs to the store, and the store is the only durable thing — so this write is what
+/// makes the change survive a reboot, and a failure to write is an `error!` rather than a
+/// silent divergence.
 ///
 /// **This function does not range-check.** The bound is enforced twice on the
 /// way in, not here: `web::parse_setpoint` parses the field through
 /// `cc_config::assign::parse` (so it is the schema's `20.0..=110.0` and cannot
 /// drift from `ParamSpec`), and the caller checks the cross-parameter rule with
 /// `cc_safety::validate_config` before reaching this point. A third copy of the
-/// range here would be a third thing to keep in step, and this is the function
-/// that made the defect durable — a value that should never have arrived was
-/// written to the one slot the machine reads at every boot.
+/// range here would be a third thing to keep in step, and this is the function that makes
+/// a value durable: a value that should never have arrived would be written to the one
+/// slot the machine reads at every boot.
 pub(crate) fn persist_setpoint(
     store: &mut cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
     celsius: f64,
@@ -160,9 +154,9 @@ pub(crate) fn persist_setpoint(
 
 /// Persist `pid.enabled`, for the same reason as [`persist_setpoint`].
 ///
-/// `setUserPidEnabled` persists the preference **and** sets the runtime flag
-/// (`SystemUtils.h:34-40`), and `Command::SetUserPidEnabled` is the reducer half
-/// of that. This is the other half.
+/// The preference is stored **and** the runtime flag is set;
+/// `Command::SetUserPidEnabled` is the reducer half of that, and this is the durable
+/// half.
 pub(crate) fn persist_pid_enabled(
     store: &mut cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
     enabled: bool,
@@ -178,17 +172,14 @@ pub(crate) fn persist_pid_enabled(
 
 /// Persist the whole configuration after `POST /api/parameters`.
 ///
-/// The C++ writes **one NVS key per parameter**, inside the setter
-/// (`Config.h:164-172`), so a request with four parameters is four `Preferences`
-/// transactions and a power cut between two of them leaves a configuration where
-/// two values are new and ninety-six are old — for a machine that heats to
-/// 150 °C. This store holds one blob ([`cc_config::store`]), so the whole
-/// request is one write, and either all of it is durable or none of it is.
+/// The store holds one blob ([`cc_config::store`]), so a request with four parameters is
+/// one write and either all of it is durable or none of it is. One key per parameter would
+/// make that request four transactions, and a power cut between two of them would leave a
+/// configuration where two values are new and ninety-six are old — for a machine that
+/// heats to 150 °C.
 ///
-/// A failure is an `error!` and not a `400`: the HTTP response has already gone
-/// by the time this runs, and the C++ counts a NVS failure as a parameter
-/// failure (`Config.h:171-172`) only because its write is synchronous with the
-/// request. Reporting it here is the honest equivalent.
+/// A failure is an `error!` and not a `400`: the HTTP response has already gone by the time
+/// this runs, so there is no request left to answer. The console is the honest equivalent.
 pub(crate) fn persist_config(
     store: &mut cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
     config: &cc_config::Config,
@@ -215,28 +206,25 @@ pub(crate) fn persist_config(
 /// new calibration factor can be written down. Making that a named function is
 /// what makes it findable.
 ///
-/// Events — a completed tare, a new factor — are the opposite of a reading:
-/// dropping one loses an operator's action, so they come over a queue that is
-/// drained every tick. **The weight is not one of them** and is not read here
-/// any more; it is [`crate::scale_weight`], a reading, taken at step 4 with the
-/// temperature and the pressure. It used to be returned from this function,
-/// which meant the only consumer of the number — `Sensors::brew_weight` — could
-/// not see it until after `control.tick` had already run, and the field was
-/// written as a literal `0.0` instead. See [`crate::scale_weight`].
+/// Events — a completed tare, a new factor — are the opposite of a reading: dropping one
+/// loses an operator's action, so they come over a queue that is drained every tick. **The
+/// weight is not one of them**: it is [`crate::scale_weight`], a reading, taken at step 4
+/// with the temperature and the pressure, because the only consumer of the number,
+/// `Sensors::brew_weight`, is read by the same tick that decides on it.
 ///
-/// # Where this is called from, and why it did not move
+/// # Where this is called from
 ///
-/// It runs at step 7b, *after* the applier, and that is deliberate: the NVS
-/// commit below is an erase-and-write measured in milliseconds, and it must not
-/// sit between the reducer's decision and the pins that carry it out (the same
-/// argument as the shot-counter write immediately above this call).
+/// Step 7b, *after* the applier, and that is deliberate: the NVS commit below is an
+/// erase-and-write measured in milliseconds, and it must not sit between the reducer's
+/// decision and the pins that carry it out (the same argument as the shot-counter write
+/// immediately above this call).
 ///
 /// # Errors
 ///
-/// Never. Every failure here is a persistence failure, and it is reported on the
-/// console and in the log rather than propagated: a scale that cannot be tare
-/// persisted is still a working scale, and stopping the control task over it
-/// would turn a cosmetic failure into a machine with no temperature reading.
+/// Never. Every failure here is a persistence failure, and it is reported on the console
+/// and in the log rather than propagated: a scale whose tare cannot be persisted is still
+/// a working scale, and stopping the control task over it would turn a cosmetic failure
+/// into a machine with no temperature reading.
 pub(crate) fn drain_scale(
     sampler: Option<&cc_hal_esp32::Sampler>,
     store: &mut cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
@@ -251,16 +239,13 @@ pub(crate) fn drain_scale(
     while let Some(event) = sampler.next_event() {
         match event {
             cc_hal_esp32::SamplerEvent::Tared { record } => {
-                // The C++'s `scaleTareMode_` never clears, so `TARE_ON` reports
-                // `1` from the first command for ever; the latch here is cleared
-                // when the sampler answers. See `mqtt_link::ScaleModes`.
+                // A tare latch that never clears would report `TARE_ON` as `1` from the
+                // first command for ever, so it is cleared when the sampler answers. See
+                // `mqtt_link::ScaleModes`.
                 scale_modes.answered("tare");
-                // 🔴 The acceptance criterion: a tare survives a reboot. The
-                // C++ holds the tare in a `long` member (`HX711_ADC.h:66`) and
-                // loses it on every reset, so a power cut means re-taring by
-                // hand — and `HX711Scale::init` tares at boot anyway
-                // (`HX711Scale.cpp:44`), so the C++ would re-tare on every boot
-                // if it ran at all.
+                // 🔴 A tare survives a reboot, which is the whole point of storing it:
+                // losing it on reset means re-taring by hand, and a driver that tares at
+                // boot would make the stored value pointless anyway.
                 match cc_hal_esp32::nvs::save_tare(store.backend_mut(), record) {
                     Ok(()) => info!(
                         "scale: tare persisted to NVS ({} B) — it survives a reboot",

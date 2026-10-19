@@ -1,6 +1,5 @@
-//! `ModernTemplateLayout` — the row map, as constants.
+//! The Modern layout's row map, as constants.
 //!
-//! Ported from `include/clevercoffee/display/templates/ModernTemplate.h:19-64`.
 //! Every number here is a *reserved* row height or an absolute Y, and the
 //! distinction is load-bearing.
 //!
@@ -41,83 +40,81 @@
 
 use crate::display::{DISPLAY_HEIGHT, STATUS_BAR_Y_POS};
 
-/// `kFontHeightFub20` — the reserved height of the big temperature row.
+/// The reserved height of the big temperature row.
 pub const K_FONT_HEIGHT_FUB20: i32 = 23;
-/// `kFontHeightProfont17` — the reserved height of the `°C` / brew-field rows.
+/// The reserved height of the `°C` / brew-field rows.
 pub const K_FONT_HEIGHT_PROFONT17: i32 = 15;
-/// `kFontHeightProfont11` — the reserved height of the status/HEATING rows.
+/// The reserved height of the status/HEATING rows.
 pub const K_FONT_HEIGHT_PROFONT11: i32 = 11;
-/// `kFontHeightProfont10` — the reserved height of the bottom row.
+/// The reserved height of the bottom row.
 pub const K_FONT_HEIGHT_PROFONT10: i32 = 10;
 
-/// `kStatusBarSeparatorY` — the rule under the status bar.
+/// The rule under the status bar.
 pub const K_STATUS_BAR_SEPARATOR_Y: i32 = STATUS_BAR_Y_POS;
-/// `kRowGap` — the gap between the separator and the first content row.
+/// The gap between the separator and the first content row.
 pub const K_ROW_GAP: i32 = 2;
 
-/// `kIdleTempY` — the big temperature row's top edge (y=14).
+/// The big temperature row's top edge (y=14).
 pub const K_IDLE_TEMP_Y: i32 = K_STATUS_BAR_SEPARATOR_Y + K_ROW_GAP;
-/// `kIdleIconSize` — the width and height of the HEATING/READY icon.
+/// The width and height of the HEATING/READY icon.
 pub const K_IDLE_ICON_SIZE: i32 = 16;
-/// `kIdleIconGap` — the gap between the icon and its label.
+/// The gap between the icon and its label.
 pub const K_IDLE_ICON_GAP: i32 = 4;
 
-/// `kBottomBarH` — the progress bar's height.
+/// The progress bar's height.
 pub const K_BOTTOM_BAR_H: i32 = 4;
-/// `kBottomBarW` — the temperature-to-setpoint bar's width.
+/// The temperature-to-setpoint bar's width.
 pub const K_BOTTOM_BAR_W: i32 = 72;
-/// `kBottomBarLabelGap` — the gap between that bar and its `94°C` label.
+/// The gap between that bar and its `94°C` label.
 pub const K_BOTTOM_BAR_LABEL_GAP: i32 = 3;
-/// `kBottomRowH` — the bottom row's reserved height.
+/// The bottom row's reserved height.
 pub const K_BOTTOM_ROW_H: i32 = K_FONT_HEIGHT_PROFONT10;
-/// `kBottomRowY` — the bottom row's top edge, anchored from the panel height.
+/// The bottom row's top edge, anchored from the panel height.
 pub const K_BOTTOM_ROW_Y: i32 = DISPLAY_HEIGHT - K_BOTTOM_ROW_H;
-/// `kContentBottomY` — the last row the main content may reach.
+/// The last row the main content may reach.
 pub const K_CONTENT_BOTTOM_Y: i32 = K_BOTTOM_ROW_Y - 1;
-/// `kIdleStatusRowY` — the HEATING/READY row's top edge.
+/// The HEATING/READY row's top edge.
 pub const K_IDLE_STATUS_ROW_Y: i32 = K_CONTENT_BOTTOM_Y - K_IDLE_ICON_SIZE + 1;
 
-/// `kBrewBarW` — the brew progress bar's width (wider than the idle bar).
+/// The brew progress bar's width (wider than the idle bar).
 pub const K_BREW_BAR_W: i32 = 88;
 
-/// `kBrewMainY` — the brew screen's main readout row.
+/// The brew screen's main readout row.
 pub const K_BREW_MAIN_Y: i32 = K_STATUS_BAR_SEPARATOR_Y + K_ROW_GAP;
-/// `kBrewFooterY` — the brew screen's weight/pressure footer.
+/// The brew screen's weight/pressure footer.
 pub const K_BREW_FOOTER_Y: i32 = K_CONTENT_BOTTOM_Y - K_FONT_HEIGHT_PROFONT10;
 
-/// `kDegreeCProbe` — `"100°C"`, the widest the `°C` unit field can get.
+/// `"100°C"`, the widest the `°C` unit field can get.
 pub const K_DEGREE_C_PROBE: &str = "100\u{b0}C";
-/// `kSetpointProbe` — `"100°C"`, the widest the setpoint label can get.
+/// `"100°C"`, the widest the setpoint label can get.
 pub const K_SETPOINT_PROBE: &str = "100\u{b0}C";
-/// `kBrewTargetTimeProbe` — `"/ 999s"`, the widest the time target can get.
+/// `"/ 999s"`, the widest the time target can get.
 pub const K_BREW_TARGET_TIME_PROBE: &str = "/ 999s";
-/// `kBrewTargetWeightProbe` — `"/ 999g"`, the widest the weight target can get.
+/// `"/ 999g"`, the widest the weight target can get.
 pub const K_BREW_TARGET_WEIGHT_PROBE: &str = "/ 999g";
 
-/// `kTempMapMin` — the temperature at which the bottom bar starts filling.
+/// The temperature at which the bottom bar starts filling.
 pub const K_TEMP_MAP_MIN: i32 = 20;
 
-/// `isReadyForBrew` — within [`crate::helpers::HEATING_LOGO_THRESHOLD_C`] of
-/// setpoint.
+/// Within [`crate::helpers::HEATING_LOGO_THRESHOLD_C`] of setpoint.
 #[must_use]
 pub fn is_ready_for_brew(temp_c: f64, setpoint_c: f64) -> bool {
     temp_c >= setpoint_c - f64::from(crate::helpers::HEATING_LOGO_THRESHOLD_C)
 }
 
-/// `mapTempToBarWidth` — the filled width of the temperature bar.
+/// The filled width of the temperature bar.
 ///
 /// Zero below [`K_TEMP_MAP_MIN`], otherwise a linear map clamped to
 /// `0..=inner_w`. Note the guard on `setpoint <= K_TEMP_MAP_MIN`: a setpoint at
-/// or below 20 °C would make `map`'s divisor zero-ish, and the C++ returns 0
-/// rather than dividing.
+/// or below 20 °C would make the map's divisor zero-ish, so this returns 0 rather
+/// than dividing.
 #[must_use]
 pub fn map_temp_to_bar_width(temp_c: f64, setpoint_c: f64, inner_w: i32) -> i32 {
     if setpoint_c <= f64::from(K_TEMP_MAP_MIN) {
         return 0;
     }
-    // `static_cast<int>` on both, exactly as `ModernTemplateLayout::mapTempToBarWidth`
-    // does. Truncation toward zero is the C++ behaviour and is what the bar's
-    // fill width depends on.
+    // Truncation toward zero, on both inputs, is what the bar's fill width
+    // depends on.
     let mapped = crate::widgets::arduino_map(
         crate::fmt::truncate_to_i32(temp_c),
         K_TEMP_MAP_MIN,
@@ -131,35 +128,35 @@ pub fn map_temp_to_bar_width(temp_c: f64, setpoint_c: f64, inner_w: i32) -> i32 
 /// The three Modern screens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
-    /// `drawIdleScreen`.
+    /// The idle screen.
     Idle,
-    /// `drawBrewScreen`, with the phase.
+    /// The brew screen, with the phase.
     Brew {
-        /// `BrewPhase`.
+        /// Which of the three brew phases to highlight.
         phase: BrewPhase,
         /// Whether this is the manual-flush rendering.
         flushing: bool,
     },
-    /// `drawPostBrewScreen`.
+    /// The post-brew screen.
     PostBrew,
 }
 
-/// `ModernTemplate::BrewPhase`.
+/// Which phase of a brew the phase indicator is in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BrewPhase {
-    /// `BREW_PREINFUSION` / `BREW_PREINFUSION_PAUSE`.
+    /// Pre-infusion, and its pause.
     PreInfusion,
-    /// Anything else that is not `BREW_FINISHED`.
+    /// Everything between pre-infusion and the end.
     Brewing,
-    /// `BREW_FINISHED`.
+    /// The brew has finished.
     Done,
 }
 
 impl BrewPhase {
-    /// The three phase labels, in the order `drawPhaseIndicator` lays them out.
+    /// The three phase labels, in the order the phase indicator lays them out.
     pub const LABELS: [&'static str; 3] = ["PRE-INF", "BREW", "DONE"];
 
-    /// The x each label starts at (`drawPhaseIndicator`'s `xs`).
+    /// The x each label starts at.
     pub const XS: [i32; 3] = [2, 46, 86];
 
     /// This phase's index into [`BrewPhase::LABELS`].
@@ -197,8 +194,7 @@ pub fn screen_for(flushing: bool, post_brew: bool, brewing: bool) -> Screen {
 pub const BREW_CUP_LOGO_W: i32 = 40;
 /// The post-brew cup's height, in pixels.
 pub const BREW_CUP_LOGO_H: i32 = 40;
-/// `cupY` — where the cup starts, `docs/display/layout-rules.md`
-/// "y=2".
+/// Where the cup starts. `docs/display/layout-rules.md` puts it at y=2.
 pub const BREW_CUP_Y: i32 = 2;
 
 /// A change that made the Modern rows overlap would fail to **build**, not just
@@ -340,9 +336,9 @@ mod tests {
 
     #[test]
     fn the_probes_are_the_widest_case_in_their_fonts() {
-        // Rule 3 depends on the probe being the widest. These are the C++'s
-        // literals, and the widths are *measured*, not assumed: each was read
-        // out of the real-U8g2 oracle (`tools/oracle`) and then reproduced here.
+        // Rule 3 depends on the probe being the widest, and the widths are
+        // *measured*, not assumed: each was read out of real U8g2 (`tools/oracle`)
+        // and reproduced here.
         // The 25 px for "100C" is the width of the single Latin-1 byte 0xB0 --
         // two's worth of UTF-8 would measure 30, which is why
         // `font::latin1_of` exists.

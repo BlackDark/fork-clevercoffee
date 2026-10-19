@@ -1,29 +1,14 @@
-//! Port of `test/test_water_tank_empty_state` — 5 C++ cases, 5 Rust cases.
+//! An empty water tank: what refuses the water, and what must not be refused.
 //!
-//! S4 in the coverage map. The suite's stated safety requirement
-//! (`test_water_tank_empty_state/test_main.cpp:5-11`):
+//! The requirement that looks backwards is the safety one: an empty tank must not *keep* the
+//! machine awake. A machine in `WATER_TANK_EMPTY` with `keep_heater_on_empty` set still has to
+//! reach `STANDBY` on its standby request or its standby timeout, because standby is what turns the
+//! heater off; and a machine already resting in `STANDBY` must not be woken just because the tank
+//! is still empty.
 //!
-//! > the heater must never run unattended forever. When the machine sits in
-//! > WATER_TANK_EMPTY (especially with
-//! > `hardware.sensors.watertank.keep_heater_on_empty=true`), the standby request
-//! > and standby timeout must still move the machine to STANDBY, which turns the
-//! > heater off. Conversely, a machine already resting in STANDBY must not be
-//! > woken up just because the tank is (still) empty.
-//!
-//! The two halves are the two `if constexpr` exclusions in `BaseState.h:153` and
-//! `:163-166`, and the second half is why `STANDBY` is in the *tank* exclusion:
-//! the machine is in standby with the PID runtime off, and the PID-runtime guard
-//! would otherwise be irrelevant; the tank guard is the one that must not fire.
-//!
-//! ## Case mapping
-//!
-//! | C++ case (`test_water_tank_empty_state/test_main.cpp`) | Rust test |
-//! | --- | --- |
-//! | `StandbyRequestTransitionsToStandby` (:113) | [`standby_request_transitions_to_standby`] |
-//! | `StandbyTimeoutTransitionsToStandby` (:125) | [`standby_timeout_transitions_to_standby`] |
-//! | `StaysPutWithoutStandbySignalOrRefill` (:136) | [`stays_put_without_a_standby_signal_or_a_refill`] |
-//! | `RefillReturnsToPidState` (:145) | [`refill_returns_to_the_pid_state`] |
-//! | `StandbyStateIsNotForcedOutByEmptyTank` (:160) | [`standby_is_not_forced_out_by_an_empty_tank`] |
+//! So the tank guard is excluded for exactly two states, `WATER_TANK_EMPTY` and `STANDBY`. The rest
+//! of the file is the other direction -- the states that are *not* excluded, where an empty tank
+//! must stop the water -- and the refill that undoes it.
 
 mod common;
 
@@ -71,8 +56,7 @@ fn standby_timeout_transitions_to_standby() {
     assert!(h.machine.standby.started_at.is_some());
     assert_eq!(h.machine.standby.remaining_ms, 35 * 60 * 1000);
 
-    // `standbyCoordinator().update()` only recomputes once a second
-    // (`StandbyCoordinator.h:39`), so step past the timeout in chunks.
+    // The standby countdown is only recomputed once a second, so step past the timeout in chunks.
     let mut fx = Vec::new();
     for _ in 0..(35 * 60 + 2) {
         fx = h.elapse(1_000);
@@ -138,15 +122,14 @@ fn standby_is_not_forced_out_by_an_empty_tank() {
 }
 
 // ---------------------------------------------------------------------------
-// What the C++ suite should also have checked
+// What the suite also checks
 // ---------------------------------------------------------------------------
 
-/// The tank guard fires for every state that is **not** `WATER_TANK_EMPTY` and
-/// **not** `STANDBY` — including the states that are mid-brew, mid-steam and
-/// mid-backflush. `BaseState.h:153` excludes exactly two.
+/// The tank guard fires for every state that is neither `WATER_TANK_EMPTY` nor `STANDBY`,
+/// including the states that are mid-brew, mid-steam and mid-backflush.
 ///
-/// This is the case that matters most for safety: an empty tank during a brew
-/// must stop the water, and the transition is what starts the recovery.
+/// This is the case that matters most for safety: an empty tank during a brew stops the water,
+/// and reaching `WATER_TANK_EMPTY` is what starts the recovery.
 #[test]
 fn the_tank_guard_fires_in_every_other_state() {
     for state in cc_domain::state::ALL {
@@ -169,7 +152,7 @@ fn the_tank_guard_fires_in_every_other_state() {
     }
 }
 
-/// The emergency guard beats the tank guard (`BaseState.h:139-158`).
+/// The emergency guard beats the tank guard.
 #[test]
 fn emergency_beats_the_tank_guard() {
     let mut h = Harness::in_state(MachineState::BrewRunning);
@@ -182,9 +165,8 @@ fn emergency_beats_the_tank_guard() {
     );
 }
 
-/// A tank-empty machine cannot re-arm the pump, and the C++'s second layer is
-/// that the water switches are refused in this state
-/// (`BrewHandler.h:147-150`, `HotWaterHandler.h:64-67`).
+/// A tank-empty machine cannot re-arm the pump, and the second layer is that the brew and hot-water
+/// switches are refused in this state rather than relying on the safety verdict alone.
 #[test]
 fn the_water_switches_are_refused_while_the_tank_is_empty() {
     let mut h = tank_empty();
@@ -225,10 +207,8 @@ fn the_safety_verdict_refuses_the_pump_and_nothing_else() {
     );
 }
 
-/// `keep_heater_on_empty` is the flag the `WATER_TANK_EMPTY` state's comment is
-/// about (`ErrorStates.cpp:83-85`): with it set, the heater keeps running while
-/// the tank is empty, which is exactly why the standby timeout has to keep
-/// working here.
+/// `keep_heater_on_empty` is what makes the standby timeout matter here: with it set the heater
+/// keeps running while the tank is empty, so `STANDBY` is the only thing that will turn it off.
 #[test]
 fn keep_heater_on_empty_only_affects_the_heater() {
     let mut h = tank_empty();

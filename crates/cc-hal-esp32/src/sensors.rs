@@ -1,7 +1,5 @@
 //! The ABP2 pressure sensor and the debounced switches, over ESP-IDF.
 //!
-//! Owner: **R3-05** (pressure) and **R3-02** (switches).
-//!
 //! # What is here and what is not
 //!
 //! The decisions — when to read, the conversion arithmetic, the debounce state
@@ -12,7 +10,7 @@
 //! # I²C: the count the HAL does not give you
 //!
 //! `cc_protocol::abp2::I2cBus::read` returns how many bytes were actually read,
-//! because that is the check the C++ does not make. `hal::i2c`'s own `read`
+//! because a short read is a real failure on a shared bus. `hal::i2c`'s own `read`
 //! does **not** return a count — it takes a `&mut [u8]` and returns
 //! `Result<(), EspError>`
 //! (`esp-idf-hal-0.47.0/src/i2c.rs:295-312`) — so [`Abp2I2c`] counts what it
@@ -37,13 +35,11 @@ use esp_idf_svc::sys::EspError;
 
 /// The I²C clock the firmware runs the shared bus at.
 ///
-/// The bus carries the OLED and the ABP2 (`pinmapping.h:53-54`). 400 kHz is the
-/// ABP2's maximum and the SSD1306's comfortable maximum, so it is the one rate
-/// both tolerate. Nothing in the C++ sets a rate explicitly — Arduino's
-/// `Wire.begin()` defaults to 100 kHz — so this is a **change** from the C++,
-/// and a deliberate one: the pressure read is 7 bytes and a faster bus is
-/// strictly less bus time for a shared peripheral. It is recorded in
-/// `intentional-diffs.md`.
+/// The bus carries the OLED and the ABP2. 400 kHz is the ABP2's maximum and the
+/// SSD1306's comfortable maximum, so it is the one rate both tolerate. A faster
+/// bus is strictly less bus time for a shared peripheral, which is why this is
+/// 400 kHz and recorded as a divergence ([divergences.md
+/// §10](../../../docs/history/divergences.md)).
 pub const I2C_HZ: Hertz = Hertz(400_000);
 
 /// The SDA pin handed to [`Abp2I2c::new`].
@@ -58,10 +54,11 @@ pub type SclPin = esp_idf_hal::gpio::AnyIOPin<'static>;
 /// The I²C bus, as [`cc_protocol::abp2::I2cBus`] needs it.
 ///
 /// A thin newtype over [`I2cDriver`]. The driver is a single owner of the
-/// peripheral; `04 §7` makes the bus a shared, mutex-guarded resource, and
-/// because this crate is `no_std` the mutex is R3-12's problem. What matters
-/// here is that **every transaction is bounded**: three bytes out, seven in,
-/// and a driver-level timeout, so a wedged device cannot hold the bus.
+/// peripheral; the bus is a shared, mutex-guarded resource
+/// ([target-architecture.md §7](../../../docs/history/target-architecture.md)),
+/// and the mutex belongs to the caller. What matters here is that **every
+/// transaction is bounded**: three bytes out, seven in, and a driver-level
+/// timeout, so a wedged device cannot hold the bus.
 pub struct Abp2I2c<'d> {
     bus: I2cDriver<'d>,
 }
@@ -93,9 +90,8 @@ impl<'d> Abp2I2c<'d> {
     /// Wrap an already-constructed I²C driver.
     ///
     /// The constructor for a caller that wants a different `Config` — a bus with
-    /// external pull-ups and no internal ones, say, which is what R3-09's OLED
-    /// may prefer. Sharing one driver between both devices is the point of
-    /// `04 §7`'s "`I2cBus` — a mutex-guarded shared bus".
+    /// external pull-ups and no internal ones, say, which the OLED may prefer.
+    /// Sharing one driver between both devices is why the bus is mutex-guarded.
     #[must_use]
     pub const fn from_driver(bus: I2cDriver<'d>) -> Self {
         Self { bus }
@@ -117,8 +113,8 @@ impl I2cBus for Abp2I2c<'_> {
 
     fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Self::Error> {
         // A NAK on the address arrives as an `EspErrInvalidState` from
-        // `i2c_master_cmd_begin`, which is the check the C++ omits by never
-        // reading `stat`.
+        // `i2c_master_cmd_begin`. That error is what makes a missing device a
+        // failed read rather than a sample decoded from stale bytes.
         self.bus.write(address, bytes, BLOCK)
     }
 
@@ -159,8 +155,7 @@ impl<B> Abp2Pressure<B> {
     ///
     /// # Errors
     ///
-    /// [`abp2::ReadError`], where the C++ silently produced a sample from stale
-    /// bytes.
+    /// [`abp2::ReadError`] — never a sample decoded from stale bytes.
     pub fn poll(&mut self, now: Millis) -> Result<abp2::Poll, abp2::ReadError>
     where
         B: I2cBus,
@@ -221,12 +216,11 @@ impl<'d> GpioIn<'d> {
 
     /// The pull-up/pull-down a switch of this wiring needs.
     ///
-    /// `createWaterTankSensor` uses `IN_PULLDOWN` for a normally-open switch and
-    /// `IN_PULLUP` for a normally-closed one
-    /// (`src/core/SystemInitializer.cpp:71-74`). That choice is not arbitrary:
-    /// a float switch is a pair of contacts, and the internal pull decides what
-    /// an *unconnected* or *dry* line reads. For the water tank that is
-    /// safety-relevant — see the note below.
+    /// A normally-open switch takes a pull-down and a normally-closed one a
+    /// pull-up. That choice is not arbitrary: a float switch is a pair of
+    /// contacts, and the internal pull decides what an *unconnected* or *dry*
+    /// line reads. For the water tank that is safety-relevant — see the note
+    /// below.
     #[must_use]
     pub const fn pull_for(mode: SwitchMode) -> Pull {
         match mode {
@@ -240,12 +234,11 @@ impl<'d> GpioIn<'d> {
 
     /// The rest level a switch of this wiring idles at.
     ///
-    /// `createWaterTankSensor` passes
-    /// `initialState = (mode == NORMALLY_OPEN) ? HIGH : LOW`
-    /// (`SystemInitializer.cpp:70`). The two look contradictory for a
-    /// normally-open switch with a pull-down, and they are: `initialState` is
-    /// the level the *debouncer* starts from, not the level the pin idles at.
-    /// It only decides whether the first read arms the debounce.
+    /// A normally-open switch starts the debouncer at `HIGH` and a normally-closed
+    /// one at `LOW`. That looks contradictory for a normally-open switch with a
+    /// pull-down, and it is: the start level is what the *debouncer* starts from,
+    /// not the level the pin idles at. It only decides whether the first read arms
+    /// the debounce.
     #[must_use]
     pub const fn initial_raw_for(mode: SwitchMode) -> u8 {
         match mode {
@@ -258,9 +251,9 @@ impl<'d> GpioIn<'d> {
     ///
     /// # Note on the water tank
     ///
-    /// The tank switch is a `TOGGLE` (`SystemInitializer.cpp:75`) whose
-    /// `isPressed()` means "water detected". The pull choice above is what makes
-    /// a *broken* float switch fail towards empty rather than towards full: a
+    /// The tank switch is a `Toggle` whose pressed level means "water detected".
+    /// The pull choice above is what makes a *broken* float switch fail towards
+    /// empty rather than towards full: a
     /// normally-open tank switch with a pull-down reads low — no water — if the
     /// float is stuck up or the wire is cut, so S4 blocks the pump. Getting this
     /// backwards would let the pump run against a dry reservoir, so it is stated
@@ -270,9 +263,7 @@ impl<'d> GpioIn<'d> {
         self.debounced.update(raw, now)
     }
 
-    /// Whether a long press is reported.
-    ///
-    /// Always `false` for a `TOGGLE`, per the C++ (`IOSwitch.cpp:57-59`).
+    /// Whether a long press is reported. Always `false` for a `Toggle`.
     #[must_use]
     pub const fn long_press_detected(&self) -> bool {
         self.debounced.long_press_detected()

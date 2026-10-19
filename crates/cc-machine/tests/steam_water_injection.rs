@@ -1,36 +1,8 @@
-//! Port of `test/test_steam_water_injection` — 6 C++ cases.
+//! Water injection in `STEAM_RUNNING`: the hot-water switch, read by the steam state.
 //!
-//! ## The C++ suite tests a mock, not the firmware
-//!
-//! `test_steam_water_injection/test_main.cpp` defines its own
-//! `MockMachineStateContext` (`:71-127`) with a `MockSwitch`, a `MockRelay` and a
-//! hand-written `isSteamWaterInjectionRequested()` (`steam_mode_active_ &&
-//! water_switch_->isPressed()`). It never includes `SteamStates.cpp`. The
-//! `steam_mode_active_` flag it toggles is the mock's own field, not
-//! `MachineStateContext::steamON_`.
-//!
-//! So the six cases are really six assertions about a conjunction the mock
-//! encodes. The conjunction **is** the firmware's behaviour, spread across two
-//! places: the mode flag is `MachineStateContext::steamON_`, set by
-//! `SteamRunningState::onEntryImpl` (`SteamStates.cpp:14-17`) and cleared by its
-//! `onExitImpl` (`:19-22`); the switch is the hot-water switch read by
-//! `SteamRunningState::update` (`SteamStates.cpp:36-46`).
-//!
-//! The port therefore drives the **real** thing — a `Machine` in
-//! `STEAM_RUNNING` with the water switch pressed and released — and asserts the
-//! pump effect. Every C++ assertion maps to a real assertion, and the
-//! "outside steam mode" case becomes a real one rather than a mock flag.
-//!
-//! ## Case mapping
-//!
-//! | C++ case (`test_steam_water_injection/test_main.cpp`) | Rust test |
-//! | --- | --- |
-//! | `SteamWaterSwitchActivatesPump` (:151) | [`steam_water_switch_activates_pump`] |
-//! | `PumpStaysActiveWhileWaterSwitchHeld` (:184) | [`pump_stays_active_while_the_water_switch_is_held`] |
-//! | `PumpDeactivatesWhenWaterSwitchReleased` (:216) | [`pump_deactivates_when_the_water_switch_is_released`] |
-//! | `SystemStaysSteamModeDuringWaterInjection` (:252) | [`the_system_stays_in_steam_mode_during_injection`] |
-//! | `WaterInjectionOnlyWorksInSteamMode` (:275) | [`water_injection_only_works_in_steam_mode`] |
-//! | `MultiplePressReleaseCycles` (:304) | [`multiple_press_release_cycles`] |
+//! It is the same physical input as hot-water dispensing, and which feature it drives depends on
+//! the state the machine is in. In `STEAM_RUNNING` a held switch injects water into the boiler,
+//! with the pump following the level.
 
 mod common;
 
@@ -38,15 +10,14 @@ use cc_domain::state::MachineState;
 use cc_machine::{Effect, Event, SwitchId};
 use common::Harness;
 
-/// A machine in `STEAM_RUNNING`, which is what `SetUp` means by
-/// `context.setSteamModeActive(true)`.
+/// A machine in `STEAM_RUNNING`, with steam mode on.
 fn steaming() -> Harness {
     let mut h = Harness::in_state(MachineState::SteamRunning);
     let _ = h.on_entry(MachineState::SteamRunning);
     h
 }
 
-/// Whether the water switch is currently held, as a C++ `MockSwitch` would.
+/// Whether the water switch is currently held.
 fn water_held(h: &Harness) -> bool {
     h.machine.switches.hot_water
 }
@@ -63,12 +34,11 @@ fn steam_water_switch_activates_pump() {
         "water injection should be requested when the water switch is pressed in steam mode"
     );
 
-    // The firmware's half: `SteamRunningState::update` turns the pump on
-    // (`SteamStates.cpp:36-42`).
+    // `STEAM_RUNNING`'s update turns the pump on while the switch is held.
     let fx = h.update(MachineState::SteamRunning);
     assert!(
         common::has(&fx, Effect::EnablePump),
-        "CRITICAL BUG: the pump must activate when the water switch is pressed in steam mode: {fx:?}"
+        "the pump must activate when the water switch is pressed in steam mode: {fx:?}"
     );
 
     // And through a whole tick, so the state machine's real loop is exercised.
@@ -126,21 +96,18 @@ fn the_system_stays_in_steam_mode_during_injection() {
 
 #[test]
 fn water_injection_only_works_in_steam_mode() {
-    // The real analogue of `SetUp`'s `setSteamModeActive(false)`: be in
-    // `PID_NORMAL`, which is where the *same* switch is the hot-water switch
-    // rather than the injection switch.
+    // The real analogue of leaving steam mode: be in `PID_NORMAL`, where the same switch is the
+    // hot-water switch rather than the injection switch.
     let mut h = Harness::in_state(MachineState::PidNormal);
     let _ = h.press(SwitchId::HotWater);
 
     // The switch is read, but the machine is not in steam mode.
     assert!(!h.machine.steam_mode);
 
-    // In `PID_NORMAL` the switch drives hot-water dispensing instead, which is a
-    // *different* feature on the same input — and it also runs the pump. So the
-    // C++'s mock assertion "the pump must not activate outside steam mode" does
-    // not hold against the real firmware, and pretending it would be a lie. What
-    // holds is: `PID_NORMAL` never opens the steam valve, and `STEAM_RUNNING`
-    // never turns the pump *off* while the switch is held.
+    // In `PID_NORMAL` the same switch drives hot-water dispensing instead, and that also runs the
+    // pump. So "the pump must not run outside steam mode" is false against the real machine, and
+    // asserting it would be a lie. What holds is narrower: `PID_NORMAL` never opens the steam
+    // valve, and `STEAM_RUNNING` never stops the pump while the switch is held.
     let fx = h.tick();
     assert!(common::has(&fx, Effect::EnablePump), "{fx:?}");
     assert_eq!(
@@ -171,12 +138,10 @@ fn multiple_press_release_cycles() {
 }
 
 // ---------------------------------------------------------------------------
-// What the C++ suite should also have checked
+// What the suite also checks
 // ---------------------------------------------------------------------------
 
-/// Leaving `STEAM_RUNNING` disables the injection pump
-/// (`SteamStates.cpp:22-24`, "Safety: Disable water injection pump when exiting
-/// steam mode").
+/// Leaving `STEAM_RUNNING` stops the injection pump.
 #[test]
 fn leaving_steam_running_disables_the_injection_pump() {
     let mut h = steaming();
@@ -196,8 +161,8 @@ fn leaving_steam_running_disables_the_injection_pump() {
     assert!(!h.machine.steam_mode);
 }
 
-/// `steamFirstON_` is set and cleared with the mode
-/// (`SystemUtils.h:42-53`, which sets both fields to the same value).
+/// The steam-first-on flag is set and cleared with the mode, so it names a run that began with a
+/// cold boiler.
 #[test]
 fn the_steam_first_on_flag_tracks_the_mode() {
     let mut h = Harness::in_state(MachineState::PidNormal);
@@ -210,9 +175,8 @@ fn the_steam_first_on_flag_tracks_the_mode() {
     assert!(!h.machine.steam_first_on);
 }
 
-/// The hot-water switch is denied in `WATER_TANK_EMPTY`
-/// (`HotWaterHandler.h:64-67`), so the pump is not started by the handler layer
-/// there. Preserved deliberately — see `parity_findings.rs`.
+/// The hot-water switch is denied in `WATER_TANK_EMPTY`, so the handler layer does not start the
+/// pump there. See `parity_findings.rs`.
 #[test]
 fn the_water_switch_is_denied_while_the_tank_is_empty() {
     let mut h = Harness::in_state(MachineState::WaterTankEmpty);

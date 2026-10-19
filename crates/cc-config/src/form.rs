@@ -1,46 +1,33 @@
-//! The `application/x-www-form-urlencoded` body parser.
-//!
-//! Owner: **R3-14** (task E). `POST /api/parameters`'s body parser.
+//! The `application/x-www-form-urlencoded` body parser, used by
+//! `POST /api/parameters`.
 //!
 //! # Why this is in `cc-config` and not `cc-domain`
 //!
 //! It is the sibling of [`crate::json`]: both are "the configuration arriving
 //! over HTTP in some encoding", one a nested JSON document for
 //! `/api/config/upload` and one a form-encoded body for `/api/parameters`.
-//! `cc-domain` is `no_std` **and** `no alloc` (04 §6), and a form parser has to
+//! `cc-domain` is `no_std` **and** `no alloc`, and a form parser has to
 //! allocate: percent-decoding produces new bytes, and there is no way to hand
 //! back a decoded `&str` that borrows from a body that did not contain it.
 //!
 //! # Why the REST API reads bodies *and* query strings
 //!
-//! The C++ uses `request->hasParam("value", true)` — the `true` meaning
-//! "from the body" (`WebServerManager.cpp:392`) — and `/api/parameters` is
-//! `HTTP_ANY` with a form-encoded POST for updates (`:820-826`). So every
-//! parameter the C++ accepts arrives in a body, and reproducing it means parsing
-//! a body.
+//! A parameter write can arrive either way, and the two encodings are identical,
+//! so one parser serves both. `POST /api/parameters` walks the query string and
+//! the body **together**, with the query arguments first, so `?pid.enabled=1` is a
+//! parameter write and not a filter.
 //!
-//! `POST /api/parameters` is the exception that is not an exception: its handler
-//! walks `request->params()` (`:823`), which is the **query string and the body
-//! together** — `AsyncWebServerRequest` appends the query args before the POST
-//! fields. `?pid.enabled=1` is therefore a parameter write in the C++, and this
-//! parser serves both encodings because the encoding is identical.
+//! That matters because it is easy to get wrong: `EspHttpConnection::uri()`
+//! (`esp-idf-svc` `src/http/server.rs`) returns a `uri` that still contains the
+//! query. ESP-IDF does not split it off: `httpd_req_t` has no query member
+//! (`esp_http_server.h:373-400`), the query lives *inside* `uri`, and
+//! `esp_http_server` reads it back out with `r->uri + res->field_data[UF_QUERY].off`.
+//! So the query string is reachable with no `esp-idf-sys` FFI call, which is why
+//! `cc_hal_esp32::web::query_of` is a `split_once('?')` rather than a binding.
 //!
-//! **A correction, because this file used to say the opposite.** An earlier
-//! revision claimed the query string was unreachable: that `EspHttpConnection::uri()`
-//! (`esp-idf-svc` `src/http/server.rs:949-955`) returns a `uri` that ESP-IDF has
-//! already split from the query. It has not. `httpd_req_t` has no query member
-//! (`esp_http_server.h:373-400`); the query lives *inside* `uri`, and
-//! `esp_http_server` reads it back out with
-//! `r->uri + res->field_data[UF_QUERY].off` (`httpd_parse.c:992`). So the query
-//! string is available with no `esp-idf-sys` FFI call, which is why
-//! `cc_hal_esp32::web::query_of` is a `split_once('?')` and not an FFI binding.
-//!
-//! **The consequence, stated because it is a difference:** `GET
-//! /api/parameters?filter=all` ignores its query string. The C++ ignores it too
-//! — `handleParameters` calls `getAllParameters(array, "all")` unconditionally
-//! (`:818`) and never reads `filter` — so this is parity, not a regression. The
-//! task brief for R3-08 named `?filter=all` because it is what the integration
-//! checklist curls; the endpoint returns the full set either way.
+//! **The consequence:** `GET /api/parameters?filter=all` ignores its query
+//! string and returns the full set. The endpoint has no filter to apply, so
+//! `?filter=all` is documentation of intent rather than a parameter.
 //!
 //! # The parsing rules, and where they come from
 //!
@@ -73,10 +60,9 @@ pub type Field = (String, String);
 
 /// Parse a form-encoded body.
 ///
-/// Malformed fields are skipped rather than failing the whole request: the C++
-/// iterates `request->params()` and reports per-parameter success
-/// (`WebServerManager.cpp:822-855`), and a request with one bad field out of
-/// twenty should still update the other nineteen.
+/// Malformed fields are skipped rather than failing the whole request:
+/// `/api/parameters` reports per-parameter success, and a request with one bad
+/// field out of twenty should still update the other nineteen.
 #[must_use]
 pub fn parse_form(body: &str) -> Vec<Field> {
     let mut out = Vec::new();
@@ -103,11 +89,9 @@ pub fn parse_form(body: &str) -> Vec<Field> {
 
 /// The first value for `name`, if the body carries it.
 ///
-/// The C++'s `hasParam(name, true)` then `getParam(name, true)->value()`, which
-/// is a first-match lookup. When a browser sends the same field twice the last
-/// one wins in `AsyncWebServer`; first-match is used here and the difference is
-/// not worth a browser-compatibility investigation for a firmware whose
-/// parameters are set one at a time.
+/// A first-match lookup, which is what `/api/parameters` needs: its parameters
+/// are set one at a time, so a name that arrives twice is a client bug rather than
+/// an ambiguity worth a resolution rule of its own.
 #[must_use]
 pub fn field(body: &str, name: &str) -> Option<String> {
     parse_form(body)
@@ -225,8 +209,8 @@ mod tests {
 
     #[test]
     fn a_name_with_no_value_is_an_empty_value() {
-        // What a browser sends for a valueless input, and what
-        // `AsyncWebServerRequest::hasParam` reports.
+        // What a browser sends for a valueless input: the name is present, with
+        // an empty value.
         assert_eq!(fields("flag"), vec![("flag", "")]);
     }
 
@@ -250,9 +234,9 @@ mod tests {
 
     #[test]
     fn a_setpoint_of_zero_is_a_value_and_not_an_absence() {
-        // `if (newSetpoint >= 0 && newSetpoint <= 150)` at
-        // WebServerManager.cpp:393 accepts 0, so the parser must not treat an
-        // empty or zero value as "not supplied".
+        // The parser's contract, not the schema's: a field is present whether or
+        // not its value is empty. Conflating `value=` with "no `value` field" is
+        // how a zero becomes an absence.
         assert_eq!(field("value=0", "value").as_deref(), Some("0"));
         assert_eq!(field("value=", "value").as_deref(), Some(""));
     }

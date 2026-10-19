@@ -1,24 +1,13 @@
 //! The HTTP application tier, as pure functions of a [`Telemetry`] snapshot and
-//! a [`cc_config::Config`] — the part of `cc-hal-esp32`'s `web.rs` that is a
-//! payload builder rather than a socket.
+//! a [`cc_config::Config`] — the payload builders rather than the socket.
 //!
 //! # Why this crate exists
 //!
-//! **Finding 4.1 of
-//! [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md)
-//! — `just test` could not reach the REST surface at all.** `web.rs` was ~4,530
-//! lines and named `esp_idf_svc`, so the nine portable crates named by `just
-//! test` reached none of it: every `*_json` renderer, `classify_parameters`,
-//! `Telemetry` and `Command` were tested **only** by flashing a board
-//! (`just test-esp32`). Two real device bugs shipped through exactly that gap —
-//! a Wi-Fi provisioning password window that lasted zero milliseconds, and
-//! console lines lost across `esp_restart()`. Neither was caught by review; both
-//! had a test that had never been executed.
-//!
-//! None of that code needed a chip. A `Telemetry` and a `Config` are plain
-//! values, `*_json` is a `String` builder, and `classify_parameters` is a
-//! validation pass over a slice of form pairs. The only thing standing between
-//! them and `cargo test` was which file they sat in.
+//! A `Telemetry` and a `Config` are plain values, every `*_json` is a `String`
+//! builder, and `classify_parameters` is a validation pass over a slice of form
+//! pairs. None of that needs a chip, and while it lived in the HAL's `web.rs` no
+//! host test reached it: it was exercised only by flashing a board. The only
+//! thing standing between it and `cargo test` was which file it sat in.
 //!
 //! # Where it sits in the layering
 //!
@@ -29,37 +18,35 @@
 //! ```
 //!
 //! * **`cc-domain`, `cc-config` and `cc-protocol` are the only workspace
-//!   dependencies**, and not one of them is allowed to know this crate exists —
-//!   `cc-config` may not depend on `cc-safety`, and 04 §6 makes them siblings.
-//!   The dependency arrow points one way: a value flows *in*, and nothing about
+//!   dependencies**, and not one of them is allowed to know this crate exists:
+//!   the dependency arrow points one way, a value flows *in*, and nothing about
 //!   how it will be served is visible from down here. Beyond those three the
 //!   manifest lists only `heapless` (for `Telemetry::ip`, which must stay a
 //!   16-byte inline `String` so that `Snapshot::get`'s copy is a `memcpy` with
 //!   no allocator traffic) and `log` (for the one line `Auth::from_config`
-//!   warns on when authentication is enabled with no credentials). Both were
-//!   already in the dependency graph, and neither is an ESP-IDF crate — the
-//!   argument for this crate being portable rests on that, not on the count.
+//!   warns on when authentication is enabled with no credentials). Neither is
+//!   an ESP-IDF crate — the argument for this crate being portable rests on
+//!   that, not on the count.
 //! * **`cc-hal-esp32` depends on this crate**, not the other way round. What
 //!   stayed behind is the part that genuinely needs ESP-IDF: route registration
 //!   on `EspHttpServer`, the `respond`/`respond_large` chunked writers, the SSE
 //!   broadcaster, the httpd `Configuration`, and the `Snapshot` cell that
 //!   publishes a `Telemetry` between tasks.
 //!
-//! # The `Snapshot` boundary, stated once
+//! # The `Snapshot` boundary
 //!
-//! `cc_hal_esp32::web::Snapshot<T>` stays in the HAL, and this is not a
-//! compromise — it is the shape the type already had. `Snapshot` is **generic
-//! over its payload**; only the payload type moved.
+//! `cc_hal_esp32::web::Snapshot<T>` stays in the HAL. It is **generic over its
+//! payload**, so only the payload type moved.
 //!
-//! The `unsafe` in `Snapshot` is a hand-written `Sync` whose entire justification
+//! The `unsafe` in `Snapshot` is a hand-written `Sync` whose whole justification
 //! is that every read and write happens inside `esp_idf_hal::interrupt::free` —
 //! `portENTER_CRITICAL`, which on this single-core target is mutual exclusion
 //! between the control task, the httpd task and the display task. That is an
-//! ESP-IDF primitive, so `Snapshot` cannot live here; and commit `44c546db`
-//! fixed a real defect in it (`get` was `Cell::take`, so a read *destroyed* the
-//! value it returned, and two `/api/status` polls inside one 10 ms control
-//! period reported a dead machine on the second). That fix is a take-and-restore
-//! inside one critical section, and it is untouched by this move.
+//! ESP-IDF primitive, so `Snapshot` cannot live here.
+//!
+//! A read must be a take-and-restore inside one critical section, not
+//! `Cell::take`: with a destructive read, two `/api/status` polls inside one
+//! 10 ms control period would have the second report a dead machine.
 //!
 //! The alternative — widening the critical section, or replacing the primitive
 //! with a portable one that is not mutually exclusive on this target — would
@@ -70,11 +57,7 @@
 //! impl's second safety bullet names when it explains why a reader's copy cannot
 //! allocate.
 //!
-//! # Two renderers take their inputs as arguments, and why
-//!
-//! **`Telemetry`, `Command` and every `*_json` renderer are pure functions of a
-//! `Config` and a snapshot" is not quite true of two of them**, and the finding
-//! that says so is slightly wrong:
+//! # Two renderers take their inputs as arguments
 //!
 //! * [`payload::status_json`] interpolates `free_heap()`;
 //! * [`payload::nvs_debug_json`] interpolates `free_heap()` and `min_free_heap()`.
@@ -90,17 +73,17 @@
 //!
 //! | Stayed in `cc-hal-esp32` | Why |
 //! | --- | --- |
-//! | route registration, `respond`, `respond_large`, `respond_download` | `EspHttpServer` / `EspHttpConnection`, and ADR-0002 decision 2 is a statement about `httpd_resp_send_chunk` |
-//! | `Shared`, `Snapshot`, the ack counter, `wait_applied` | `Snapshot` (above); `wait_applied` reads `now_ms` and sleeps |
-//! | `Sse`, the broadcaster, `web_async` | the sockets belong to ESP-IDF's single httpd task |
-//! | `resolve_ui`, `UiTarget`, the embedded bundle | the asset table is generated by `build.rs` from the Vite output |
-//! | `routes()` | returns `esp_idf_svc::http::Method`; the route table *is* a statement about what is registered on the httpd |
-//! | `history_json` | it takes `&Shared` and the copy-out-under-the-lock that keeps a 12 KB render off the control loop is the point of it. It had no direct test before this move and has none now. |
-//! | all of `mqtt.rs` | its pure half (`cc_hal_esp32::mqtt`'s `Topics`, `Registry`, `interval_for`) is a second extraction with the same shape. Not attempted here rather than attempted and left half-done. |
-//! | the telnet socket, accept loop, heartbeat | `lwip_socket`/`bind`/`listen`/`accept`/`send` are FFI, and a portable crate here compiles for a host target. The *policy* around them — the heap shed, the bounded ring, the line format — is [`telnet`] and did move, because finding 3.2 was that the policy shipped with nothing consuming it and therefore nothing testing it. |
+//! | route registration, `respond`, `respond_large` | a chunked response is an ESP-IDF call |
+//! | `Shared`, `Snapshot`, the ack counter | `Snapshot` (above); `wait_applied` sleeps |
+//! | `Sse`, the broadcaster, `web_async` | the sockets belong to ESP-IDF's one httpd task |
+//! | `resolve_ui`, `UiTarget`, the embedded bundle | the asset table comes from `build.rs` |
+//! | `routes()` | it returns `esp_idf_svc::http::Method`: what is registered |
+//! | `history_json` | copying out under the lock keeps a 12 KB render off the control loop |
+//! | all of `mqtt.rs` | its pure half is `cc_hal_esp32::mqtt`'s `Topics` and `Registry` |
+//! | the telnet socket, accept loop, heartbeat | the `lwip_*` calls are FFI; the shed, the ring and the line format did move to [`telnet`] |
 
 #![no_std]
-#![forbid(unsafe_code)] // already denied workspace-wide; restated for clarity
+#![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
 extern crate alloc;

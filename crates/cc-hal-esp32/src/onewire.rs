@@ -1,15 +1,13 @@
 //! The 1-Wire bus, bit-banged on one GPIO.
 //!
-//! Owner: **R1-03** (the DS18B20 half) and **R3-06**.
-//!
 //! # This is the only file that knows a pin exists
 //!
-//! [`GpioOneWire`] implements [`cc_domain::onewire::OneWireBus`] and nothing
-//! else. Every decision — the CRC, the command sequence, the bit order, the
-//! scratchpad decode, the accept/reject rule — is in `cc-domain` and is
+//! [`GpioOneWire`] implements [`cc_protocol::sensor::onewire::OneWireBus`] and
+//! nothing else. Every decision — the CRC, the command sequence, the bit order,
+//! the scratchpad decode, the accept/reject rule — is in `cc-protocol` and is
 //! host-tested there. What is left here is: pull the pin low, wait, release,
-//! read the line. The numbers it waits for are the C++'s
-//! ([`cc_domain::onewire::timing`]).
+//! read the line. The numbers it waits for are the datasheet's
+//! ([`cc_protocol::sensor::onewire::timing`]).
 //!
 //! # Open drain, and why the pull-up is external
 //!
@@ -25,9 +23,9 @@
 //! pull if asked, and this port asks for [`Pull::Floating`]: an internal
 //! ~45 kΩ pull is roughly ten times too weak for a 1-Wire bus's rise time, and
 //! relying on it would produce a driver that works on the bench and fails over
-//! a long cable. The C++ relies on the external one too — `OneWire::reset`
-//! spins on the line going high (`OneWire.cpp:190-193`) precisely because it
-//! expects an external pull-up.
+//! a long cable. [`GpioOneWire::reset`] spins on the line going high, which is
+//! the same assumption: an external pull-up holds the bus high when no device is
+//! driving it.
 
 use cc_protocol::sensor::onewire::{self, OneWireBus};
 use esp_idf_hal::delay::Ets;
@@ -39,8 +37,7 @@ use esp_idf_svc::sys::EspError;
 ///
 /// Open drain, so the firmware pulls the bus low or releases it and never
 /// drives it high. The reset, the presence pulse and every bit are done with
-/// interrupts disabled, exactly as the C++ does with `noInterrupts()`
-/// (`OneWire.cpp:186-205`, `:218-224`, `:247-254`).
+/// interrupts disabled.
 ///
 /// # Timing, and the 1 µs granularity
 ///
@@ -52,8 +49,8 @@ use esp_idf_svc::sys::EspError;
 /// (`esp-idf-hal-0.47.0/src/delay.rs:250-252`), so it **rounds up to the next
 /// whole microsecond**: `delay_ns(1500)` becomes `delay_us(2)`, a 33 % overshoot
 /// on a 1.5 µs request. This port therefore never calls `delay_ns`. It calls
-/// [`Ets::delay_us`] with the C++'s own integers, which need no conversion and
-/// so incur no rounding at all.
+/// [`Ets::delay_us`] with the datasheet's integers, which need no conversion
+/// and so incur no rounding at all.
 ///
 /// What is left is `ets_delay_us`'s own behaviour: it is a calibrated busy-wait
 /// that takes **at least** the requested time, and on the original ESP32 it is
@@ -66,13 +63,14 @@ use esp_idf_svc::sys::EspError;
 /// | write-0 `t_LOW` | 60–120 µs | 65 µs | 5 µs either side |
 /// | read `t_LOW` | 1–15 µs | 3 µs | 12 µs |
 /// | `t_SAMPLE` after the edge | 5–15 µs | 13 µs | **2 µs** |
-/// | `t_RST` | ≥ 480 µs | 480 µs | 0 µs, at the limit as the C++ is |
+/// | `t_RST` | ≥ 480 µs | 480 µs | 0 µs, at the limit |
 ///
 /// The read sample point is the tight one: 3 + 10 = 13 µs against a 15 µs
-/// ceiling. Both figures are the C++'s, so a marginal setup behaves identically
-/// in both firmwares, and `cc_domain::onewire`'s
-/// `read_the_sample_point_has_two_microseconds_of_headroom` pins the margin
-/// so a future edit to either constant has to confront it.
+/// ceiling. Both figures are the datasheet's, so a marginal setup is handled the
+/// same way by any device on the bus.
+/// `cc_protocol::sensor::onewire`'s
+/// `read_the_sample_point_has_two_microseconds_of_headroom` pins the margin so
+/// a future edit to either constant has to confront it.
 pub struct GpioOneWire<'d> {
     pin: PinDriver<'d, InputOutput>,
 }
@@ -120,10 +118,8 @@ impl<'d> GpioOneWire<'d> {
     /// Pull the bus low and hold it for `micros`.
     ///
     /// Interrupts are off across the low pulse only, and the wait is *outside*
-    /// the critical section — which is what the C++ does: the pulse has to be
-    /// atomic, the recovery time does not. `interrupt::free` is the Rust
-    /// equivalent of the C++'s `noInterrupts()` / `interrupts()` pair
-    /// (`OneWire.cpp:218-224`).
+    /// the critical section: the pulse has to be atomic, the recovery time does
+    /// not.
     ///
     /// # Errors
     ///
@@ -153,15 +149,15 @@ impl<'d> GpioOneWire<'d> {
 impl OneWireBus for GpioOneWire<'_> {
     type Error = EspError;
 
-    /// `OneWire::reset` (`OneWire.cpp:179-207`).
+    /// One reset cycle on the bus: the reset pulse and the presence pulse.
     ///
     /// Pull low for 480 µs, release, wait 70 µs, sample for the presence pulse,
     /// then wait out the rest of the reset window.
     ///
-    /// The C++ first spins until the line reads high, in case a previous
-    /// transaction left it low (`OneWire.cpp:190-193`). That is kept: it is the
-    /// difference between a bus recovering from a truncated transaction and one
-    /// needing a power cycle, and it costs at most 250 µs on a healthy bus.
+    /// It first spins until the line reads high, in case a previous transaction
+    /// left it low. That spin is the difference between a bus recovering from a
+    /// truncated transaction and one needing a power cycle, and it costs at most
+    /// 250 µs on a healthy bus.
     fn reset(&mut self) -> Result<bool, EspError> {
         const RETRIES: u32 = 125;
         for _ in 0..RETRIES {
@@ -175,7 +171,7 @@ impl OneWireBus for GpioOneWire<'_> {
         let present = self.release_and_read(onewire::timing::RESET_PRESENCE_US)?;
         Ets::delay_us(onewire::timing::RESET_RECOVERY_US);
         // The device pulls the line low to say "here I am", so a low reading is
-        // a presence pulse. `!DIRECT_READ` in the C++ (`:203`).
+        // a presence pulse.
         Ok(!present)
     }
 
@@ -199,7 +195,7 @@ impl OneWireBus for GpioOneWire<'_> {
 
     fn read_bit(&mut self) -> Result<bool, EspError> {
         // Pull low briefly to ask the device to speak, release, then sample
-        // `t_SAMPLE` after the falling edge (`OneWire.cpp:241-257`).
+        // `t_SAMPLE` after the falling edge.
         self.pulse_low(onewire::timing::READ_LOW_US)?;
         let high = self.release_and_read(onewire::timing::READ_SAMPLE_US)?;
         Ets::delay_us(onewire::timing::READ_RECOVERY_US);

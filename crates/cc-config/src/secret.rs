@@ -1,15 +1,14 @@
 //! A string that refuses to print itself.
 //!
-//! **The type now lives in `cc-domain`** — see
-//! [`cc_domain::secret`] for the full rationale, which is mostly about the
-//! fifth credential-bearing field (the UART provisioning password, R3-12) that
-//! does not live in a `Config` at all.
+//! The type lives in `cc-domain` — see [`cc_domain::secret`] for the rationale,
+//! which is mostly about the fifth credential-bearing field (the UART
+//! provisioning password) that is not part of a `Config` at all.
 //!
 //! This module re-exports it so that `cc_config::Secret` — the path
 //! `cc-config`'s own `Config` API uses, and the path its documentation and
-//! tests refer to — keeps working unchanged. The `serde` impls are enabled
-//! here, because a `Config` has to round-trip through the store and the web
-//! API with its credentials intact.
+//! tests refer to — keeps working. The `serde` impls are enabled here, because a
+//! `Config` has to round-trip through the store and the web API with its
+//! credentials intact.
 //!
 //! ```
 //! extern crate alloc;

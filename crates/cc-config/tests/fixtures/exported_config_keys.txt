@@ -1,15 +1,11 @@
-# The 96 configuration keys the deleted C++ firmware exported.
+# The 96 configuration keys an operator's exported config.json carries.
 #
-# Provenance: `Config::getAllConfigParams()` at `9fa8c834:src/Config.cpp:438`,
-# with each key string read off its `ParamDef<T>` declaration in
-# `9fa8c834:include/clevercoffee/Config.h`. Recover the list with
+# This is the surface GET /api/config/download produces, and the surface an
+# operator re-uploads to a machine whose NVS this firmware does not read, so
+# every key here must still resolve. The schema declares 98: these 96 plus the
+# two `safety.*` parameters, which are registered for persistence but are not
+# part of the exported parameter list.
 #
-#     git show 9fa8c834:src/Config.cpp
-#
-# This is the surface `GET /api/config/download` produced on a C++ machine and
-# the surface an operator re-uploads to this firmware, so every key here must
-# still resolve. The Rust schema has 98: these 96 plus the two the C++ defines
-# but forgets to register (`config_schema.rs:40`).
 backflush.cycles
 backflush.fill_time
 backflush.flush_time

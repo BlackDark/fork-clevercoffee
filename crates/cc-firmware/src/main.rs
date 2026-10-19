@@ -1,60 +1,44 @@
-//! Clever Coffee firmware — R1-01 workspace bring-up, plus the R1-07 heater
-//! output.
+//! The firmware entry point: bring-up, the control task, and the tasks beside it.
 //!
-//! # What this binary is (and is not)
+//! # What this binary does, in order
 //!
-//! This is the **R1-01 feasibility spike** extended by **R1-07**, not the
-//! firmware. Its jobs are to prove that the toolchain builds, links, boots and
-//! runs on this host for `xtensa-esp32-espidf`, to make the first image-size
-//! measurement (07 §5), and — from R1-07 — to bring up the heater output behind a
-//! deadman gate that no code in this binary can open.
+//! 1. Initialise ESP-IDF and route `log` to UART0 at 115200 baud.
+//! 2. Configure the pump and water-valve pins — GPIO17 and GPIO27, per
+//!    `cc_hal_esp32::pins` — as outputs and drive them **inactive**.
+//! 3. **Drive GPIO2 — the heater — inactive and read it back as a pin.** Chopped
+//!    by a 10 ms `GPTimer` ISR ([`cc_hal_esp32::heater::TimerIsrPwm`]); the ISR is
+//!    built disarmed, so the pin does not move until the deadman gate is beaten.
+//! 4. **Read every actuator pin back and assert it is inactive.** The startup
+//!    assertion runs before anything else, so a failure is unambiguous. For the
+//!    heater this is the one moment it can be a pin readback at all: the ISR takes
+//!    the pin immediately afterwards.
+//! 5. Move a `TWDTDriver` into the control task and feed it from there, so the
+//!    watchdog subscriber is the control task and nothing else.
+//! 6. Run the tick: reduce a `cc_machine::Machine`, apply its effects through
+//!    `cc_hal_esp32::actuators`, drive the PID, and beat the heater's deadman. The
+//!    beat is also the supervisor signal the deadman consumes, so the gate opens
+//!    once the control task is provably alive and shuts again if it stops.
 //!
-//! What it does, in order:
-//!
-//! 1. Initialise ESP-IDF and route `log` to UART0 at 115200 baud — the same
-//!    stream and baud rate the C++ firmware uses.
-//! 2. Configure the pump and water-valve pins — GPIO17 and GPIO27
-//!    (`include/clevercoffee/hardware/pinmapping.h:39-40`) — as outputs and
-//!    drive them **inactive**.
-//! 3. **Drive GPIO2 — the heater — inactive and read it back as a pin.** The
-//!    heater is chopped by a 10 ms `GPTimer` ISR ([`cc_hal_esp32::heater::TimerIsrPwm`]),
-//!    which is what the C++ did (`isr.h:85-118`); the ISR is built disarmed, so
-//!    the pin does not move until the deadman gate is beaten.
-//! 4. **Read every actuator pin back and assert it is inactive.** This is the
-//!    startup assertion of 04 §4 / R3-16 in its smallest possible form, done
-//!    before anything else exists so a failure is unambiguous. For the heater this
-//!    happens at the one moment it can be a pin readback at all: the ISR takes the
-//!    pin immediately afterwards.
-//! 5. Move a `TWDTDriver` into a control task and feed it from there, so the
-//!    watchdog subscriber is the control task and nothing else (04 §2, §3.4 —
-//!    the same shape the recovered oracle used, 08 §3).
-//! 6. Log a heartbeat every second — which is also the **supervisor heartbeat the
-//!    heater's deadman consumes**, so the gate opens once the control task is
-//!    provably alive and shuts again if it stops.
+//! The sensor, display, MQTT and network tasks have their own cadences and their own
+//! modules. This file owns the wiring between them and the control loop.
 //!
 //! # ⚠ Safety note about driving these three pins
 //!
-//! `inactive` is asserted as `Level::Low`, which is correct for the
-//! `HIGH_TRIGGER` relays that are this board's default
-//! (`hardware.relays.*.trigger_type`, default `HIGH_TRIGGER`; the oracle's boot
-//! log says "active high", 08 §3). If this board were wired `LOW_TRIGGER`, `Low`
-//! would **energise** the heater, the pump and the valve. The oracle refused
-//! `LOW_TRIGGER` heater configurations outright for exactly that reason
-//! (08 §4.1), and R2-06/R3-03 must reproduce that refusal. R0-01 has not yet
-//! confirmed the relay board's trigger polarity in the field, so this is the one
+//! `inactive` is asserted as `Level::Low`, correct for the `HIGH_TRIGGER` relays
+//! that are this board's default (`hardware.relays.*.trigger_type`). On a
+//! `LOW_TRIGGER` board `Low` would **energise** the heater, the pump and the valve,
+//! which is why `cc_safety::validate_config` refuses `LOW_TRIGGER` for the heater
+//! and why a stored configuration carrying one is discarded at boot. The relay
+//! board's trigger polarity has not been confirmed in the field, so this is the one
 //! thing to check before the boiler is ever energised.
 //!
-//! # ⚠ The heater output has never been energised
+//! # ⚠ The heater output has not been measured on hardware
 //!
-//! Every call in this binary passes duty 0, and the gate
-//! ([`cc_domain::heater::HeaterGate`]) refuses a non-zero duty until the
-//! supervisor has beaten — which only the control task's heartbeat does, and it
-//! passes 0 regardless. R1-07's hardware test (drive a **dummy load**, measure
-//! with a scope) is **not** done: see the module docs of `cc-hal-esp32::heater`
-//! and `docs/history/divergences.md` #5.
-//!
-//! There is deliberately **no** control loop, no state machine and no sensor
-//! here. Those arrive at R2-08 and R3-xx.
+//! The deadman path passes duty 0, and the gate
+//! ([`cc_domain::heater::HeaterGate`]) refuses a non-zero duty until the supervisor
+//! has beaten. Driving a **dummy load** and measuring with a scope is **not** done:
+//! see `cc_hal_esp32::heater`'s module docs and §5 of
+//! `docs/history/divergences.md`.
 
 mod config_io;
 mod control;
@@ -73,9 +57,9 @@ use cc_domain::units::{Celsius, Millis};
 use cc_hal_esp32::heater::{HeaterOutput, TimerIsrPwm};
 use cc_hal_esp32::time::now_ms;
 use cc_hal_esp32::SwitchBank;
-// `Telemetry` is `cc_web`'s, named from its one owner since finding 4.5 deleted
-// the second copy in `network.rs`. `parameters_json` is here for the same
-// reason: the control task publishes the `/api/parameters` body it would serve.
+// `Telemetry` is `cc_web`'s, and `parameters_json` is here for the same reason:
+// the control task publishes the `/api/parameters` body the HTTP route would
+// serve, so the shape has one owner rather than one copy per task.
 use cc_web::Telemetry;
 
 // The board's pin map: one copy, in `cc_hal_esp32::pins`, checked for legality
@@ -106,13 +90,12 @@ use log::{debug, error, info, warn};
 
 type EspError = esp_idf_svc::sys::EspError;
 
-/// The level that means "actuator de-energised" for a `HIGH_TRIGGER` relay.
-/// The level that de-energises a `HIGH_TRIGGER` relay — the level the bring-up
+/// The level that de-energises a `HIGH_TRIGGER` relay — what the bring-up
 /// sequence drives each actuator pin to before anything reads it back.
 ///
-/// **Why it is a constant and not the configuration:** a `LOW_TRIGGER` relay
-/// energises whenever its pin *floats*, which is before this firmware runs, so
-/// driving such a pin low to "de-energise" it would in fact **energise** it.
+/// **Why a constant and not the configuration:** a `LOW_TRIGGER` relay energises
+/// whenever its pin *floats*, which is before this firmware runs, so driving
+/// such a pin low to "de-energise" it would **energise** it.
 /// `cc_safety::validate_config` refuses `LOW_TRIGGER` for every relay for
 /// exactly that reason, which means a stored configuration carrying one is
 /// discarded at boot and the defaults — high-trigger — are what run here. The
@@ -124,14 +107,16 @@ const INACTIVE: Level = Level::Low;
 /// The deadman gate's beat period, and therefore the upper bound on how long the
 /// heater can stay energised after the control task stops.
 ///
-/// **The beat is now every tick, not every second.** Before R4-01 the heartbeat
-/// was synthesised as `tick * HEARTBEAT_MS` — a *guess* at the clock made from
-/// the tick count, which is only the elapsed time if every tick took exactly
-/// [`CONTROL_TICK_MS`]. It now reads [`cc_hal_esp32::time::now_ms`], so the beat
-/// is the real time. This constant is what the 2-interlock-period deadman
-/// (`cc_domain::heater::DEADMAN_TIMEOUT_MS`, 1000 ms) is measured against: the
-/// 400 ms period is comfortably inside it, and the previous 1000 ms period was
-/// *exactly* it, which left no margin for a late tick.
+/// The beat is the real clock ([`cc_hal_esp32::time::now_ms`]), not a tick count
+/// multiplied by a period: a tick count is only the elapsed time if every tick took
+/// exactly [`CONTROL_PERIOD_MS`], and a late tick is the case the deadman exists to
+/// catch.
+///
+/// This is what the 2-interlock-period deadman
+/// (`cc_domain::heater::DEADMAN_TIMEOUT_MS`, 1000 ms) is measured against, and the
+/// 10 ms period is comfortably inside it. Setting *this* constant to anything near
+/// 1000 ms would leave no margin at all, which is why the parameter publish has its
+/// own constant instead ([`PARAMETERS_PUBLISH_MS`]).
 ///
 /// The watchdog feed has the same period, deliberately: one signal that the task
 /// is alive, not two that could disagree.
@@ -139,26 +124,17 @@ const HEARTBEAT_MS: u32 = CONTROL_PERIOD_MS;
 
 /// How often the *published parameter snapshot* is rebuilt, in milliseconds.
 ///
-/// A SEPARATE constant, and it has to be one.
-///
-/// The `parameters_json()` publish used to be gated on [`HEARTBEAT_MS`], which
-/// is the control tick period -- 10 ms. The comment above that gate still
-/// explained the intent as "at 2.5 ticks a second that is 245 copies a second",
-/// which was true when the tick was 400 ms; commit 158f61b5 collapsed the tick
-/// onto the heartbeat and the gate with it. The effect, measured on the host
-/// against the real `SCHEMA`: **420 heap allocations and 20.5 KB per call, at
-/// 100 calls a second** -- about 42,000 allocations/s and 2 MB/s of allocator
-/// churn driven by the control task, next to the heater deadman. Fixed by
-// `a2f597c2`.
-///
-/// It could not simply be `HEARTBEAT_MS = 1000`:
-/// `const _: () = assert!(HEARTBEAT_MS * 2 <= DEADMAN_TIMEOUT_MS)` above would
-/// become `2000 <= 1000` and stop the firmware compiling, because
-/// `HEARTBEAT_MS` also *is* the deadman beat. Two different cadences, two
+/// A SEPARATE constant, and it has to be one. Rebuilding the snapshot on every
+/// control tick would be pure allocator churn next to the heater deadman —
+/// `parameters_json` is measured at about 420 allocations and 20.5 KB per call
+/// (`cc-machine/tests/tick_allocations.rs`), which at 100 Hz is 42,000
+/// allocations a second — and it could not be folded into [`HEARTBEAT_MS`] in any
+/// case, because that constant is also the deadman beat and the assertion below
+/// requires it to stay at most half of `DEADMAN_TIMEOUT_MS`. Two cadences, two
 /// constants, each named for what it paces.
 ///
-/// 1 s is the cadence the C++'s `/api/status` and the UI poll on, and the age of
-/// a parameter snapshot older than that is not observable by anyone.
+/// 1 s is the cadence the UI polls `/api/status` at, and a parameter snapshot
+/// older than that is not observable by anyone.
 const PARAMETERS_PUBLISH_MS: u32 = 1_000;
 
 // Stated at compile time so the relationship cannot rot: the deadman drops the
@@ -174,25 +150,17 @@ const _: () = assert!(
 
 /// The control task's period, in milliseconds — 100 Hz.
 ///
-/// **This was 400 ms, and that was the bug the human reported twice.** The
-/// value was justified in the C++'s terms: 400 ms is the temperature sensor's
-/// cadence (`Timing::TEMPERATURE_SENSOR_INTERVAL_MS`, `constants/Timing.h:42`)
-/// and the ABP2's 50 ms divides into it exactly. But it coupled *every* thing in
-/// the loop to the slowest sensor:
+/// A control tick is the safety cadence, so nothing slower may set it. Coupling
+/// the loop to the slowest sensor (the temperature sensor's 400 ms) meant a switch
+/// press waited up to 400 ms to be noticed, before the 20 ms debounce and before
+/// the panel's 100 ms refresh, and the 1 KB display frame written **inside** the
+/// tick overran the 10 ms budget in most ticks for a reason that had nothing to do
+/// with control.
 ///
-/// * a switch press waited up to 400 ms to be noticed, before the 20 ms
-///   debounce and before the panel's 100 ms refresh — which is the "the screen
-///   takes half a second to react" report;
-/// * the whole 1 KB display frame was written **inside** the tick, so the tick
-///   overran its 10 ms budget in ~62 % of ticks (09 §24) for a reason that had
-///   nothing to do with control;
-/// * and 04 §2 — the architecture of record — says "one `FreeRTOS` task, priority
-///   5, **100 Hz**, hard 10 ms period". The code had diverged from the plan.
-///
-/// The three tasks now have their own cadences ([`sensor_task::SWITCH_POLL_MS`]
-/// at 10 ms, [`display_task::REFRESH_MS`] at 100 ms) and this one keeps the
-/// documented 100 Hz. The loop waits on the wake channel with this as the
-/// timeout, so the period is a floor and an event is acted on at once.
+/// Each task now has its own cadence ([`sensor_task::SWITCH_POLL_MS`] at 10 ms,
+/// [`display_task::REFRESH_MS`] at 100 ms) and this one is the control loop's. The
+/// loop waits on the wake channel with this as the timeout, so the period is a
+/// floor and an event is acted on at once.
 const CONTROL_PERIOD_MS: u32 = 10;
 
 /// How often a frame is handed to the display task, in milliseconds.
@@ -204,15 +172,8 @@ const FRAME_PUBLISH_MS: u32 = display_task::REFRESH_MS;
 // The original ESP32's `ledc_ll_set_duty_start` spins inside
 // `portENTER_CRITICAL` for up to one carrier period, and no carrier that is slow
 // enough for the contactor is fast enough for the 300 ms interrupt watchdog. See
-// [`HEATER_LEDC_DEFECT`] and 09 §17.
-//
-// This used to be enforced by a `const BRING_UP_HEATER_LEDC: bool = false` plus
-// a `const _: () = assert!(!BRING_UP_HEATER_LEDC, …)`, so the finding could not
-// be reversed by flipping a `const`. That guard is gone because the thing it
-// guarded is: there is no `LEDC` transport left in `cc-hal-esp32` to bring up,
-// so setting the flag to `true` would now compile and do nothing. The finding
-// itself is in [`HEATER_LEDC_DEFECT`], and the carrier arithmetic it rests on is
-// in `cc_hal_esp32::heater`'s module docs.
+// [`HEATER_LEDC_DEFECT`]; the carrier arithmetic it rests on is in
+// `cc_hal_esp32::heater`'s module docs.
 
 /// 🔴 The heater cannot be driven by `LEDC` on this chip at 1 Hz.
 ///
@@ -234,9 +195,9 @@ const FRAME_PUBLISH_MS: u32 = display_task::REFRESH_MS;
 ///
 /// `duty_start` is cleared by the hardware at the next **timer period**, and the
 /// spin is inside `portENTER_CRITICAL(&ledc_spinlock)` in
-/// `ledc_set_duty_and_update` (`components/esp_driver_ledc/src/ledc.c:1603-1606`),
-/// i.e. with interrupts masked. R1-07 chose a **1 Hz** carrier
-/// ([`cc_hal_esp32::heater`] argues at length for exactly that, to minimise
+/// `ledc_set_duty_and_update`,
+/// i.e. with interrupts masked. The carrier is **1 Hz** —
+/// [`cc_hal_esp32::heater`] argues at length for exactly that, to minimise
 /// contactor operations), so the spin is up to **one second** with interrupts
 /// off. The original ESP32's interrupt watchdog is **300 ms**
 /// (`components/esp_system/int_wdt.c`). Every duty write therefore trips it.
@@ -249,96 +210,81 @@ const FRAME_PUBLISH_MS: u32 = display_task::REFRESH_MS;
 /// Three things follow, and the third is what this firmware does.
 ///
 /// 1. The "1 Hz or the contactor wears out" argument in [`cc_hal_esp32::heater`]
-///    is correct as far as it goes and **incomplete**: it never checked what
+///    is correct as far as it goes and **incomplete**: it does not account for what
 ///    ESP-IDF's own `ledc_ll_set_duty_start` does on this chip. Any carrier slow
-///    enough to matter mechanically is also slow enough to trip a 300 ms
-///    interrupt watchdog through that spin.
+///    enough to matter mechanically is also slow enough to trip a 300 ms interrupt
+///    watchdog through that spin.
 /// 2. The fix is not available at a higher carrier either. Raising it to, say,
-///    25 Hz keeps the spin under 40 ms but reintroduces the contactor duty R1-07
-///    set out to avoid, and bypassing the spin needs a register write this HAL
-///    does not expose, and therefore `unsafe` — which the workspace denies
+///    25 Hz keeps the spin under 40 ms but reintroduces the contactor duty the 1 Hz
+///    argument set out to avoid, and bypassing the spin needs a register write this
+///    HAL does not expose, and therefore `unsafe` — which the workspace denies
 ///    (`[workspace.lints.rust] unsafe_code = "deny"`).
 /// 3. **So `LEDC` is not used, and the heater is chopped by a 10 ms `GPTimer` ISR**
-///    ([`TimerIsrPwm`]) — which is what the C++ does (`isr.h:85-118`) and what the
-///    lost firmware did (08 §3: *"heater interrupt running on GPIO2 (active high),
-///    1000 ms window"*). The cost is 100 contactor operations per second instead
-///    of two, which is what this machine has always done. A chip that panics at
-///    boot is a worse trade than contactor wear.
+///    ([`TimerIsrPwm`]), in a 1000 ms window. The cost is 100 contactor operations
+///    per second instead of two. A chip that panics at boot is a worse trade than
+///    contactor wear.
 ///
-/// There **is** no LEDC transport in `cc-hal-esp32` any more. `LedcPwm` existed
-/// behind a one-method `HeaterDuty` seam for a target whose chip does not have
-/// the spin, and it was deleted: zero construction sites, never brought up, and
-/// the spin is unique to the original ESP32 — every other `ledc_ll.h` in this
-/// tree (`esp32c2`, `esp32c3`, `esp32c5`, and the s3/h2/p4 equivalents) has the
-/// loop removed. That is a target that does not exist yet, so the transport is
-/// written when there is one; the carrier arithmetic and the two constants it
-/// would use are in `cc_hal_esp32::heater`'s module docs and are asserted against
-/// `cc_domain`'s host-tested values on every build, so they cannot rot.
+/// There **is** no LEDC transport in `cc-hal-esp32`. The spin is unique to the
+/// original ESP32 — every other `ledc_ll.h` in this tree (`esp32c2`, `esp32c3`,
+/// `esp32c5`, `esp32s3`, `esp32h2`, `esp32p4`) has the loop removed — so a target
+/// whose chip lacks it gets a transport when such a target exists. The carrier
+/// arithmetic and the two constants it would use are in
+/// `cc_hal_esp32::heater`'s module docs and are asserted against `cc_domain`'s
+/// host-tested values on every build, so they cannot rot.
 const HEATER_LEDC_DEFECT: &str =
-    "R1-07's 1 Hz LEDC carrier spins in ESP-IDF's ledc_ll_set_duty_start for up \
+    "A 1 Hz LEDC carrier spins in ESP-IDF's ledc_ll_set_duty_start for up \
       to one period with interrupts masked, which exceeds the ESP32's 300 ms \
       interrupt watchdog. The spin is unique to this chip -- every other \
       ledc_ll.h in the tree has it removed -- so there is no carrier that is both \
       slow enough for the contactor and fast enough for the watchdog. The heater \
-      is driven by the C++'s own 10 ms GPTimer ISR instead. The LEDC transport is \
-      not written: a target whose chip lacks the spin gets one, and the carrier \
-      arithmetic survives in cc-hal-esp32::heater's module docs. See \
-      09-cpp-findings.md section 17.";
+      is driven by a 10 ms GPTimer ISR instead, and no LEDC transport is \
+      written: a target whose chip lacks the spin gets one, and the carrier \
+      arithmetic survives in cc-hal-esp32::heater's module docs.";
 
-/// Stack size of the control task, from the priority table in 04 §2.
+/// Stack size of the control task.
 ///
-/// **16 KB, and the measured reason is in `network::apply_staged`.** This was 8 KB, and the 8 KB was
-/// one `wifi apply` away from fatal: the credential the console stages is
-/// written by `store.load()` + `store.save()` **on this task**, inside the
-/// tick, and that pair — a ~2 KB JSON document parsed and re-serialised, with a
-/// whole `Config` live on the stack three frames deep — needs about 8.5 KB of
-/// stack of its own.
+/// **16 KB, and the load that requires it is the Wi-Fi credential save.** The
+/// credential the console stages is written by `store.load()` + `store.save()`
+/// **on this task**, inside the tick, and that pair — a ~2 KB JSON document parsed
+/// and re-serialised, with a whole `Config` live on the stack three frames deep —
+/// needs about 8.5 KB of stack of its own (see `network::apply_staged`).
 ///
 /// Measured on the device with `uxTaskGetStackHighWaterMark` at the top of the
 /// tick that takes the staged credential:
 ///
 /// * at 8 KB: **68 bytes** of the stack had never been used, and the task died
-///   inside `store.save()` — a stack overflow, which on this chip reboots the
-///   chip with `rst:0xc (SW_CPU_RESET)` and prints nothing at all, because the
-///   panic handler has no stack left to run on. That is why this read as "the
-///   watchdog tripped": the `task_wdt` lines in the same log are the unrelated
-///   IDLE1 trip described in `network::run_provisioning`, and the credential
-///   was lost with no message.
-/// * at 32 KB: 23 408 bytes free at the same point, i.e. the deepest frame
-///   this task ever reaches is ~8.6 KB.
+///   inside `store.save()` — a stack overflow, which on this chip reboots with
+///   `rst:0xc (SW_CPU_RESET)` and prints nothing at all, because the panic handler
+///   has no stack left to run on. That is why this reads as "the watchdog tripped":
+///   the `task_wdt` lines in the same log are the unrelated IDLE1 trip described in
+///   `network::run_provisioning`, and the credential was lost with no message.
+/// * at 32 KB: 23 408 bytes free at the same point, i.e. the deepest frame this
+///   task ever reaches is ~8.6 KB.
 ///
-/// 16 KB is the smallest power of two above the measured need, it is what
-/// [`BRING_UP_STACK_BYTES`] already gives the boot task for the same load and
-/// save, and it leaves ~7 KB of margin for a configuration that grows.
+/// 16 KB is the smallest power of two above the measured need, and it leaves ~7 KB
+/// of margin for a configuration that grows.
 const CONTROL_STACK_BYTES: usize = 16 * 1024;
 
 /// Stack size of the display task.
 ///
-/// 4 KB. The 1 KB scratch framebuffer is **heap** allocated (`Box`, in
-/// `DisplayTask::new`) precisely so it is not in this budget — the same reason
-/// `refresh_display` took it as an argument, recorded there as a stack overflow
-/// on the first frame.
+/// 8 KB. The 1 KB scratch framebuffer is **heap** allocated (`Box`, in
+/// `DisplayTask::new`) precisely so that it is not part of this budget; what remains
+/// on the stack is the render path and the frame copy.
 const DISPLAY_STACK_BYTES: usize = 8 * 1024;
 
 /// Whether to start the scale driver even when the configuration says it is off.
 ///
-/// **ON in this build, and it is a bring-up override, not a default.** The
-/// reasoning is the same one [`PROBE`] carries, and it is worth stating plainly
-/// because a reader who does not will draw the wrong conclusion from a boot log
-/// that says "scale: sampling".
+/// **Off in a shipped build, and never a substitute for the configuration.** The
+/// override exists so bring-up can exercise a driver whose setting no operator has
+/// turned on yet, and a reader needs to know that before drawing a conclusion from
+/// a boot log that says "scale: sampling".
 ///
-/// * `hardware.sensors.scale.enabled` defaults to `false` (`cc-config`,
-///   `HardwareSensorsScale::default`), and it is the right default: **no scale
-///   is fitted to the machine this firmware was built for.** With the setting
-///   honoured, the R3-17 driver would be dead code on this hardware — built,
-///   type-checked, and never executed — which is *exactly* what the C++ does
-///   with its scale (09 §23), and precisely the thing this task exists to stop.
-///   The only difference the override can make here is the fault path, which is
-///   the one acceptance criterion that **is** provable without a scale.
-/// * The C++ guards on the same setting and then does nothing
-///   (`src/main.cpp:145-150`: it logs `"Scale sensor support via
-///   SensorCoordinator"` under a comment saying the work is pending). This
-///   override is what makes the guard *mean* something.
+/// `hardware.sensors.scale.enabled` defaults to `false` (`cc-config`,
+/// `HardwareSensorsScale::default`) and that is the right default: **no scale is
+/// fitted to the machine this firmware was built for.** With the setting honoured
+/// and no scale, the driver is built, type-checked and never executed. With the
+/// override on, its fault path runs, which is the one scale acceptance criterion
+/// provable without a load cell.
 ///
 /// **What this is not:** it does not make the scale work. There is no load cell,
 /// no amplifier and no wiring on GPIO32/25/33, so the driver will report the
@@ -346,20 +292,20 @@ const DISPLAY_STACK_BYTES: usize = 8 * 1024;
 /// is the honest outcome and the boot log says so. When a scale is fitted, set
 /// `hardware.sensors.scale.enabled` and this constant becomes irrelevant.
 ///
-/// **Ship state is `false`, so the user's config actually governs.** Measured on
-/// hardware 2026-09-29: with this on, 86 of 138 ticks over budget; with it off,
-/// 111 of 136 — the same 32 ms worst either way, so the sampling task is *not*
-/// what costs the tick (see the tick-timing section above). Nothing about the
-/// scale needs the override, and leaving it on would mean a shipped firmware
-/// ignores a setting the operator controls, which is the shape of 09 §23.
+/// **`false` in a shipped image, so the stored configuration governs.** Measured
+/// on hardware 2026-09-29: with this on, 86 of 138 ticks over budget; with it off,
+/// 111 of 136 — the same 32 ms worst either way, so the sampling is *not* what costs
+/// the tick (see the tick-timing section above). Nothing about a scale needs the
+/// override, and leaving it on would mean the firmware ignores a setting the
+/// operator controls.
 const BRING_UP_SCALE: bool = false;
 
 /// The control tick's budget, in milliseconds.
 ///
-/// 04 §2's hard 10 ms period, and the number R4-01b's acceptance criterion is
-/// stated against ("zero ticks > 10 ms"). It is a *budget for the work*, not
-/// the period: [`CONTROL_PERIOD_MS`] is the period, and a tick that spends longer
-/// than this awake has overrun whatever it was given.
+/// A *budget for the work*, not the period: [`CONTROL_PERIOD_MS`] is the period, and
+/// a tick that spends longer than this awake has overrun whatever it was given. It
+/// is the figure the tick-timing report counts against, so it is the one an operator
+/// reads as "zero ticks over budget".
 const TICK_BUDGET_MS: u32 = 10;
 
 /// How many ticks form the pre-scale baseline.
@@ -372,16 +318,14 @@ const TICK_BASELINE_TICKS: u32 = 1_000;
 
 /// How often the tick-timing report is logged, in milliseconds.
 ///
-/// 60 s, matching the heap report. A 10 ms budget measured every 400 ms would
-/// bury the boot log; once a minute is what an operator comparing "before" and
-/// "after" the scale needs.
+/// 30 s. A 10 ms budget reported every tick would bury the boot log, and this is the
+/// cadence an operator comparing "before" and "after" can read.
 const TICK_REPORT_INTERVAL_MS: u32 = 30_000;
 
 /// The SSE event cadence, in milliseconds.
 ///
-/// `WebServerManager::tempEventInterval_` as driven from
-/// `LoopManager::updateWebsite`. One second, and the reason the `new_temps`
-/// frame is small: it goes out per connected client per interval.
+/// One second. The reason the `new_temps` frame stays small: it goes out per
+/// connected client per interval.
 const SSE_INTERVAL_MS: u32 = 1_000;
 
 /// How often the heap is logged, in milliseconds.
@@ -394,24 +338,23 @@ const HEAP_LOG_INTERVAL_MS: u32 = 60_000;
 
 /// The radio's maintenance cadence.
 ///
-/// `cc_hal_esp32::wifi::MONITOR_PERIOD_MS` and the C++'s
-/// `checkAndMaintainConnection` interval (`CleverCoffeeWiFiManager.cpp:105`).
-/// Named here rather than imported because the control task owns the poll and a
-/// firmware that drifted between the two would drift silently.
+/// Taken from `cc_hal_esp32::wifi::MONITOR_PERIOD_MS` rather than spelled as its own
+/// number, because the control task owns the poll and two copies of the interval
+/// would drift silently.
 const WIFI_POLL_MS: u32 = cc_hal_esp32::wifi::MONITOR_PERIOD_MS;
 
-/// ESP-IDF version this binary was compiled against, as a coarse string. Logged
-/// so a device is never diagnosed against the wrong IDF version: 08 records the
-/// oracle was built with v5.5.5 and 05 §1 pins the same. `esp-idf-sys` emits
-/// `esp_idf_version_at_least_X_Y_Z` cfgs, not a version string
-/// (`esp-idf-sys-0.38.1/build/common.rs:239`), and the exact version is the
-/// first line of the ESP-IDF boot banner anyway.
+/// ESP-IDF version this binary was compiled against, as a coarse string. Logged so
+/// a device is never diagnosed against the wrong IDF version, which `justfile`'s
+/// `ESP_IDF_VERSION` pins. `esp-idf-sys` emits `esp_idf_version_at_least_X_Y_Z`
+/// cfgs rather than a version string
+/// (`esp-idf-sys-0.38.1/build/common.rs:239`); the exact version is the first line
+/// of the ESP-IDF boot banner anyway.
 const IDF_VERSION: &str = if cfg!(esp_idf_version_at_least_6_0_0) {
-    ">= 6.0.0 (UNEXPECTED: 05 pins v5.5.5)"
+    ">= 6.0.0 (UNEXPECTED: the toolchain pins v5.5.5)"
 } else if cfg!(esp_idf_version_at_least_5_5_0) {
     "5.5.x"
 } else if cfg!(esp_idf_version_at_least_5_1_0) {
-    "5.1.x (UNEXPECTED: 05 pins v5.5.5)"
+    "5.1.x (UNEXPECTED: the toolchain pins v5.5.5)"
 } else {
     "UNEXPECTED: older than 5.1"
 };
@@ -443,7 +386,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     cc_hal_esp32::telnet::init_log().map_err(|err| {
         Box::<dyn Error>::from(format!("the log fan-out could not be installed: {err}"))
     })?;
-    info!("Clever Coffee Rust firmware — R1-01 toolchain bring-up");
+    info!("Clever Coffee Rust firmware: bring-up");
     info!("target: xtensa-esp32-espidf, ESP-IDF: {IDF_VERSION}");
 
     // `Box<dyn Error>` is not `Send`, so the thread's return type is the
@@ -492,14 +435,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 /// backtrace does not pass through this function.
 const BRING_UP_STACK_BYTES: usize = 16 * 1024;
 
-/// The startup sequence, 04 §4, in order.
+/// The startup sequence, in order.
 #[allow(
     clippy::too_many_lines,
-    reason = "this IS the startup sequence 04 §4 specifies, in order, and it \
-              is read as a list. Splitting it would hide the ordering, which is \
-              the one property that matters: the actuators are driven inactive \
-              before the sensor, the sensor before the network, and the network \
-              before any task exists."
+    reason = "the ordering is the one property that matters here and it is read \
+              as a list: the actuators are driven inactive before the sensor, \
+              the sensor before the network, and the network before any task \
+              exists. Splitting it would hide that."
 )]
 fn bring_up() -> Result<(), Box<dyn Error>> {
     let peripherals = Peripherals::take()?;
@@ -507,13 +449,12 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     // The pin map against the wiring, before a single pin is configured.
     //
     // `cc_hal_esp32::pins` holds the numbers every log line below prints; the
-    // `peripherals.pins.gpioNN` fields are what the machine is actually wired
+    // `peripherals.pins.gpio<NN>` fields are what the machine is actually wired
     // to. Nothing about `esp-idf-hal` 0.47's typed pin fields lets the second
     // be derived from the first without `unsafe` — so this checks, once, and
-    // panics with both numbers if they ever disagree. Without it, changing
-    // either side silently makes the boot log describe a machine that is not
-    // the one that booted, which is exactly the failure `04 §1.4` names and
-    // what the C++'s 21 `static_assert`s in `pinmapping.h:79-99` guarded.
+    // panics with both numbers if they ever disagree. Without it, changing either
+    // side silently makes the boot log describe a machine that is not the one that
+    // booted, which is the one failure a pin map exists to prevent.
     pins::assert_wiring(&peripherals);
     // The **complete** map, so this one line answers "what is this board
     // actually wired as". Every other pin line below is a subset of it, printed
@@ -541,14 +482,11 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         pins::UART_RX,
     );
 
-    // The TWDT driver is *moved* into the control task so the subscription
-    // belongs to the control task and to nothing else (04 §2: "Watchdog feed —
-    // control task only").
+    // The TWDT driver is *moved* into the control task, so the watchdog
+    // subscription belongs to the control task and to nothing else.
     let twdt = peripherals.twdt;
-    // The LEDC peripheral is deliberately left unused, and *taking* the
-    // peripheral is how a previous build ended up one step away from calling
-    // `ledc_set_duty_and_update`. Not taking it at all means no future edit can
-    // reach a duty write by accident.
+    // The LEDC peripheral is deliberately left unused: not taking it at all means
+    // no future edit can reach a duty write by accident.
     //
     // `Peripherals` is `#[non_exhaustive]` and must be taken whole, so the field
     // is dropped with it. The comment is the record; the type is 4 bytes.
@@ -571,7 +509,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         "startup readback failed: heater is not inactive, refusing to continue"
     );
 
-    // 4. The heater transport: the C++'s 10 ms GPTimer ISR.
+    // 4. The heater transport: a 10 ms GPTimer ISR.
     //
     //    There is no LEDC construction site in this binary and no LEDC transport
     //    type in `cc-hal-esp32`, so there is no path on which a duty write can
@@ -591,17 +529,14 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         transport.chopper().window_ms(),
         transport.chopper().counter_ms(),
     );
-    // `max_duty = 1`: the ISR transport works in the C++'s own milliseconds and
+    // `max_duty = 1`: the ISR transport works in milliseconds and
     // `HeaterOutput::set_duty` converts the count back through
-    // `cc_domain::heater::CHOSEN_MAX_DUTY`. A `max_duty` of 1 means the control
-    // task's `set_duty` is a pure pass-through of the gate's decision, with no
-    // second quantisation.
+    // `cc_domain::heater::CHOSEN_MAX_DUTY`, so 1 makes the control task's `set_duty`
+    // a pure pass-through of the gate's decision with no second quantisation.
     //
-    // **The transport choice is the firmware's, and it is stated here.** R1-07
-    // had an LEDC arm and a stand-in, and the stand-in is what the build used
-    // because the LEDC arm panicked the chip (`HEATER_LEDC_DEFECT` above). A
-    // target whose `ledc_ll.h` has no spin changes this line and re-adds a
-    // transport in `cc-hal-esp32::heater`.
+    // **The transport choice is stated here, at its one construction site.** A
+    // target whose `ledc_ll.h` has no spin changes this line and adds a transport in
+    // `cc-hal-esp32::heater` (`HEATER_LEDC_DEFECT` above).
     let heater = HeaterOutput::new(transport, 1);
 
     // 5. Read the actuator pins back and assert. A failure here means an actuator
@@ -628,11 +563,11 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
 
     // 5b. The scale's pins, if one is configured, and nothing else yet.
     //
-    //     The three pins are GPIO32/GPIO25 (data) and GPIO33 (clock) — the
-    //     scale's, and nothing else's (`pinmapping.h`). They are **inputs and
-    //     one clock**, so nothing here can drive an actuator, and they are
-    //     taken after the actuator readback above rather than before it, so
-    //     the readback still covers every pin that can move a relay.
+    //     The three pins are GPIO32/GPIO25 (data) and GPIO33 (clock), per
+    //     `cc_hal_esp32::pins`. They are **inputs and one clock**, so nothing here
+    //     can drive an actuator, and they are taken after the actuator readback
+    //     above rather than before it, so the readback still covers every pin that
+    //     can move a relay.
     //
     //     The configuration is not loaded yet at this point in the sequence, so
     //     whether a scale is fitted is decided below, once `config` exists. What
@@ -649,13 +584,11 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     // 5e. The I²C pins, reserved for whichever of the two I²C devices this
     //     machine has fitted.
     //
-    //     **The ABP2 and the SSD1306 share one bus** — `PIN_I2CSDA`/`PIN_I2CSCL`
-    //     are GPIO21/22 (`pinmapping.h:53-54`) and `04 §7` calls the bus
-    //     "a mutex-guarded shared resource". The display driver is a separate
-    //     piece of work (R4-xx) and it has not landed, so **this** task takes
-    //     `I2C0` for the pressure sensor and the display task will have to share
-    //     it. The reservation is here, next to the scale's, so the person who
-    //     wires the OLED finds the conflict at the pin stage rather than as a
+    //     **The ABP2 and the SSD1306 share one bus** — GPIO21/22, per
+    //     `cc_hal_esp32::pins` — and that bus is a mutex-guarded shared resource.
+    //     This task takes `I2C0` for the pressure sensor and the display task shares
+    //     it. The reservation is here, next to the scale's, so the person who wires
+    //     the OLED finds the conflict at the pin stage rather than as a
     //     `Peripherals::take` failure. See the note in `bring_up_pressure`.
     let i2c_pins = I2cPins {
         peripheral: peripherals.i2c0,
@@ -697,14 +630,13 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     //     ownership statement: after it, the only `PinDriver<'static,
     //     InputOutput>` for GPIO17, GPIO27 and GPIO2 in the whole program is
     //     inside `cc_hal_esp32::Actuators`, and the only way to reach one of them
-    //     is `cc_machine::applier::apply`. That is 04 §3.1's "a new state cannot
-    //     accidentally poke a relay, because it has no way to reach one" made
-    //     structural rather than aspirational.
+    //     is `cc_machine::applier::apply`. A new state therefore cannot poke a
+    //     relay by accident: it has no way to reach one.
     //
-    //     Nothing is inhibited: the pump, the valve relay and the heater all
-    //     follow the reducer's effects. R4-01's bring-up inhibit is gone, and
-    //     `cc_hal_esp32::actuators` defaults to `Inhibit::NONE`, so a build that
-    //     wants the water path held off sets it explicitly and logs it.
+    //     Nothing is inhibited: the pump, the valve relay and the heater all follow
+    //     the reducer's effects, and `cc_hal_esp32::actuators` defaults to
+    //     `Inhibit::NONE`, so a build that wants the water path held off sets it
+    //     explicitly and logs it.
     // The relay polarities are **not known yet** — the configuration is loaded
     // further down, and reading it before that is what made the setting a lie in
     // the first place. The facade is built with the default, which is what
@@ -735,10 +667,10 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     //     impossible for a flag to decide *which pins the rest of the firmware
     //     gets*, which is the same reasoning `SwitchPins` below records.
     //
-    //     **GPIO26 and GPIO19 only.** `PIN_STEAMLED` is GPIO1, and GPIO1 belongs
-    //     to the UART provisioning console (`start_provisioning` below). A pin
-    //     has one owner; see `cc_hal_esp32::pins` for the full reasoning and
-    //     `intentional-diffs.md` for the entry.
+    //     **GPIO26 and GPIO19 only.** The steam LED would be GPIO1, and GPIO1
+    //     belongs to the UART provisioning console (`start_provisioning` below). A
+    //     pin has one owner; see `cc_hal_esp32::pins` for the full reasoning and
+    //     §30 of `docs/history/divergences.md` for the entry.
     let led_pins = LedPins {
         status: peripherals.pins.gpio26,
         brew: peripherals.pins.gpio19,
@@ -781,25 +713,24 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         nvs_description,
     } = network::bring_up_config()?;
     info!(
-        "nvs: {nvs_description} — the C++ firmware's `config` namespace is a \
-         different key space and is ignored by design (R3-08, decided 2026-09-28)"
+        "nvs: {nvs_description} — the predecessor firmware's `config` namespace \
+         is a different key space and is ignored by design (§32 of \
+         docs/history/divergences.md)"
     );
     info!("nvs: the boot decision was `{origin:?}`");
 
-    // **The relay polarities, now that the configuration exists.** `Relay::on()`'s
-    // branch, which the C++ wires from all three `trigger_type` parameters
-    // (`HardwareManager.cpp:73,80,87`); the port carried two module-level
-    // constants instead, so `hardware.relays.pump.trigger_type` was read by
-    // nothing and a `LOW_TRIGGER` pump or valve relay was driven **inverted** —
-    // `enable_pump` de-energised — reachable over plain
-    // `POST /api/parameters`.
+    // **The relay polarities, now that the configuration exists.** `Relay::on()`
+    // switches on the configured `hardware.relays.*.trigger_type`, and applying it
+    // here is what keeps that parameter honest: a pump or valve relay driven from a
+    // hard-coded polarity instead would be **inverted** for a `LOW_TRIGGER` board —
+    // `enable_pump` de-energising its relay — and the parameter is reachable over
+    // plain `POST /api/parameters`.
     //
     // In practice this reads high-trigger for every relay, because
     // `cc_safety::validate_config` refuses `LOW_TRIGGER` for all of them: such a
     // relay energises while its pin floats, which is before this firmware runs.
-    // Applying the configured value is what makes the parameter honest rather
-    // than silently ignored, and it is what would carry the day if that refusal
-    // were ever relaxed.
+    // Applying the configured value is what would carry the day if that refusal were
+    // ever relaxed.
     actuators.set_relay_polarities(cc_hal_esp32::actuators::RelayPolarities::from_config(
         &config.hardware.relays,
     ));
@@ -828,17 +759,12 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     //     driven, and reading them before the configuration exists would make the
     //     driver — not the operator's setting — the thing that decided.
     //
-    //     The C++ does this in `HardwareManager::initializeLEDs` (`:95-125`),
-    //     behind the same two flags, and also turns each LED **off** as it builds
-    //     it. `StandardLed::new` does the same, which is why a machine powered up
+    //     Each LED is turned **off** as it is built, so a machine powered up
     //     mid-brew does not look idle.
     //
     //     `inverted` comes from `hardware.leds.*.inverted` and **not** from the
-    //     relay trigger types — the brief for 3.1 said "an `inverted` flag from the
-    //     relay trigger config", which is not what the C++ does:
-    //     `HardwareManager.cpp:101,109,117` read the three `inverted` parameters
-    //     directly. They are separate settings for separate reasons, and the LEDs'
-    //     are about common-anode parts rather than relay coils.
+    //     relay trigger types: they are separate settings for separate reasons, and
+    //     the LEDs' one is about common-anode parts rather than relay coils.
     //
     //     A failure to configure a pin is **not** fatal. `bring_up` returns
     //     `Result`, and an operator whose LED pin is broken should still get a
@@ -864,13 +790,12 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     } else {
         info!("leds: hardware.leds.status.enabled and .brew.enabled are both false");
     }
-    // The third LED, and the only reason it is missing: `PIN_STEAMLED` is
-    // GPIO1 (`pinmapping.h:45`), which is UART0's TXD and therefore the
-    // provisioning console's recovery path. `Peripherals::take` will not hand
-    // one pin to two owners, so an operator who left `hardware.leds.steam.enabled`
-    // true gets a setting this firmware silently ignores. One `warn!` at boot is
-    // the whole diagnostic — the ledger entry is
-    // `intentional-diffs.md` ("The steam LED and GPIO1").
+    // The third LED, and the only reason it is missing: the steam LED's pin is
+    // GPIO1, which is UART0's TXD and therefore the provisioning console's recovery
+    // path. `Peripherals::take` will not hand one pin to two owners, so an operator
+    // who left `hardware.leds.steam.enabled` true gets a setting this firmware
+    // silently ignores. One `warn!` at boot is the whole diagnostic — see §30 of
+    // `docs/history/divergences.md`.
     if config.hardware.leds.steam.enabled {
         warn!(
             "leds: hardware.leds.steam.enabled is set but this firmware drives no steam \
@@ -882,35 +807,25 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     // 7a. The temperature probe, **after the configuration and before anything
     // that reads it**.
     //
-    //     It used to be step 5, before the configuration existed, because the
-    //     driver was chosen by a compile-time `const` rather than by
-    //     `hardware.sensors.temperature.type`. Now the setting decides — as it
-    //     does in the C++ — so the probe cannot be built before the value that
-    //     selects it is known. The ordering that matters for safety is
-    //     untouched: the actuators were driven inactive and the heater read back
-    //     above, before this line.
+    //     `hardware.sensors.temperature.type` selects the driver, so the probe
+    //     cannot be built before that value is known. The ordering that matters for
+    //     safety is untouched: the actuators were driven inactive and the heater read
+    //     back above, before this line.
     //
-    //     GPIO16 is `PIN_TEMPSENSOR` (`pinmapping.h:27`) and whichever driver is
-    //     selected is built on it. This is a **read**: the 1-Wire bus is
-    //     open-drain and the ZACwire line is an input, so nothing on this pin is
-    //     ever energised.
+    //     GPIO16 is `pins::TEMP_SENSOR` and whichever driver is selected is built on
+    //     it. This is a **read**: the 1-Wire bus is open-drain and the ZACwire line
+    //     is an input, so nothing on this pin is ever energised.
     let temp_sensor = bring_up_temperature_sensor(peripherals.pins.gpio16, &config)?;
 
-    // 7b. The scale, **constructed at boot** — the one thing the C++ never does.
+    // 7b. The scale, **constructed at boot**.
     //
-    //     `src/main.cpp:145-150` guards on `hardwareSensorsScaleEnabled` and
-    //     then logs `"Scale sensor support via SensorCoordinator"` under a
-    //     comment saying the work is pending, binding `sensorCoord` and never
-    //     using it. Nothing in the tree calls `HardwareContext::setScale`, so
-    //     the C++ can never read a weight (09 §23). This is therefore new
-    //     functionality, and the branch below is real: the driver is built, its
-    //     sampling task started, and the weight reaches the telemetry the
-    //     display and MQTT read.
+    //     The branch below is real: the driver is built, its sampling task started,
+    //     and the weight reaches the telemetry the display and MQTT read.
     //
     //     The type selects one cell or two (`hardware.sensors.scale.type`,
     //     `cc_domain::hardware::ScaleType`), which is what makes that setting do
-    //     something. A `Bluetooth` type is R3-18 and is refused here rather
-    //     than silently reporting zero grams.
+    //     something. A `Bluetooth` type is refused here rather than silently
+    //     reporting zero grams.
     let sampler = match bring_up_scale(scale_pins, &config, &mut store) {
         Ok(sampler) => sampler,
         Err(err) => {
@@ -936,15 +851,12 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
 
     // 7c. The five operator inputs. Built here because this is the first point
     //     at which `config` exists, and the switch's type and mode come from it
-    //     (`hardware.switches.*.type` / `.mode`, `Config.h:988-1060`).
+    //     (`hardware.switches.*.type` / `.mode`).
     //
     //     A failure here is **fatal**, unlike the scale's. A scale that will not
-    //     start costs a weight reading; a switch bank that will not configure
-    //     costs every physical control the machine has, and the machine would sit
-    //     there accepting web commands it could not be overridden on. The C++
-    //     ignores the return of `pinMode` (`GPIOPin.cpp`) and reports a dead
-    //     switch as a machine that does nothing, which is the same fault with
-    //     less information.
+    //     start costs a weight reading; a switch bank that will not configure costs
+    //     every physical control the machine has, and the machine would sit there
+    //     accepting web commands it could not be overridden on.
     let switches = SwitchBank::new(
         switch_pins.power,
         switch_pins.brew,
@@ -956,16 +868,11 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
 
     // 7d. The ABP2 pressure sensor, when one is fitted.
     //
-    //     `hardware.sensors.pressure.enabled` is the gate, exactly as
-    //     `SensorCoordinator::updatePressure` uses it
-    //     (`src/coordinators/SensorCoordinator.cpp:108-110`) — and the default is
-    //     `false`, so a machine with no ABP2 fitted does not spend a bus, a
-    //     driver or a 20 Hz deadline on one. What the C++ *cannot* do is read one
-    //     without blocking: `pressureSensor.h:35` does `delay(10)` on every
-    //     50 ms sample, which is 20 % of the C++ loop's wall clock (01 §4, and
-    //     R4-01b's first listed win). `cc_protocol::abp2::Driver` makes the 10 ms a
-    //     deadline instead, so the sample is spread across ticks and nothing
-    //     sleeps.
+    //     `hardware.sensors.pressure.enabled` is the gate, and the default is
+    //     `false`, so a machine with no ABP2 fitted does not spend a bus, a driver or
+    //     a 20 Hz deadline on one. `cc_protocol::abp2::Driver` makes the sample's
+    //     10 ms a deadline rather than a delay, so the sample is spread across ticks
+    //     and nothing sleeps.
     // The bus is boxed and **moved into the control task**, which is what makes
     // `'static` references to it possible: the task is spawned with a `'static`
     // bundle, and a borrow of a local is not `'static` however long the local
@@ -1023,15 +930,11 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         &parameters,
     )?;
 
-    // 10a. The telnet log stream. `telnet esp32.local 23` is what
-    //     `docs/operations/runbook.md` §4 documents and what the
-    //     field-diagnosis story in `intentional-diffs.md` §1 is built on, and
-    //     finding 3.2 of `32-findings-2026-10-03.md` was that the Rust port had
-    //     the shed policy and no way to serve it. Spawned here, beside the HTTP
-    //     server and
-    //     after it, because the listener is a network-tier service with no
-    //     bearing on the control loop and a failure to bind is a `warn!` inside
-    //     the task rather than a boot failure.
+    // 10a. The telnet log stream, which `docs/operations/runbook.md` documents as
+    //     the field-diagnosis path. Spawned here, beside the HTTP server and after
+    //     it, because the listener is a network-tier service with no bearing on the
+    //     control loop: a failure to bind is a `warn!` inside the task rather than a
+    //     boot failure.
     //
     //     It is at `task::TELNET_PRIO` = 2, the lowest priority in the firmware:
     //     a terminal that has stopped reading costs the ring a dropped line and
@@ -1040,23 +943,20 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         error!("telnet: the log stream task could not be spawned: {err}");
     }
 
-    // 11b. The UART provisioning task. 04 §3.2 says "only spawned when no valid
-    //     credentials exist, and it exits after success" — and that rule is what
-    //     made a **wrong** network unfixable over the cable: with a credential
-    //     stored the console never armed, and the only way to change it was
-    //     `POST /api/wifi-reset`, which needs a machine that is already online.
-    //     That is the wrong shape for a recovery path. Found on the bench: the
-    //     machine was configured for a network that did not exist, and could not
-    //     be pointed at one that did.
+    // 11b. The UART provisioning task. It always starts, and it still **exits
+    //     after success** — it is not a permanent task.
     //
-    //     So it always starts, it still **exits after success** (it is not a
-    //     permanent task), and `wifi set` + `wifi apply` replaces whatever is
-    //     stored. The task costs one UART poll loop and it is the only way out
-    //     of "the network you want is not the network you are on".
+    //     Starting it only when no credential is stored made a **wrong** network
+    //     unfixable over the cable: with a credential stored the console never
+    //     armed, and the only way to change it was `POST /api/wifi-reset`, which
+    //     needs a machine that is already online. Found on the bench with the machine
+    //     configured for a network that did not exist and no way to point it at one
+    //     that did. `wifi set` + `wifi apply` replaces whatever is stored, and the
+    //     task costs one UART poll loop.
     //
-    //     The handoff is shared with the control task, which is what does the
-    //     writing: the store moved into that task in step 7, and a credential
-    //     cannot be stored by a task that does not hold the store.
+    //     The handoff is shared with the control task, which does the writing: the
+    //     store moved into that task in step 7, and a credential cannot be stored by
+    //     a task that does not hold the store.
     let handoff = network::Handoff::new();
     if config.is_wifi_provisioned() {
         info!(
@@ -1074,26 +974,19 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     // 11. Whether MQTT is configured, and nothing else. The **client** is built
     //     inside the control task, not here.
     //
-    //     It used to be built here and read two lines later, which meant the
-    //     `EspMqttClient` was dropped at the end of this `match` arm — and
-    //     `impl Drop for EspMqttClient` calls `esp_mqtt_client_destroy`
-    //     (`esp-idf-svc` `src/mqtt/client.rs:742-747`). The client was therefore
-    //     destroyed microseconds after `esp_mqtt_client_start`, and nothing in
-    //     the firmware ever called `publish`, `publish_online`,
-    //     `discovery_due`, `due_for_reconnect` or `subscribe`: a fully
-    //     implemented client that never did anything.
+    //     A client built here and read two lines later would be dropped at the end
+    //     of this `match` arm, and `impl Drop for EspMqttClient` calls
+    //     `esp_mqtt_client_destroy` (`esp-idf-svc` `src/mqtt/client.rs:742-747`).
+    //     Destruction microseconds after `esp_mqtt_client_start` is a client that can
+    //     never publish or subscribe.
     //
-    //     It lives in the control task because that is where the C++'s is:
-    //     `LoopManager::updateNetwork` (`LoopManager.cpp:485-508`) drives
-    //     `checkConnection` and `writeSysParamsToMQTT` from the main loop, and
-    //     this task is the main loop — it owns the clock, the configuration, the
-    //     store, the machine, and the only watchdog subscription, so a publish
-    //     that stalls is visible. See `mqtt_link`.
+    //     It lives in the control task because that task is the main loop: it owns
+    //     the clock, the configuration, the store, the machine, and the only watchdog
+    //     subscription, so a publish that stalls is visible. See `mqtt_link`.
     //
     //     `mqtt.enabled` is false and `mqtt.broker` is empty by default, so an
-    //     unprovisioned machine still spends nothing here: no 4 KB of task stack
-    //     and no two 1 KB buffers for a client with nowhere to connect, which is
-    //     the C++'s `MQTTManager.cpp:79-83` too.
+    //     unprovisioned machine spends nothing here: no 4 KB of task stack and no two
+    //     1 KB buffers for a client with nowhere to connect.
     let mqtt_configured = cc_hal_esp32::mqtt::is_configured(&config);
     if !mqtt_configured {
         info!("mqtt: not configured (mqtt.enabled is false or mqtt.broker is empty)");
@@ -1105,10 +998,10 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     //        since step 7 moved the store here — the only thing that can write the
     //        configuration.
     //
-    //        `actuators` and `switches` move in. That move is the whole of 04 §3.1
-    //        at the task level: after it, this thread holds every capability that
-    //        can move a relay, and `cc_machine::applier::apply` is the only path
-    //        from the state machine to one of them.
+    //        `actuators` and `switches` move in, and that move is the whole of the
+    //        capability story at the task level: after it, this thread holds every
+    //        capability that can move a relay, and `cc_machine::applier::apply` is
+    //        the only path from the state machine to one of them.
     //
     //        `config` moves in too, and it is a **clone**: `network::start_http`
     //        already took its own `Arc<Config>` for `/api/config` and
@@ -1118,8 +1011,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     //        does *not* see, and a `POST /api/parameters` that changes the
     //        setpoint is visible to the state machine on the next event and to
     //        `/api/config` only after a reboot. **That asymmetry is real and is
-    //        recorded**, not papered over: it is the same shape as the C++'s
-    //        singleton, minus the singleton.
+    //        recorded**, not papered over.
     let control_config = config.clone();
     let known_weight = config.hardware.sensors.scale.known_weight;
 
@@ -1149,21 +1041,16 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         shared_i2c.map(|bus| &*Box::leak(bus));
 
     // The sensor task settles the switches and publishes where they rest. The
-    // control task waits for that before it boots, because the C++'s
-    // `finalizeMachineState` reads the power switch to choose between
-    // `PID_NORMAL` and `PID_DISABLED` (`SystemInitializer.cpp:606-641`).
+    // control task waits for that before it boots: the power switch decides between
+    // `PID_NORMAL` and `PID_DISABLED`.
     // The panel, for the display task. Boxed, for the same reason `ControlArgs`
     // is: `bring_up` runs on ESP-IDF's main task, and a task bundle built *by
     // value* in this frame is a frame cost this function cannot see.
     let display_template = template_for(config.display.template);
-    // `hardware.oled.enabled` — the flag exists in the schema and in the C++
-    // (`Config.h:940-941`) and was read by nothing at all, so there was no way
-    // to turn the panel off. The C++ gates the **display**, never the bus:
-    // `SystemInitializer.cpp:338` only wires the display into the hardware
-    // context when the flag is set, so every renderer early-outs on a null
-    // display pointer. Here that means not calling `bring_up` at all, which is
-    // also the cheaper reading on a shared bus — no `INIT_SEQUENCE`, no address
-    // probe, no traffic.
+    // `hardware.oled.enabled` gates the **panel**, never the bus: with the flag off
+    // this does not call `bring_up` at all, so no `INIT_SEQUENCE`, no address probe
+    // and no traffic on the bus the pressure sensor shares. That is also the cheaper
+    // reading on that bus.
     //
     // **Not** `set_blank(true)`: blanking is the *standby* mechanism
     // (`machine.standby.should_turn_off_display()`), it keeps the controller
@@ -1185,7 +1072,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     // The radio moves into the control task rather than staying in this frame.
     // It is `Send` (`EspWifi` is, and `Monitor` and `String` are), and the
     // control task is the only task with a watchdog subscription, so the 1 s
-    // `checkAndMaintainConnection` poll and the `/api/status` radio fields
+    // radio poll and the `/api/status` radio fields
     // (`network::publish_radio`) both belong to the task whose stalls are already
     // fatal. Before this, the radio was polled nowhere and `/api/status`
     // reported `wifiAssociated: false` on a machine that was associated.
@@ -1250,12 +1137,11 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
 /// Log where the switches are resting, once, at boot.
 ///
 /// The four operator switches are **floating inputs** — GPIO34/35/36/39 have no
-/// internal pull, and the C++ asks ESP-IDF for `IN_HARDWARE` (`pinmapping.h`,
-/// `IOSwitch.cpp`). On a board where a switch is not wired a floating pin wanders
-/// and the debouncer will eventually report a press. The switches are enabled by
-/// default at the human's request, so this line is what answers "is my board
-/// about to start a brew by itself?" — and it must say the level, not just that
-/// the switch exists.
+/// internal pull, and the driver asks ESP-IDF for `IN_HARDWARE`. On a board where a
+/// switch is not wired a floating pin wanders and the debouncer will eventually
+/// report a press. The switches are enabled by default, so this line is what answers
+/// "is my board about to start a brew by itself?" — and it must say the level, not
+/// just that the switch exists.
 fn log_switch_levels(levels: cc_hal_esp32::switches::Levels) {
     info!(
         "switch resting levels after settling: power={} brew={} steam={} \
@@ -1303,15 +1189,14 @@ struct SwitchPins {
 /// The two status LED pins, taken from `Peripherals` at bring-up and held until
 /// `hardware.leds.*.enabled` says whether they are driven.
 ///
-/// GPIO26 (`PIN_STATUSLED`) and GPIO19 (`PIN_BREWLED`), and **no third field**.
-/// `PIN_STEAMLED` is GPIO1 in `pinmapping.h:45`, and GPIO1 is the UART0 TXD this
-/// firmware gives to the provisioning console; `Peripherals::take` will not hand
-/// one pin to two owners. The full analysis, including what moving the steam LED
-/// to GPIO32 would cost, is the comment block in `cc_hal_esp32::pins`.
+/// GPIO26 and GPIO19, and **no third field**. GPIO1 belongs to the provisioning
+/// console's UART0 TXD, and `Peripherals::take` will not hand one pin to two owners.
+/// The full analysis, including what moving the steam LED to GPIO32 would cost, is
+/// the comment block in `cc_hal_esp32::pins`.
 struct LedPins {
-    /// `PIN_STATUSLED` (GPIO26).
+    /// The status LED, on GPIO26.
     status: esp_idf_hal::gpio::Gpio26<'static>,
-    /// `PIN_BREWLED` (GPIO19).
+    /// The brew LED, on GPIO19.
     brew: esp_idf_hal::gpio::Gpio19<'static>,
 }
 
@@ -1319,10 +1204,8 @@ struct LedPins {
 /// the LED disabled.
 ///
 /// The `enabled` gate is here, not at the call site, so that "no LED" is always
-/// `None` and never a pin somebody could still write. A disabled LED's pin is
-/// simply dropped — `led_pins`' field is moved in and gone — which is the
-/// strongest form of the C++'s `if (enabled) { make_unique<StandardLED>(...) }`
-/// (`HardwareManager.cpp:96-124`).
+/// `None` and never a pin somebody could still write. A disabled LED's pin is simply
+/// dropped — `led_pins`' field is moved in and gone.
 ///
 /// # Errors
 ///
@@ -1349,13 +1232,11 @@ where
 
 /// The shared I²C bus, taken from `Peripherals` and held until the ABP2 is built.
 ///
-/// `I2C0` plus its two pins. **The ABP2 and the SSD1306 share this bus** —
-/// `PIN_I2CSDA`/`PIN_I2CSCL` are GPIO21/22 for both (`pinmapping.h:53-54`) —
-/// so whichever of the two lands second has to share the driver. 04 §7 calls it
-/// "a mutex-guarded shared bus"; the mutex is R3-12's work and does not exist
-/// yet, so **R4-01 takes the bus for the pressure sensor** and the display task
-/// will have to either share this driver (`Abp2I2c::from_driver` exists for
-/// exactly that) or wait.
+/// `I2C0` plus its two pins — GPIO21/22 for **both** devices — so whichever of the two
+/// lands second has to share the driver. The bus needs a mutex, which does not exist
+/// yet, so **this function takes the bus for the pressure sensor** and the display
+/// task must either share this driver (`Abp2I2c::from_driver` exists for exactly
+/// that) or wait.
 struct I2cPins {
     /// `I2C0`, the only I²C peripheral this build uses.
     peripheral: esp_idf_hal::i2c::I2C0<'static>,
@@ -1367,36 +1248,25 @@ struct I2cPins {
 
 /// Build the ABP2 pressure sensor, when one is fitted.
 ///
-/// `hardware.sensors.pressure.enabled` is the gate, exactly as
-/// `SensorCoordinator::updatePressure` uses it
-/// (`src/coordinators/SensorCoordinator.cpp:108-110`). It defaults to `false`, and
-/// so a machine with no ABP2 spends no bus, no driver and no 20 Hz deadline on
-/// one — and `/api/status` publishes `pressure: null`, which is the C++'s
-/// "no pressure sensor" (`WebServerManager.cpp:356-372` omits the key).
+/// `hardware.sensors.pressure.enabled` is the gate, and it defaults to `false`, so a
+/// machine with no ABP2 spends no bus, no driver and no 20 Hz deadline on one — and
+/// `/api/status` publishes `pressure: null`.
 ///
 /// A failure is **not** fatal. A pressure sensor that does not answer costs a
-/// telemetry field, not the machine: the C++ guards on the same flag and, when
-/// the flag is on, would simply log and carry on. Refusing to boot would be a
-/// regression.
+/// telemetry field, not the machine; refusing to boot over one would be a regression.
 ///
-/// # What this fixes
+/// # How the 10 ms is spent
 ///
-/// `pressureSensor.h:35` does `delay(10)` inside `measurePressure()`, called from
-/// `SensorCoordinator::updatePressure` on a 50 ms cadence
-/// (`constants/Timing.h`). That is 10 ms of a 50 ms period — **20 % of the
-/// control loop's wall clock spent asleep** (01 §4, and the first of R4-01b's
-/// three listed wins). `cc_protocol::abp2::Driver` makes the 10 ms a *deadline*
-/// instead: the conversion command is written on one tick and the answer read on
-/// a later one, so the sensor costs two I²C transactions spread over 10 ms of
-/// normal control-loop work and no sleep at all.
+/// A conversion needs 10 ms inside a 50 ms cadence — **20 % of a loop period**.
+/// `cc_protocol::abp2::Driver` makes that a *deadline* instead of a delay: the
+/// conversion command is written on one tick and the answer read on a later one, so
+/// the sensor costs two I²C transactions spread across normal control-loop work and no
+/// sleep at all.
 /// Construct the I²C bus once and wrap it for sharing.
 ///
 /// Deliberately separate from [`bring_up_pressure`]: the pressure sensor and
 /// the panel are peers on this bus, and a helper that handed the bus to one of
-/// them would be the bug this restructure exists to remove. The C++ sidesteps
-/// it because Arduino's `Wire` is a singleton everyone reaches for, which is
-/// convenient and is exactly the kind of implicit global this port is trying to
-/// get rid of.
+/// them would be the bug this restructure exists to remove.
 fn build_shared_i2c(
     pins: I2cPins,
 ) -> Result<cc_hal_esp32::display_shared::SharedBus, esp_idf_svc::sys::EspError> {
@@ -1415,10 +1285,7 @@ fn bring_up_pressure<'bus>(
     config: &cc_config::Config,
 ) -> Option<cc_hal_esp32::Abp2Pressure<&'bus cc_hal_esp32::display_shared::SharedBus>> {
     if !config.hardware.sensors.pressure.enabled {
-        info!(
-            "pressure: hardware.sensors.pressure.enabled is false — no ABP2 (the C++ \
-             makes the same check, SensorCoordinator.cpp:108)"
-        );
+        info!("pressure: hardware.sensors.pressure.enabled is false — no ABP2");
         return None;
     }
     // The bus is shared with the panel, so the sensor borrows it rather than
@@ -1427,7 +1294,7 @@ fn bring_up_pressure<'bus>(
     let bus = bus?;
     info!(
         "pressure: ABP2 on the shared I2C0 (SDA GPIO{} SCL GPIO{}) at 0x{:02X}, \
-         non-blocking — the C++'s 10 ms delay is a deadline here, cadence {} ms",
+         non-blocking — the 10 ms conversion is a deadline here, cadence {} ms",
         pins::I2C_SDA,
         pins::I2C_SCL,
         cc_protocol::abp2::ADDRESS,
@@ -1487,9 +1354,8 @@ fn bring_up_scale(
         );
     }
 
-    // The rate is the C++'s `setGain(128)` from `begin()`
-    // (`HX711_ADC.cpp:32`), which is the default of
-    // `cc_protocol::sensor::hx711::Rate`.
+    // 128 gain steps, which is what `cc_protocol::sensor::hx711::Rate` names as its
+    // default and what the HX711 powers up with.
     let rate = cc_protocol::sensor::hx711::Rate::default();
 
     // `samples` is an `i32` config parameter in `1..=20`; anything else in a
@@ -1504,16 +1370,13 @@ fn bring_up_scale(
     )]
     let average = scale_config.samples.clamp(1, i32::from(u8::MAX)) as u8;
 
-    // 🔴 `hardware.sensors.scale.type` selects one cell or two, and this is
-    // where that setting becomes real. The C++ has the same enum
-    // (`Hardware::ScaleType`, `cc_domain::hardware::ScaleType`) and honours it
-    // in `HX711Scale`'s two constructors (`HX711Scale.cpp:16-24`) — but never
-    // constructs either, so the setting is inert there (09 §23).
+    // 🔴 `hardware.sensors.scale.type` selects one cell or two, and this is where that
+    // setting becomes real.
     //
-    // The two HX711 arms are the same shape — configure a bus, build a driver
-    // — and differ only in how many data lines, so they are built first and
-    // paired afterwards. `Bluetooth` is not an HX711 at all and returns before
-    // either is built.
+    // The two HX711 arms are the same shape — configure a bus, build a driver — and
+    // differ only in how many data lines, so they are built first and paired
+    // afterwards. `Bluetooth` is not an HX711 at all and returns before either is
+    // built.
     let (bus, driver) = match scale_config.r#type {
         cc_domain::hardware::ScaleType::Hx711Dual => {
             let bus = cc_hal_esp32::GpioHx711::dual(pins.data_1, pins.data_2, pins.clock)?;
@@ -1530,18 +1393,16 @@ fn bring_up_scale(
                 cc_protocol::sensor::hx711::Scale::single(scale_config.calibration, average);
             (bus, driver)
         }
-        // An Acaia BLE scale is R3-18: a different driver on a different
-        // transport, reading a different device. Refused here, explicitly and by
-        // name, rather than quietly reporting 0 g — which is the C++'s failure
-        // mode in a different shape, a setting that reads as "the scale is
-        // working" and measures nothing. Naming the variant rather than `_` is
-        // deliberate: a fourth `ScaleType` then becomes a compile error here
-        // instead of a fourth silently-refused case.
+        // A Bluetooth scale is a different driver on a different transport, reading a
+        // different device. Refused here, explicitly and by name, rather than quietly
+        // reporting 0 g — which reads as "the scale is working" and measures nothing.
+        // Naming the variant rather than `_` is deliberate: a fourth `ScaleType` then
+        // becomes a compile error here instead of a fourth silently-refused case.
         other @ cc_domain::hardware::ScaleType::Bluetooth => {
             warn!(
                 "scale: hardware.sensors.scale.type is {other:?}, which is an Acaia \
-                 BLE scale (R3-18) and not an HX711 — refused. The weight is \
-                 reported absent rather than as 0 g."
+                 BLE scale and not an HX711 — refused. The weight is reported \
+                 absent rather than as 0 g."
             );
             return Ok(None);
         }
@@ -1580,30 +1441,26 @@ fn bring_up_scale(
 
 /// The long-press "REBOOTING" pause, in milliseconds.
 ///
-/// `PowerHandler::triggerSystemReboot` (`PowerHandler.h:177-192`) shows the
-/// message and waits. There is no display in this build, so the wait is all that
-/// survives of it — and it is still load-bearing: it is what lets the operator
-/// see that the long press did something before the console goes away.
+/// The panel is not drawn from here — the display task owns it — so no message is
+/// shown; the wait is still load-bearing, because it is what lets the operator see
+/// that the long press did something before the console goes away.
 const REBOOT_DISPLAY_MS: u32 = 1_000;
 
 /// The pause between a successful OTA and the restart, in milliseconds.
 ///
-/// `OTA_RESTART_DELAY_MS` (`src/ota.cpp:41`), 1000, and the reason is the same
-/// as the reboot branch's 500 ms: the response has to leave the socket before the
-/// chip resets, or the browser reports a network error instead of the success the
-/// firmware actually achieved. The C++ schedules it with `millis()` arithmetic
-/// (`ota.cpp:456-459`); here it is a `delay` between ticks, which is the same
-/// wait from the same place in the loop.
+/// 1000 ms, and the reason is the same as the reboot branch's 500 ms: the response
+/// has to leave the socket before the chip resets, or the browser reports a network
+/// error instead of the success the firmware actually achieved. A `delay` between
+/// ticks is the same wait from the same place in the loop.
 const OTA_RESTART_DELAY_MS: u32 = 1_000;
 
 /// How often the PID's own P/I/D and the actuator refusals are logged, in
 /// milliseconds.
 ///
-/// Once a second: often enough that a saturation is visible while it is
-/// happening, rare enough that the console stays readable during a brew. The
-/// C++ logs the same numbers on a state change only
-/// (`ProcessController.cpp:176-197`), which is not enough — a PID that pins at
-/// 100 % without a state change is exactly the failure this exists to catch.
+/// Once a second: often enough that a saturation is visible while it is happening,
+/// rare enough that the console stays readable during a brew. Logging on a state change
+/// only is not enough — a PID that pins at 100 % without a state change is exactly the
+/// failure this exists to catch.
 /// How often the heartbeat *line* is written. The heartbeat itself is every
 /// [`HEARTBEAT_MS`]; the line is a diagnostic, and a 115200-baud console makes
 /// it an expensive one. See the note at the line itself.
@@ -1621,20 +1478,20 @@ const PID_LOG_INTERVAL_MS: u32 = 1_000;
 ///
 /// # It is passed as a `Box`, and that is load-bearing
 ///
-/// 04 §2 gives the control task **8 KB** of stack. This struct is ~1.5 KB of it
-/// (`Config` alone is 632 bytes, plus five debounced switches, the actuator
-/// facade with its heater transport, the scale, the radio and the store), and a
-/// by-value argument is **materialised in the caller's frame and then copied into
-/// the callee's**: the thread closure's frame *is* the control task's stack, so
-/// passing it by value cost two live copies of the whole struct before
-/// `control_task`'s first statement. That overflowed the 8 KB stack on hardware
-/// and the machine died in `Handoff::take` on a garbage pointer, four steps into
-/// the tick — a fault that points at nothing resembling its cause.
+/// This struct is ~1.5 KB of the control task's [`CONTROL_STACK_BYTES`] (`Config`
+/// alone is 632 bytes, plus five debounced switches, the actuator facade with its
+/// heater transport, the scale, the radio and the store), and a by-value argument is
+/// **materialised in the caller's frame and then copied into the callee's**: the
+/// thread closure's frame *is* the control task's stack, so passing it by value cost
+/// two live copies of the whole struct before `control_task`'s first statement. That
+/// overflowed the stack on hardware and the machine died in `Handoff::take` on a
+/// garbage pointer, four steps into the tick — a fault that points at nothing
+/// resembling its cause.
 ///
-/// `Box` puts one pointer on the stack and the bytes on the heap, and the heap
-/// is measured (ADR-0002's floor, the once-a-minute report). The alternative —
-/// a bigger stack — spends a permanent 8 KB more of DRAM on a value that is
-/// genuinely large, and would hide the next frame that grows.
+/// `Box` puts one pointer on the stack and the bytes on the heap, and the heap is
+/// measured (the once-a-minute report). The alternative — a bigger stack — spends
+/// another [`CONTROL_STACK_BYTES`] of DRAM on a value that is genuinely large, and
+/// would hide the next frame that grows.
 struct ControlArgs {
     /// The task watchdog, moved in so the subscription belongs to this task and
     /// no other.
@@ -1642,10 +1499,9 @@ struct ControlArgs {
     /// The actuator facade: the only owner of the pump, the valve and the
     /// heater, and the only thing that can beat the heater's deadman.
     actuators: cc_hal_esp32::Actuators,
-    /// The status and brew LEDs. Owned here for the same reason `actuators` is:
-    /// the control task is where `LoopManager::updateLEDs` runs in the C++, and a
-    /// second owner would be a second writer of a pin this type owns. The
-    /// **steam** LED is not in it — see `LedPins`.
+    /// The status and brew LEDs. Owned here for the same reason `actuators` is: the
+    /// control task is the only writer of these pins, and a second owner would be a
+    /// second writer. The **steam** LED is not in it — see `LedPins`.
     leds: cc_hal_esp32::leds::Leds,
     /// The five operator inputs, debounced.
     switches: cc_hal_esp32::SwitchBank,
@@ -1662,15 +1518,15 @@ struct ControlArgs {
     temp: TemperatureSensor,
     /// The shared HTTP/MQTT telemetry slot.
     net: Arc<network::Network>,
-    /// The bounded network→control command queue (04 §3.2).
+    /// The bounded network-to-control command queue.
     commands: Arc<cc_hal_esp32::task::CommandQueue>,
     /// The frame hand-off to the display task. See [`slots::FrameSlot`].
     frame: Arc<slots::FrameSlot>,
     /// The parameter-write mailbox, drained at the same point in the tick.
     ///
-    /// Separate from `commands` because a parameter write is a *list* of pairs
-    /// and a `Command` is `Copy` (04 §3.2, and `esp-idf-hal` 0.47 `task.rs:978`).
-    /// See [`cc_hal_esp32::task::ParameterHandoff`].
+    /// Separate from `commands` because a parameter write is a *list* of pairs, which a
+    /// `Copy` `Command` cannot carry through a channel by value. See
+    /// [`cc_hal_esp32::task::ParameterHandoff`].
     parameters: Arc<cc_hal_esp32::task::ParameterHandoff>,
     /// The authoritative configuration, as the control task's own copy.
     config: cc_config::Config,
@@ -1707,29 +1563,25 @@ const _: () = assert!(
     "ControlArgs has outgrown 2 KB; see its documentation before raising this"
 );
 
-/// The control task: sole subscriber and sole feeder of the task watchdog
-/// (04 §2, §3.4), the only task that may open the heater gate, the only task
-/// that may write an actuator pin, and the only owner of the configuration
-/// store.
+/// The control task: sole subscriber and sole feeder of the task watchdog, the only
+/// task that may open the heater gate, the only task that may write an actuator pin,
+/// and the only owner of the configuration store.
 ///
 /// # What it owns, and why that is the point
 ///
-/// Before R4-01 this task owned the watchdog and a heater transport and nothing
-/// else, and the state machine did not exist on the device at all. Now it owns
-/// [`cc_hal_esp32::Actuators`], which owns every actuator pin, and
+/// It owns [`cc_hal_esp32::Actuators`], which owns every actuator pin, and
 /// [`control::Control`], which owns the reducer. The tick below is therefore the
 /// **only** path from a sensor reading to a relay in the whole program, and
 /// `cc_machine::applier::apply` is the only function in it that writes hardware.
 ///
-/// # The tick, in order, and why the order is the C++'s
+/// # The tick, in order
 ///
 /// 1. **Feed the watchdog.** First, always. A control loop that can starve
 ///    itself is the failure the watchdog exists to catch, and feeding it last
 ///    would mean a tick that overran is reported as a tick that hung.
-/// 2. **Drain the command queue** (04 §3.2). Every command becomes an
-///    [`cc_machine::Event::Command`] and goes through the reducer, so a `POST`
-///    cannot reach past the tick into control state — the coupling 04 §3.2 exists
-///    to remove.
+/// 2. **Drain the command queue.** Every command becomes an
+///    [`cc_machine::Event::Command`] and goes through the reducer, so a `POST` cannot
+///    reach past the tick into control state.
 /// 3. **Take a staged Wi-Fi credential**, if the console staged one.
 /// 4. **Sense**: the temperature, the five switches, the pressure, the tank.
 /// 5. **Beat the heater's deadman**, on the *same* signal as the watchdog feed.
@@ -1739,8 +1591,8 @@ const _: () = assert!(
 /// 8. **Notify**: telemetry, SSE, the radio, the scale's events.
 /// 9. **Sleep** for the period.
 ///
-/// Steps 4-7 are [`control::Control::tick`] plus the applier, and they are the
-/// part R4-01b measures.
+/// Steps 4-7 are [`control::Control::tick`] plus the applier, and the tick-timing
+/// measurement reports them.
 #[allow(
     clippy::too_many_lines,
     reason = "this IS the control tick, and it is read as a list of what \
@@ -1772,10 +1624,10 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         handoff,
         mut sta,
     } = *args;
-    // `TWDTConfig::new()` takes the timeout and the panic-on-trigger behaviour
-    // from the ESP-IDF kconfig. R3-10 replaces this with explicit values, which
-    // needs an `enumset` dependency to build the `EnumSet<Core>` of subscribed
-    // idle tasks — deliberately not added in the spike.
+    // `TWDTConfig::new()` takes the timeout and the panic-on-trigger behaviour from
+    // the ESP-IDF kconfig. Subscribing particular idle tasks instead needs explicit
+    // values and an `enumset` dependency to build the `EnumSet<Core>`, which is
+    // deliberately not added here.
     let wdt_config = TWDTConfig::new();
     info!(
         "control task: watchdog timeout {:?}, panic_on_trigger {}",
@@ -1792,15 +1644,12 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
     // 🔴 The shot counter, restored before the machine exists.
     //
-    // `SystemInitializer.cpp:282` calls `maintenanceCoordinator().begin()` as one
-    // of the first things it does, and `begin()` is the NVS read
-    // (`MaintenanceCoordinator.cpp:17-27`). It is read here for the same reason
-    // and handed to `Control::boot`, so the machine is *born* holding the count
-    // rather than being told about it afterwards.
+    // The NVS read happens here and the count is handed to `Control::boot`, so the
+    // machine is *born* holding it rather than being told about it afterwards.
     //
     // A read that fails is a `warn!` and a zero, not a fault: a lost count is a
-    // reminder that fires early, and the alternative — refusing to boot over a
-    // maintenance counter — is what `begin()`'s own failure path avoids.
+    // reminder that fires early, and refusing to boot over a maintenance counter
+    // would be the worse failure.
     let restored_shots = match cc_hal_esp32::nvs::load_shots_since_backflush(store.backend()) {
         Ok(Some(shots)) => {
             info!("maintenance: loaded {shots} shots since backflush");
@@ -1824,22 +1673,17 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
     // starve it and it cannot make the panel flicker.
     let mut pressure = shared_i2c.and_then(|bus| bring_up_pressure(Some(bus), &config));
 
-    // The machine, booted through the reducer. `SystemInitializer::finalizeMachineState`
-    // reads the power switch *before* the state machine exists
-    // (`SystemInitializer.cpp:606-641`), and the switch bank now belongs to the
-    // sensor task — so the levels are **waited for** here rather than polled
-    // here, with a bound so a sensor task that never starts cannot hang the boot
-    // forever.
+    // The machine, booted through the reducer. The power switch is read *before* the
+    // state machine exists, and the switch bank belongs to the sensor task — so the
+    // levels are **waited for** here rather than polled here, with a bound so that a
+    // sensor task which never starts cannot hang the boot forever.
     let boot_now = Millis::new(now_ms());
-    // The switch bank's first poll, which is a **dead** read for a debounced
-    // switch and deliberately so: `Debounced` seeds its state to "not pressed"
-    // and only accepts a change after [`cc_domain::switch::DEBOUNCE`] (20 ms),
-    // so the level reported here is the C++'s `currentState == HIGH` on the
-    // first loop, which `IOSwitch.cpp:19` also seeds to `LOW`. A toggle power
-    // switch therefore reads "off" at boot even if the operator has it on, and
-    // the machine starts in `PID_DISABLED` — which is the C++'s behaviour, not
-    // a bug in the port, and the reason the next tick (ten debounce windows
-    // later) is what settles it.
+    // The switch bank's first poll, which is a **dead** read for a debounced switch
+    // and deliberately so: `Debounced` seeds its state to "not pressed" and accepts a
+    // change only after [`cc_domain::switch::DEBOUNCE`] (20 ms), so the level reported
+    // here is always the seed. A toggle power switch therefore reads "off" at boot
+    // even with the operator holding it on, and the machine starts in `PID_DISABLED`;
+    // the next tick, ten debounce windows later, is what settles it.
     let _ = switches.poll(Millis::new(now_ms()));
     let power_pressed = config
         .hardware
@@ -1865,13 +1709,13 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
     // The MQTT link, **built here** rather than in `bring_up` and moved in.
     //
     // `EspMqttClient` is `Send` (`esp-idf-svc` `src/mqtt/client.rs:786`) and
-    // everything else in `mqtt_link::Link` is too, so it could be moved through
-    // `ControlArgs` — but it does not have to be, and not moving it is better:
-    // this task already holds the authoritative `Config`, the store and the
-    // machine, and the client is what turns them into MQTT traffic.
+    // everything else in `mqtt_link::Link` is too, so it could have been moved
+    // through `ControlArgs`. Building it here is better: this task already holds the
+    // authoritative `Config`, the store and the machine, and the client is what turns
+    // them into MQTT traffic.
     //
-    // A failure is not fatal, exactly as it is in the C++ with `mqttEnabled_`
-    // false: the machine runs without MQTT and `/api/status` says so.
+    // A failure is not fatal: the machine runs without MQTT and `/api/status` says
+    // so.
     let mut mqtt = if mqtt_configured {
         match mqtt_link::Link::new(&config) {
             Ok(link) => Some(link),
@@ -1883,8 +1727,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
     } else {
         None
     };
-    // `TARE_ON` / `CALIBRATION_ON`: the C++'s `scaleTareMode_` /
-    // `scaleCalibrationMode_` latches. See `mqtt_link::ScaleModes`.
+    // `TARE_ON` / `CALIBRATION_ON` are latches. See `mqtt_link::ScaleModes`.
     let mut scale_modes = mqtt_link::ScaleModes::default();
     let mut last_heap_log_ms: u32 = 0;
     let mut wifi_last_ms: u32 = 0;
@@ -1893,23 +1736,19 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
     let mut last_pid_log_ms: u32 = 0;
     let mut last_heartbeat_log_ms: u32 = 0;
 
-    // The boot screens moved to the display task, which owns the panel. See
-    // `display_task`'s header: the C++ draws them from its init code because
-    // there is one task and one loop, and this firmware no longer has that.
+    // The boot screens belong to the display task, which owns the panel and can draw
+    // them before any frame arrives. See `display_task`'s header.
 
     // When the last frame was handed to the display task.
     let mut last_frame_ms: u32 = 0;
     // The frame's inputs, **carried between frames**.
     //
-    // This is not a convenience. `DisplayInput::brew_timer` is the brew-timer
-    // FSM's state — `Idle -> Running -> PostBrew -> Idle` — and the transition
-    // out of `PostBrew` is a deadline against `post_brew_timer_duration_s`, so a
-    // value rebuilt from defaults every 100 ms can never leave `Idle` and the
-    // brew timer can never be shown. ADR-0001 §4 says exactly this: the C++
-    // advances the state as a side effect of `shouldDisplayBrewTimer` inside
-    // `UICoordinator`, and `DisplayInput::brew_timer` is how the port carries it
-    // between frames. The display crate was written for it; nothing ever called
-    // `step_brew_timer`, and a brew showed no timer at all.
+    // This is not a convenience. `DisplayInput::brew_timer` is the brew-timer FSM's
+    // state — `Idle -> Running -> PostBrew -> Idle` — and the transition out of
+    // `PostBrew` is a deadline against `post_brew_timer_duration_s`, so a value
+    // rebuilt from defaults every 100 ms can never leave `Idle` and the brew timer
+    // could never be shown. `step_brew_timer` is what advances it; carrying the value
+    // between frames is what lets it.
     let mut display_input = cc_display::model::DisplayInput::default();
     // The last sensor fault logged, so a probe that is simply not there says so
     // once instead of fifty times a second.
@@ -1917,18 +1756,17 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
     // Finding #13. Admitted OTA. Cleared if the upload fails without a restart.
     let mut ota_admitted = false;
 
-    // 🔴 The tick-timing measurement, which is R3-17's "the control tick is
-    // unaffected" acceptance criterion and R4-01b's instrument.
+    // 🔴 The tick-timing measurement: the instrument for "the control tick is
+    // unaffected".
     //
-    // The number that matters is the **worst** tick, not the mean: the control
-    // loop's budget is 10 ms and a mean says nothing about whether a tick ever
-    // blew it. So this keeps a running max and a count, and the report names
-    // both. It is reported in two phases, because "unaffected" is a comparison
-    // and not an absolute: the first [`TICK_BASELINE_TICKS`] ticks are the
-    // **baseline**, before the scale's sampling task is doing anything a
-    // connected cell would not also do, and everything after is the
-    // measurement. On a machine with no scale fitted the two phases are
-    // identical, which is itself the result worth having.
+    // The number that matters is the **worst** tick, not the mean: the budget is
+    // 10 ms and a mean says nothing about whether a tick ever blew it. So this keeps
+    // a running max and a count, and the report names both. It is reported in two
+    // phases, because the claim is a comparison and not an absolute: the first
+    // [`TICK_BASELINE_TICKS`] ticks are the **baseline**, before the scale's sampling
+    // task is doing anything, and everything after is the measurement. On a machine
+    // with no scale fitted the two phases are identical, which is itself the result
+    // worth having.
     let mut tick_worst_ms: u32 = 0;
     let mut baseline_worst_ms: u32 = 0;
     let mut tick_over_budget: u32 = 0;
@@ -1983,21 +1821,18 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // before any flash write — the pump, the water valve and the
                 // heater duty, through the real applier, on this task.
                 //
-                // The C++ calls `otaPrepareHardware()`
-                // (`SystemInitializer.cpp:57-63`) directly from the OTA module and
-                // gets `disableTimer1()` plus `disableHeater()`: the pump and the
-                // valve are left in whatever state they were in, which is the gap
-                // 04 §4 names when it says *"OTA must call `safe_hardware_shutdown`,
-                // not just `disable_heater`"*. `cc_machine::ota::begin_session`
-                // emits the effect that closes them all.
+                // `cc_machine::ota::begin_session` emits the effect that closes all
+                // three. Closing all three is the point: leaving the pump and the valve
+                // in whatever state they were in while the flash is rewritten is the gap
+                // that makes an OTA unsafe.
                 //
                 // **Only the request is handled here.** The decision is not, and
                 // that is the fix for the OTA admission race. The httpd task asked
                 // against a telemetry snapshot up to one control period old, and
                 // between that read and this tick the machine stayed live — it
                 // honours a `brew_start` off MQTT or a brew-switch press, and
-                // `BREW_PREINFUSION`'s `onEntryImpl` opens the water valve
-                // (`BrewStates.cpp:67-79`). A verdict is only good for the instant
+                // `BREW_PREINFUSION`'s entry opens the water valve. A verdict is only
+                // good for the instant
                 // it was computed, so admission is re-taken below, against the
                 // state this tick's own transitions produced, which is the state
                 // the effects being applied are for.
@@ -2010,12 +1845,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                     info!("control: OTA session requested — admission re-checked after apply");
                     ota_shutdown_pending = true;
                 }
-                // The scale commands are the first ones that are **not** inert.
-                // In the C++ they set a flag on a `SensorCoordinator` that has
-                // no scale registered (`WebServerManager.cpp:540-580`,
-                // `MQTTManager.cpp:307-322`, 09 §23): accepted, answered 200,
-                // and with no effect on any hardware. Here they reach the
-                // sampling task, which owns the pins and does the work.
+                // The scale commands are the first ones that are **not** inert: they
+                // reach the sampling task, which owns the pins and does the work.
                 cc_hal_esp32::web::Command::Tare => match sampler.as_ref() {
                     Some(sampler) if sampler.request_tare() => {
                         info!("scale: tare requested");
@@ -2032,21 +1863,19 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                     }
                     None => warn!("scale: calibration requested with no scale fitted"),
                 },
-                // The setpoint. `WebServerManager.cpp:391-408` does three things:
-                // set the process setpoint, reset the standby countdown, and
-                // **persist** `brewSetpoint`. All three happen here — the first
-                // two as reducer events, the third as a store write, because the
-                // store is this task's.
+                // The setpoint does three things: set the process setpoint, reset the
+                // standby countdown, and **persist** `brew.setpoint`. All three happen
+                // here — the first two as reducer events, the third as a store write,
+                // because the store is this task's.
                 //
-                // The value arrives already inside the schema's `brew.setpoint`
-                // range: the handler parses it with `cc_config::assign::parse`
-                // (`web::parse_setpoint`) rather than the C++'s permissive
-                // `0.0..=150.0`, which is what let a 150 °C setpoint be written
-                // and reloaded on every boot here. The `validate_config` call
-                // below is the second half of the same rule — the cross-
-                // parameter one, `emergency_temp` against the setpoint plus
-                // hysteresis. Unsafe setpoint is not applied. `/api/setpoint`
-                // already answered 202; no second ack (§38).
+                // The value arrives already inside the schema's `brew.setpoint` range:
+                // the handler parses it with `cc_config::assign::parse`
+                // (`web::parse_setpoint`) rather than against a permissive literal
+                // range, which is what let an out-of-range setpoint be written and
+                // reloaded on every boot. The `validate_config` call below is the second
+                // half of the same rule — the cross-parameter one, `emergency_temp`
+                // against the setpoint plus hysteresis — so an unsafe setpoint is
+                // refused. `/api/setpoint` already answered 202; no second ack (§38).
                 cc_hal_esp32::web::Command::SetSetpoint(celsius) => {
                     let mut candidate = config.clone();
                     candidate.brew.setpoint = celsius;
@@ -2063,9 +1892,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                         config.brew.setpoint = celsius;
                         control.set_setpoint(celsius);
                         persist_setpoint(&mut store, celsius, &config);
-                        // `requestNormalOperation(systemContext_)` — the C++'s third
-                        // line, and the reason a setpoint change also wakes the
-                        // machine.
+                        // Requesting normal operation, which is why a setpoint change
+                        // also wakes the machine.
                         control.feed(
                             &config,
                             Event::Command(cc_machine::Command::NormalOperation),
@@ -2073,9 +1901,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                         );
                     }
                 }
-                // `POST /api/pid?on=0|1` toggles `Config::pidEnabled` **and** calls
-                // `setUserPidEnabled` (`WebServerManager.cpp:472-492`), which
-                // persists the preference *and* sets the runtime flag. The web
+                // `POST /api/pid?on=0|1` toggles `Config::pidEnabled` **and**
+                // persists the preference while setting the runtime flag. The web
                 // layer here sends the intended value rather than a toggle, so
                 // the command is that one `cc_machine::Command::SetUserPidEnabled`.
                 cc_hal_esp32::web::Command::SetPid(enabled) => {
@@ -2087,23 +1914,18 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                         &mut effects,
                     );
                 }
-                // The C++'s `POST /api/pid` with no field:
-                // `!Config::getInstance().pidEnabled.get()`
-                // (`WebServerManager.cpp:466`). The web task sends no value
-                // because it cannot know the current one without racing the
-                // machine, so the negation happens here, against the machine
-                // this task owns.
+                // `POST /api/pid` with no field means "toggle". The web task sends no
+                // value because it cannot know the current one without racing the
+                // machine, so the negation happens here, against the machine this task
+                // owns.
                 cc_hal_esp32::web::Command::TogglePid => {
                     // Negate the **operator's setting**, not the heater's gate.
                     //
-                    // The C++ computes `!Config::pidEnabled.get()`
-                    // (`WebServerManager.cpp:466`) — the config value, i.e.
-                    // what the operator asked for. Negating `mode_enabled`
-                    // instead meant the toggle computed its next value from a
-                    // flag that `process_control` rewrites every tick, so a
-                    // second press in a machine sitting in `PID_DISABLED` would
-                    // toggle back to the value it already had and the switch
-                    // could not be turned on from off at all.
+                    // Negating `mode_enabled` instead would make the toggle compute its
+                    // next value from a flag that `process_control` rewrites every tick,
+                    // so a second press in a machine sitting in `PID_DISABLED` would
+                    // toggle back to the value it already had and the switch could not be
+                    // turned on from off at all.
                     let enabled = !control.machine().pid.runtime_enabled;
                     config.pid.enabled = enabled;
                     persist_pid_enabled(&mut store, enabled, &config);
@@ -2112,13 +1934,9 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                         Event::Command(cc_machine::Command::SetUserPidEnabled(enabled)),
                         &mut effects,
                     );
-                    // The C++'s other two lines on this handler
-                    // (`WebServerManager.cpp:469-470`), omitted here:
-                    // `standbyCoordinator().reset()` and
-                    // `requestNormalOperation(...)`. Together they mean "asking
-                    // for the PID also asks for normal operation", so turning
-                    // the PID on **wakes the machine** rather than leaving it in
-                    // standby with a live setting nobody can see the effect of.
+                    // Asking for the PID also asks for normal operation, so turning the
+                    // PID on **wakes the machine** rather than leaving it in standby
+                    // with a live setting nobody can see the effect of.
                     control.feed(
                         &config,
                         Event::Command(cc_machine::Command::NormalOperation),
@@ -2126,9 +1944,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                     );
                     info!("config: POST /api/pid toggled pid.enabled -> {enabled}");
                 }
-                // `!isSteamModeActive()` (`WebServerManager.cpp:444`), plus the
-                // C++'s `standbyCoordinator().reset()` and
-                // `requestNormalOperation(...)` on the same handler.
+                // Guarded on steam mode being active, and it wakes the machine the same
+                // way the PID handler does.
                 cc_hal_esp32::web::Command::ToggleSteam => {
                     let on = !control.machine().steam_mode;
                     let request = if on {
@@ -2144,17 +1961,14 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                     );
                     info!("config: POST /api/steam toggled steam mode -> {on}");
                 }
-                // `!systemContext_->backflushMode()`
-                // (`WebServerManager.cpp:490`), with the same wake-the-machine
-                // pair the steam handler does.
+                // Guarded on backflush mode being off, with the same wake-the-machine
+                // request the steam handler sends.
                 cc_hal_esp32::web::Command::ToggleBackflush => {
-                    // **One command carrying the value**, which is what the C++
-                    // does: `setBackflushMode(!backflushMode())`
-                    // (`WebServerManager.cpp:489-491`). This used to branch to
-                    // `BackflushEnter` / `BackflushStop`, and neither of those
-                    // turns the mode *off* — `BackflushStop` stops a running
-                    // cycle and leaves `backflush.on` set. Bench-measured: four
-                    // toggles in a row all answered `backflushOn: true`.
+                    // **One command carrying the value**, in both directions: neither
+                    // `BackflushEnter` nor `BackflushStop` turns the mode *off* —
+                    // `BackflushStop` stops a running cycle and leaves `backflush.on`
+                    // set — so an either/or mapping answers `backflushOn: true` to a
+                    // request that asked for off.
                     let on = !control.machine().backflush.on;
                     control.feed(
                         &config,
@@ -2168,12 +1982,10 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                     );
                     info!("config: POST /api/backflush toggled backflush mode -> {on}");
                 }
-                // `POST /api/steam?on=0|1` **toggles** steam mode in the C++
-                // (`WebServerManager.cpp:445-446`); the web layer here sends the
-                // intended value, so it is mapped to the two requests the reducer
-                // understands. A steam *mode* toggle with no steam state is what
-                // `SteamRunning`'s entry does; `SteamStart` is the request that
-                // gets there.
+                // `POST /api/steam?on=0|1` carries the intended value rather than a
+                // toggle, so it is mapped to the two requests the reducer understands. A
+                // steam *mode* toggle with no steam state is what `SteamRunning`'s entry
+                // does; `SteamStart` is the request that gets there.
                 cc_hal_esp32::web::Command::SetSteam(on) => {
                     let request = if on {
                         cc_machine::Command::SteamStart
@@ -2182,16 +1994,13 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                     };
                     control.feed(&config, Event::Command(request), &mut effects);
                 }
-                // `setBackflushMode(newState)` (`WebServerManager.cpp:502`) —
-                // including `currBackflushCycles_ = 1` on the enable arm, which
-                // is `apply_backflush_mode`'s job and is already the reducer's
+                // Enabling also resets the cycle counter to 1, which is
+                // `apply_backflush_mode`'s job and is already the reducer's
                 // (`cc_machine::backflush`).
                 cc_hal_esp32::web::Command::SetBackflush(on) => {
-                    // One command, both directions — the C++'s single
-                    // `setBackflushMode(newState)`. Mapping `false` to
-                    // `BackflushStop` was wrong: that stops a running cycle and
-                    // leaves `backflush.on` set, so `?on=0` answered
-                    // `backflushOn: true` on the bench.
+                    // One command, both directions. Mapping `false` to `BackflushStop` is
+                    // wrong: that stops a running cycle and leaves `backflush.on` set, so
+                    // `?on=0` would answer `backflushOn: true`.
                     control.feed(
                         &config,
                         Event::Command(cc_machine::Command::SetBackflushMode(on)),
@@ -2205,8 +2014,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                         &mut effects,
                     );
                 }
-                // `requestStandby(systemContext_)` / `requestNormalOperation(...)`
-                // (`WebServerManager.cpp:417-425`).
+                // One request per direction, mapped to the reducer's standby and
+                // normal-operation requests.
                 cc_hal_esp32::web::Command::Sleep => {
                     control.feed(
                         &config,
@@ -2221,64 +2030,55 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                         &mut effects,
                     );
                 }
-                // `maintenanceCoordinator().resetSinceBackflush()`
-                // (`WebServerManager.cpp:528-537`). See
-                // `Control::reset_shots_since_backflush` for why this one write
+                // See `Control::reset_shots_since_backflush` for why this one write
                 // exists outside the reducer and why it is the only one.
                 //
-                // The second line is the other half of the C++'s one method: the
-                // reducer's `Effect::ResetShotsSinceBackflush` clears the counter
-                // and calls `on_reset_shots_since_backflush`, and this route
-                // clears it and calls **the same method**, so the NVS write is
-                // one code path rather than two that have to be kept in step.
-                // Without it the counter cleared and came straight back on the
-                // next boot, which is the shape of bug this whole area had.
+                // The reducer's `Effect::ResetShotsSinceBackflush` clears the counter and
+                // calls `on_reset_shots_since_backflush`, and this route clears it and
+                // calls **the same method**, so the NVS write is one code path rather
+                // than two that have to be kept in step. Two paths would let the counter
+                // clear in memory and come straight back on the next boot.
                 cc_hal_esp32::web::Command::ResetBackflushCounter => {
                     control.reset_shots_since_backflush();
                     side.on_reset_shots_since_backflush(0);
                 }
-                // The three that are still inert, listed so the log line says
-                // *which* rather than "acknowledged and dropped".
+                // Both are still inert, listed so the log line says *which* rather
+                // than "acknowledged and dropped".
                 cc_hal_esp32::web::Command::WifiReset => {
-                    warn!("control: POST /api/wifi-reset is not wired into this build (R3-16)");
+                    warn!("control: POST /api/wifi-reset is not wired into this build");
                 }
                 cc_hal_esp32::web::Command::FactoryReset => {
-                    warn!("control: POST /api/factory-reset is not wired into this build (R3-16)");
+                    warn!("control: POST /api/factory-reset is not wired into this build");
                 }
             }
         }
 
-        // ---- 2b. `POST /api/parameters` — the C++'s `handleParameters` POST arm
+        // ---- 2b. `POST /api/parameters` — the parameter write path
         //
-        // (`WebServerManager.cpp:821-878`.) Every parameter is independent and a
-        // rejected one does not undo the accepted ones, which is what
-        // `cc_config::assign::apply` is. The pairs arrive already validated by
-        // the handler, which needed the verdict to answer `200` or `400`
-        // synchronously; re-applying them here is the idempotent second half of
-        // one rule, through the same `cc_config::assign::parse`.
+        // Every parameter is independent and a rejected one does not undo the accepted
+        // ones, which is what `cc_config::assign::apply` is. The pairs arrive already
+        // validated by the handler, which needed the verdict to answer `200` or `400`
+        // synchronously; re-applying them here is the idempotent second half of one
+        // rule, through the same `cc_config::assign::parse`.
         //
-        // It is here, and not in the handler, because the store is here: it moved
-        // into this task in step 7 precisely so that one task owns the
-        // configuration, and a `Mutex<BlobConfigStore>` shared with the httpd task
-        // would put a 2 KB blob write on whichever task the web server happened
-        // to be serving.
+        // It is here, and not in the handler, because the store is here: it moved into
+        // this task so that one task owns the configuration, and a
+        // `Mutex<BlobConfigStore>` shared with the httpd task would put a 2 KB blob
+        // write on whichever task the web server happened to be serving.
         //
-        // **R3-13's inbound MQTT calls `apply` at this line too**, with no
-        // handoff: the radio moved into this task, so an MQTT message is
-        // delivered here and there is nothing to hand over. One writer, one
-        // place, one store write.
+        // **Inbound MQTT calls `apply` at this line too**, with no handoff: the radio
+        // moved into this task, so an MQTT message is delivered here and there is
+        // nothing to hand over. One writer, one place, one store write.
         //
-        // **One request per tick, not all of them.** This used to be
-        // `parameters.take_all()`, and every drained request ran its own
-        // `persist_config` — a ~2 KB JSON serialise plus an NVS erase-and-write —
-        // on this task, inside the 10 ms period, *before* the heater decision
-        // for that period. `STAGED_PARAMETER_DEPTH` is 4, so four browser tabs
-        // saving at once meant four flash transactions in one tick. The mailbox
-        // is bounded at 4 and the ack timeout is 1600 ms, so taking one per
-        // tick bounds the flash work per tick at one transaction and still
-        // answers the last of four within 40 ms. The reasoning, and why
-        // coalescing was the alternative, are on
-        // `ParameterHandoff::take_one`.
+        // **One request per tick, not all of them.** Draining the mailbox and running
+        // `persist_config` per request — a ~2 KB JSON serialise plus an NVS
+        // erase-and-write — puts that work on this task, inside the 10 ms period,
+        // *before* the heater decision for that period. `STAGED_PARAMETER_DEPTH` is 4,
+        // so four browser tabs saving at once can stage four writes in one tick. The
+        // mailbox is bounded at 4 and the ack timeout is 1600 ms, so taking one per
+        // tick bounds the flash work per tick at one transaction and still answers the
+        // last of four within 40 ms. The reasoning, and why coalescing was the
+        // alternative, are on `ParameterHandoff::take_one`.
         //
         // **The request is taken, not drained-then-iterated**, so a `stage`
         // arriving *after* this line waits for the next tick rather than being
@@ -2335,8 +2135,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                         &pairs,
                         &mut effects,
                     );
-                    // `standbyCoordinator().reset(); requestNormalOperation(...)` — the
-                    // C++'s last two lines (`:870-872`), on the same "a POST wakes the
+                    // Requesting normal operation — the same "a write wakes the
                     // machine" rule as `/api/setpoint`.
                     control.feed(
                         &config,
@@ -2369,10 +2168,9 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // period.
         //
         // The reboot is unconditional on success and absent on failure. A stored
-        // credential is useless until the radio is re-brought-up against it, and
-        // `CleverCoffeeWiFiManager.cpp:148-151` does the same after a portal
-        // save; a failed write leaves the machine running on what it already
-        // has, which is the safe direction, and the operator sees the `error!`.
+        // credential is useless until the radio is re-brought-up against it; a failed
+        // write leaves the machine running on what it already has, which is the safe
+        // direction, and the operator sees the `error!`.
         if let Some(staged) = handoff.take() {
             match network::apply_staged(&mut store, staged) {
                 Ok(()) => {
@@ -2450,8 +2248,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // One thing that is alive, one signal, rather than two that could
         // disagree. The gate is *only* opened by this line, and only the control
         // task holds a `&mut HeaterGate`, so "the supervisor is running" is a
-        // precondition of heating rather than a hope about task ordering
-        // (08 §3's "output held off until the supervisor beats").
+        // precondition of heating rather than a hope about task ordering.
         actuators.gate().heartbeat(now);
 
         // The facade is told the clock and the two facts the interlocks are a
@@ -2465,28 +2262,22 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
         // ---- 6 + 7. DECIDE, then ACT ------------------------------------------
         //
-        // The sample the reducer sees. `has_temperature_error` is the C++'s
-        // `hasTemperatureSensorError()`, and it is the OR of **two independent
-        // facts**, because that is what the C++ has: the boot-window fact that
-        // no plausible reading has arrived yet, and the driver's own latched
-        // fault flag.
+        // The sample the reducer sees. `has_temperature_error` is the OR of **two
+        // independent facts**: the boot-window fact that no plausible reading has
+        // arrived yet, and the driver's own latched fault flag.
         let temperature_faulted = temp.has_error();
         let sensors = cc_machine::Sensors {
             // 🔴 The reading is `Celsius::new(0.0)` until the first conversion
             // completes, and `has_temperature_error` is `true` for exactly that
             // window. **That pairing is deliberate and it is what keeps the
             // machine safe at boot:** `has_sensor_error()` sends the reducer to
-            // `SENSOR_ERROR` (`BaseState.h:145-148`), whose
+            // `SENSOR_ERROR`, whose
             // `should_pid_be_enabled` is `false`, so the duty is zeroed before a
-            // boiler that has not been measured can be asked for full power. The
-            // C++ gets this for free from `SensorCoordinator`'s own error flag
-            // being false and its cached temperature being 0.0 — which means the
-            // C++'s first PID compute sees a 0 °C input against a 95 °C setpoint.
-            // The emergency threshold (150 °C default) does not catch that,
-            // because 0 °C is a *plausible* temperature; only the sensor-error
-            // path does. **The C++'s behaviour here is not reproduced**, and this
-            // is a deliberate divergence rather than a bug fix: see the boot-window
-            // note in `docs/history/divergences.md` (#12).
+            // boiler that has not been measured can be asked for full power. Without
+            // the pairing, the first PID compute would see a 0 °C input against a
+            // 95 °C setpoint, and the emergency threshold (150 °C default) would not
+            // catch it: 0 °C is a *plausible* temperature, so only the sensor-error
+            // path can.
             temperature: last_reading.map_or(Celsius::new(0.0), |(celsius, _)| {
                 #[allow(
                     clippy::cast_possible_truncation,
@@ -2509,44 +2300,39 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             // over-temperature debounce cannot advance either, and the PID keeps
             // regulating against a frozen number with the heater energised.
             //
-            // `TempSensor::error_` (`TempSensor.h:50-53`) is what the C++ reads
-            // for this, and it is latched independently of the cached value —
-            // that independence is the whole point, and it is what this term
-            // restores. The OR keeps the boot window working: the driver's flag
-            // is `false` until its tenth consecutive failure, so without the
-            // first term the machine would heat a boiler it has never measured.
+            // The driver's fault flag is latched independently of the cached value,
+            // and that independence is the whole point of reading it here. The OR keeps
+            // the boot window working: the flag is `false` until the tenth consecutive
+            // failure, so without the first term the machine would heat a boiler it has
+            // never measured.
             has_temperature_error: temperature_faulted
                 || last_reading.is_none_or(|(_, plausible)| !plausible),
-            // The scale is not part of `Sensors::has_sensor_error`'s contract
-            // here: `has_scale_error` is a separate field and the C++'s
-            // `hasSensorError()` ORs the two (`SensorCoordinator.h:190-192`).
-            // A machine with no scale has no scale error, so this is `false`.
+            // The scale is not part of `Sensors::has_sensor_error`'s contract here:
+            // `has_scale_error` is a separate field. A machine with no scale has no
+            // scale error, so this is `false`.
             has_scale_error: sampler.as_ref().is_some_and(|s| s.telemetry().faulted()),
             // 🔴 **The real weight, and this line is the whole of the fix.**
             //
             // It was the literal `0.0`, which made the by-weight arm of
-            // `BrewRunningState::checkSpecificTransitions` (`BrewStates.cpp:294-299`)
-            // unreachable for any target above 0 g — and with `brew.by_time`
-            // disabled, `initTotalTargetBrewTime` (`:53-62`) returning `0.0` takes
-            // the other arm with it, so the only thing left was the brew switch or
-            // the 300-second pump watchdog. The same zero reached
-            // `recordBrewIfQualified` (`BrewStates.cpp:311`) through
-            // `Machine::brew_weight`, killing the weight arm of shot counting too.
+            // `BrewRunningState::checkSpecificTransitions`
+            // unreachable for any target above 0 g — and with `brew.by_time` disabled, a
+            // target of `0.0` takes the time arm with it, so the only thing left was the
+            // brew switch or the 300-second pump watchdog. The same zero reached the shot
+            // record through `Machine::brew_weight`, killing the weight arm of shot
+            // counting too.
             //
             // `None` is `0.0` and not an error: an absent scale reports no weight,
             // and `brew.by_weight` on a machine with no scale is refused by
             // `cc_safety::validate_config` (`ConfigViolation::BrewByWeightWithNoScale`)
             // rather than being left to fail silently here.
             //
-            // `f64 -> f32` is the C++'s own narrowing: `getCurrentBrewWeight()`
-            // is `static_cast<float>` (`MachineStateContext.cpp:130-133`) and the
-            // field is `float`. A load cell resolves well under 0.1 g.
+            // `f64 -> f32` is the narrowing the field is typed for, and it is lossless
+            // in practice: a load cell resolves well under 0.1 g.
             #[allow(
                 clippy::cast_possible_truncation,
-                reason = "the C++ casts `getBrewWeight()` to `float` at \
-                          `MachineStateContext.cpp:130-133` and `Sensors::brew_weight` \
-                          is that `float`; an HX711 at Gain128 resolves 0.19 g, so f32 \
-                          is exact to well below the cell's own resolution"
+                reason = "`Sensors::brew_weight` is an `f32`; an HX711 at Gain128 \
+                          resolves 0.19 g, so f32 is exact to well below the cell's \
+                          own resolution"
             )]
             brew_weight: weight_g.unwrap_or(0.0) as f32,
             // The probe's own conversion counter, so S1's debounce counts
@@ -2555,18 +2341,17 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         };
 
         let tick_effects = control.tick(&config, sensors, &edges, now);
-        // The queue's effects were already folded above; `Control::tick` starts
-        // its own list, so the two are concatenated in the C++'s order —
-        // commands first (step 3 of the loop), then the tick's own.
+        // The queue's effects were already folded above; `Control::tick` starts its
+        // own list, so the two are concatenated in loop order — the commands from
+        // step 3 first, then the tick's own.
         effects.extend(&tick_effects);
         // **And the facade is told the machine state first.** `may_open_water`
         // and `may_open_steam` are whitelists over it, so an effect the reducer
         // emitted *because of* this tick's transition has to be judged against
-        // the state that transition produced. Told before the tick, the cache
-        // still holds the state this tick left — so entering `BREW_PREINFUSION`
-        // (whose `onEntryImpl` opens the water valve, `BrewStates.cpp:67-79`)
-        // would be judged against `PID_NORMAL` and refused for one tick. The
-        // MQTT path below already had to do this for the same reason.
+        // the state that transition produced. Told before the tick, the cache still
+        // holds the state this tick left — so entering `BREW_PREINFUSION`, whose entry
+        // opens the water valve, would be judged against `PID_NORMAL` and refused for
+        // one tick. The MQTT path below already had to do this for the same reason.
         actuators.set_state(control.state());
         cc_machine::apply(&mut actuators, &mut side, control.machine(), &effects);
 
@@ -2632,16 +2417,13 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
         // ---- 7b. write down the shot counter, if it moved ---------------------
         //
-        // `MaintenanceCoordinator::recordBrewIfQualified` and
-        // `resetSinceBackflush` both end in a `Preferences` write
-        // (`MaintenanceCoordinator.cpp:44,59`) and this is where this firmware
-        // does the same, because the applier cannot: the store is this task's,
-        // and `FirmwareSide` only records what it was told (see
-        // `FirmwareSide::shots_to_persist`).
+        // This is where the shot counter is persisted, and it is here rather than
+        // inside the applier because the store is this task's and `FirmwareSide` only
+        // records what it was told (see `FirmwareSide::shots_to_persist`).
         //
-        // It is here rather than inside the applier for a second reason: an NVS
-        // commit is an erase-and-write, measured in milliseconds, and the applier
-        // runs in the middle of a 10 ms control period.
+        // The second reason is timing: an NVS commit is an erase-and-write, measured
+        // in milliseconds, and the applier runs in the middle of a 10 ms control
+        // period.
         if let Some(shots) = side.take_shots_to_persist() {
             match cc_hal_esp32::nvs::save_shots_since_backflush(store.backend_mut(), shots) {
                 Ok(()) => {
@@ -2658,26 +2440,21 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
         // ---- 7a-bis. the status LEDs ------------------------------------------
         //
-        // `LoopManager::updateLEDs` (`LoopManager.cpp:255-286`), which in the C++
-        // is one of the four things the 10 ms main loop does. It sits here for
-        // the same reason the applier does: it is a function of the state this
-        // tick's transition produced, so asking before `apply` would light the
-        // wrong LED for one tick on every entry and exit.
+        // It sits here for the same reason the applier does: it is a function of the
+        // state this tick's transition produced, so asking before `apply` would light
+        // the wrong LED for one tick on every entry and exit.
         //
         // **Two of three.** `LedOutput::steam` is computed and discarded — see
-        // `cc_hal_esp32::pins` for why GPIO1 is the console's and not this
-        // machine's steam LED, and `intentional-diffs.md` for the entry.
+        // `cc_hal_esp32::pins` for why GPIO1 is the console's and not this machine's
+        // steam LED, and the divergence ledger for the entry.
         //
-        // The `isr_counter` is the C++'s `systemContext_.isrCounter()`, which
-        // `isr.h:110-117` builds by adding `ISR_COUNTER_INCREMENT` (10, one
-        // 10 ms tick) and wrapping at `processWindowSize()` (1000,
-        // `ProcessState.h:183`) — so it is `millis()` truncated to 10 ms steps,
-        // modulo one second. `isBlinkPhaseOn` is `< 500`, i.e. the first half of
-        // that second, and the brew LED's manual-flush exception blinks on it.
-        // Deriving it from the tick clock rather than counting ticks is what makes
-        // it agree with the display's blink: the two halves have to come from one
-        // counter or the panel and the LED drift apart, and `tick_began_ms` is
-        // already this tick's 10 ms-aligned timestamp.
+        // The `isr_counter` is `millis()` truncated to 10 ms steps, modulo one second:
+        // a 10 ms increment wrapping at the 1000 ms window. `is_blink_phase_on` is
+        // `< 500`, i.e. the first half of that second, and the brew LED's
+        // manual-flush exception blinks on it. Deriving it from the tick clock rather
+        // than counting ticks is what makes it agree with the display's blink: the two
+        // halves have to come from one counter or the panel and the LED drift apart,
+        // and `tick_began_ms` is already this tick's 10 ms-aligned timestamp.
         leds.apply(cc_display::leds::LedOutput::from_state(
             &cc_display::model::DisplayInput {
                 state: control.state(),
@@ -2714,17 +2491,15 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
         // ---- 7c. the backflush reminder, decided once -------------------------
         //
-        // `/api/status`'s `backflushReminderDue` and the display's reminder
-        // widget are the C++'s one `isReminderDue()` read from two places —
-        // `WebServerManager.cpp:363` and `DisplayWidgets.h:333-334` — and they
-        // have to be the same answer, so the answer is computed here, once, and
-        // the same `bool` goes to both. Two expressions in two places would be
-        // two things to keep in step.
+        // `/api/status`'s `backflushReminderDue` and the display's reminder widget
+        // have to be the same answer, so the answer is computed here, once, and the
+        // same `bool` goes to both. Two expressions in two places would be two things
+        // to keep in step.
         //
-        // Before this the predicate was written out inline for the API only, and
-        // `DisplayInput::backflush_reminder_due` was **never assigned by
-        // anything**: a permanently-false field on a permanently-zero counter,
-        // so the widget could not fire however many shots were pulled.
+        // Without it the predicate was written out inline for the API only, and
+        // `DisplayInput::backflush_reminder_due` was **never assigned by anything**: a
+        // permanently-false field on a permanently-zero counter, so the widget could
+        // not fire however many shots were pulled.
         let backflush_due = cc_machine::maintenance::is_reminder_due(
             control.machine().shots_since_backflush,
             config.maintenance.backflush_reminder.enabled,
@@ -2743,11 +2518,9 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // to enter — drawing before the applier would put a "brewing" screen up
         // one tick before the pump started.
         //
-        // The panel's 100 ms interval is the floor on how fast a screen change
-        // becomes visible, which is the C++'s floor too
-        // (`DISPLAY_REFRESH_INTERVAL_MS`). Publishing more often than that would
-        // be a `DisplayInput` copied 100 times a second for a frame that is
-        // dropped 90 of them.
+        // The panel's 100 ms interval is the floor on how fast a screen change becomes
+        // visible. Publishing more often than that would copy a `DisplayInput` 100
+        // times a second for a frame that is dropped 90 of them.
         if tick_began_ms.wrapping_sub(last_frame_ms) >= FRAME_PUBLISH_MS {
             last_frame_ms = tick_began_ms;
             // The **gains**, not the last P/I/D terms — see `Control::pid_gains`
@@ -2770,38 +2543,33 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             display_input.state = control.state();
             // The wall clock, for the post-brew deadline.
             //
-            // `step_brew_timer` compares `now_ms` against the moment the brew ended
-            // to decide when the post-brew screen goes away
-            // (`DisplayBrewTimerState.h`, the C++'s `millis() -
-            // ui.getBrewTimerEndTime()`). Without this field the comparison is
-            // `0 - 0`, which never exceeds the duration, and **the post-brew screen
-            // never goes back** — the third "the display does not return" bug of the
-            // day, and the third one with the same cause: a field `DisplayInput`
-            // expects that the firmware never filled in.
+            // `step_brew_timer` compares `now_ms` against the moment the brew ended to
+            // decide when the post-brew screen goes away. Without this field the
+            // comparison is `0 - 0`, which never exceeds the duration, and the post-brew
+            // screen never goes back: a field `DisplayInput` expects that the firmware
+            // never filled in.
             display_input.now_ms = tick_began_ms;
             display_input.state = control.state();
-            // The brew row's two numbers, `processCurrentBrewTime()` and
-            // `processTotalTargetBrewTime()` — `BrewProgress` is exactly those.
+            // The brew row's two numbers: elapsed and target, which is all `BrewProgress`
+            // carries.
             display_input.brew_time_ms = machine.brew.elapsed_ms;
             display_input.target_brew_time_ms = machine.brew.target_ms;
-            // `BrewHandler::isBrewActive()` — the C++'s own definition, which
-            // `shouldDisplayBrewTimer` uses to leave `Idle`. `BrewFinished` is
-            // excluded because the FSM has already moved on to `PostBrew` by
-            // then, and it is the state in which the post-brew timer runs.
+            // The brew-timer FSM leaves `Idle` while the brew is active.
+            // `BrewFinished` is excluded because the FSM has already moved on to
+            // `PostBrew` by then, and that is the state in which the post-brew timer
+            // runs.
             display_input.brew_active = machine.state.is_brew_state()
                 && machine.state != cc_domain::state::MachineState::BrewFinished;
-            // The reminder, and **the same value** `/api/status` reports this
-            // tick — see step 7c. The widget itself gates on
-            // `config.backflush_reminder_enabled` as well
-            // (`cc-display/src/widgets.rs:648`, the C++'s
-            // `DisplayWidgets.h:333`), which is why passing the count here
-            // rather than the enabled flag keeps the two halves from drifting.
+            // The reminder, and **the same value** `/api/status` reports this tick —
+            // see step 7c. The widget itself gates on
+            // `config.backflush_reminder_enabled` as well (`cc-display/src/widgets.rs`),
+            // which is why passing the count here rather than the enabled flag keeps the
+            // two halves from drifting.
             display_input.backflush_reminder_due = backflush_due;
-            // The post-brew deadline is configuration, and configuration can
-            // change under a running machine, so the view is refreshed here
-            // rather than captured at boot.
-            // The FSM step. One call per published frame, which is what the C++
-            // gets from one `printScreen()` per loop.
+            // The post-brew deadline is configuration, and configuration can change
+            // under a running machine, so the view is refreshed here rather than
+            // captured at boot.
+            // The FSM step: one call per published frame.
             let _ = cc_display::templates::step_brew_timer(&mut display_input, &display_view);
             frame.publish(slots::FrameRequest {
                 input: display_input,
@@ -2818,8 +2586,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // between-ticks path as `POST /api/restart` and for the same reason: a
         // handler that called `esp_restart` itself would reset the machine from
         // inside a request, abandoning the `200` the operator's browser is still
-        // reading (`ota.cpp:461` schedules the restart for exactly this reason:
-        // *"Restart only after the response has been handed to the client"*).
+        // reading: the response has to reach the client before the chip resets.
         //
         // The hardware is already off — `Command::OtaBegin` shut it down before
         // the first flash byte — and the shutdown is applied again below, which
@@ -2854,25 +2621,21 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             );
             // A 500 ms pause so the HTTP response has left the socket and the
             // `202 Accepted` has reached the operator's browser, rather than the
-            // connection being cut mid-write. The C++ does the same
-            // (`WebServerManager.cpp:696`, `delay(1000)` before its restart).
+            // connection being cut mid-write.
             FreeRtos::delay_ms(500);
             restart_now();
         }
 
-        // A reboot the *reducer* asked for — the power switch's long press, which
-        // is `PowerHandler::triggerSystemReboot` (`PowerHandler.h:177-192`) and
-        // the only path to `ESP.restart()` the C++ has that does not come from
-        // HTTP. `FirmwareSide` records it rather than restarting inside the
-        // applier, because `Effect::RequestReboot` sits in the middle of this
-        // tick's effect list and restarting there would abandon the effects
-        // after it — including a `CloseWaterValve`.
+        // A reboot the *reducer* asked for — the power switch's long press, and the
+        // only reboot path that does not come from HTTP. `FirmwareSide` records it
+        // rather than restarting inside the applier, because `Effect::RequestReboot`
+        // sits in the middle of this tick's effect list and restarting there would
+        // abandon the effects after it — including a `CloseWaterValve`.
         if side.take_reboot_request() {
             info!("control: the state machine asked for a reboot (power switch long press)");
-            // `PowerHandler::triggerSystemReboot`'s own order: shut the hardware
-            // down safely, then restart. The safe shutdown is a real effect
-            // through the real applier, so a valve left open by a state that
-            // forgot to close it is closed before the chip resets.
+            // The order matters: shut the hardware down safely, then restart. The
+            // shutdown is a real effect through the real applier, so a valve left open
+            // by a state that forgot to close it is closed before the chip resets.
             let machine = *control.machine();
             cc_machine::apply_one(
                 &mut actuators,
@@ -2886,9 +2649,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
         // ---- 8. NOTIFY ------------------------------------------------------
         //
-        // The telemetry publish and the SSE broadcast, at the C++'s cadence
-        // (`WebServerManager.cpp:1128-1143` driven from
-        // `LoopManager::updateWebsite`, gated on `tempEventInterval_`).
+        // The telemetry publish and the SSE broadcast, both on the 1 s cadence
+        // ([`SSE_INTERVAL_MS`]).
         let uptime = now_ms();
         let state = control.state();
         let machine = *control.machine();
@@ -2917,16 +2679,13 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             //
             // They are two different facts:
             //
-            //   * `runtime_enabled` — `SystemContext::isProcessPidEnabled()`,
-            //     the **operator's setting**. This is what `POST /api/pid`
-            //     toggles (via `setUserPidEnabled`, which is exactly what
-            //     the C++ calls at `WebServerManager.cpp:468`) and what is
-            //     persisted in `config.pid.enabled`.
-            //   * `mode_enabled` — `ProcessController::isPIDEnabled()`, the
-            //     heater's **derived gate**, recomputed every tick by
-            //     `should_pid_be_enabled` from the machine state, and forced
-            //     to `false` whenever the PID is not *permitted* right now
-            //     (sensor error, empty tank, standby, a brew in progress).
+            //   * `runtime_enabled` — the **operator's setting**. This is what
+            //     `POST /api/pid` toggles and what is persisted in
+            //     `config.pid.enabled`.
+            //   * `mode_enabled` — the heater's **derived gate**, recomputed every
+            //     tick by `should_pid_be_enabled` from the machine state, and forced
+            //     to `false` whenever the PID is not *permitted* right now (sensor
+            //     error, empty tank, standby, a brew in progress).
             //
             // Reporting the gate made `POST /api/pid` answer
             // `{"success":true,"pidEnabled":true}` and the very next
@@ -2934,49 +2693,36 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             // is false by definition and `process_control` drives it straight
             // back. The UI showed a switch that turned itself off.
             //
-            // `runtime_enabled` is both the faithful answer (the C++'s
-            // `/api/pid` reads `!Config::pidEnabled`, the same operator's
-            // setting) and the only one a switch can be bound to. The gate
-            // is still observable, and it is what `heater_power_pct` and the
-            // state field are for.
+            // `runtime_enabled` is the value a switch can be bound to, and the gate
+            // is still observable: it is what `heater_power_pct` and the state field
+            // are for.
             pid_enabled: machine.pid.runtime_enabled,
-            // The two toggle inputs. `POST /api/steam` and
-            // `POST /api/backflush` are toggles in the C++ and compute
-            // `!current` from live machine state, which is only reachable
-            // from this task — so the httpd task gets the current value
-            // through the telemetry snapshot rather than by reaching into
-            // the machine.
+            // The two toggle inputs. `POST /api/steam` and `POST /api/backflush` are
+            // toggles whose next value is computed from live machine state, which is
+            // only reachable from this task — so the httpd task reads the current value
+            // from the telemetry snapshot rather than reaching into the machine.
             steam_mode: machine.steam_mode,
             backflush_mode: machine.backflush.on,
             brewing: state.is_brew_state() && state != cc_domain::state::MachineState::BrewFinished,
             standby: state == cc_domain::state::MachineState::Standby,
             standby_remaining_ms: machine.standby.remaining_ms,
-            // `currBackflushCycles_` starts at 1 and only ever counts up, so
-            // a negative value is unreachable; the cast is a formality that
-            // documents it. `shots_since_backflush` is `i32` because that is
-            // what `MachineStateContext.h:788` declares and what the reducer
-            // keeps.
+            // The counter starts at 0 and only ever counts up while brewing, and is
+            // reset on entering `BACKFLUSH_FINISHED`, so a negative value is
+            // unreachable; the cast is a formality that documents it. The field is
+            // `i32` because that is what the reducer keeps.
             #[allow(
                 clippy::cast_sign_loss,
-                reason = "the counter is `i32` because \
-                              MachineStateContext.h:788 declares it that way, \
-                              but it starts at 0 and is only ever incremented \
-                              while brewing and reset to 0 on entering \
-                              BACKFLUSH_FINISHED, so it is never negative"
+                reason = "the counter starts at 0 and is only ever incremented \
+                          while brewing, and reset to 0 entering \
+                          BACKFLUSH_FINISHED, so it is never negative"
             )]
             shots_since_backflush: machine.shots_since_backflush.max(0) as u32,
-            // `isReminderDueForCount(shots, enabled, threshold)`
-            // (`MaintenanceCoordinator.cpp:68-73`) — the count has to reach
-            // the threshold *and* the reminder has to be enabled. Both
-            // halves come from the control task's own `Config`, because
-            // that is the only place either is readable.
+            // The reminder's predicate: the count has to reach the threshold *and*
+            // the reminder has to be enabled. Both halves come from the control task's
+            // own `Config`, because that is the only place either is readable.
             backflush_threshold: u32::try_from(config.maintenance.backflush_reminder.threshold)
                 .unwrap_or(0),
-            // Step 7c, computed once and shared with the display. The C++ is
-            // `isReminderDue()` (`MaintenanceCoordinator.cpp:67-72`): the
-            // count has to reach the threshold *and* the reminder has to be
-            // enabled, and both halves come from this task's own `Config`
-            // because that is the only place either is readable.
+            // Step 7c, computed once and shared with the display.
             backflush_due,
             water_tank_full: config
                 .hardware
@@ -3038,22 +2784,18 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             network::publish_radio(&net.shared, sta.as_ref());
         }
 
-        // The radio's own maintenance, on the C++'s 1 s cadence
-        // (`CleverCoffeeWiFiManager::checkAndMaintainConnection`, and
-        // `cc_hal_esp32::wifi::MONITOR_PERIOD_MS`). `Sta` is `Send` and the
-        // control task is the one place a 1 s poll belongs — it is the task with
-        // a heartbeat and a watchdog, so a poll that stalls is visible.
+        // The radio's own maintenance, on [`WIFI_POLL_MS`]'s cadence. `Sta` is `Send`
+        // and the control task is where a 1 s poll belongs: it is the task with a
+        // heartbeat and a watchdog, so a poll that stalls is visible.
         //
-        // Shares the 1 s gate with the publish above, and deliberately does NOT
-        // reset `wifi_last_ms` a second time: the two were one poll originally
-        // and splitting them into two gates would double the FFI traffic for no
-        // extra freshness.
+        // Shares the 1 s gate with the publish above, and deliberately does NOT reset
+        // `wifi_last_ms` a second time: the two were one poll, and two gates would
+        // double the FFI traffic for no extra freshness.
         if radio_due {
             if let Some(radio) = sta.as_mut() {
                 if radio.poll() {
-                    // The C++'s `networkCoordinator_->setOfflineMode`. The
-                    // machine keeps serving on the LAN, which is the point of
-                    // offline mode.
+                    // Offline mode. The machine keeps serving on the LAN, which is
+                    // the point of it.
                     warn!("wifi: offline mode — unreachable off-LAN");
                 }
             }
@@ -3061,36 +2803,31 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
         // ---- 8b. MQTT: the network tier's second half -------------------------
         //
-        // Beside the radio, because that is where it is in the C++:
-        // `LoopManager::updateNetwork` (`LoopManager.cpp:485-508`) does the Wi-Fi
-        // maintenance and then `checkConnection` + `loop` +
-        // `writeSysParamsToMQTT`, all from the one loop.
+        // Beside the radio: both are the network tier, and both hang off the same
+        // gate.
         //
-        // **After** the telemetry publish above, deliberately: `/api/status`
-        // should report the session as it was when the tick began, and a
-        // `writeSysParamsToMQTT` that pushed a parameter would otherwise make
-        // `mqttConnected` and the state it just described disagree by one tick.
+        // **After** the telemetry publish above, deliberately: `/api/status` should
+        // report the session as it was when the tick began, and a parameter push would
+        // otherwise make `mqttConnected` and the state it just described disagree by
+        // one tick.
         //
-        // **After** the actuator work and the deadman above it, for the reason
-        // the whole budget exists: this is the only step in the tick that talks
-        // to anything outside the chip, and it is bounded by `TIME_BUDGET_MS` --
-        // 2 ms of this loop's 10 ms period. A machine with 46 registered topics
-        // and a slow broker takes a few ticks to finish a pass and never
-        // overruns one. See `mqtt::TIME_BUDGET_MS` for why the C++'s 10 ms was
-        // not carried over.
+        // **After** the actuator work and the deadman above it, for the reason the whole
+        // budget exists: this is the only step in the tick that talks to anything
+        // outside the chip, and it is bounded by `TIME_BUDGET_MS` — 2 ms of this loop's
+        // 10 ms period. A machine with 46 registered topics and a slow broker takes a
+        // few ticks to finish a pass and never overruns one. See `mqtt::TIME_BUDGET_MS`
+        // for how that bound is derived.
         if let Some(link) = mqtt.as_mut() {
             let mut mqtt_effects = cc_machine::Effects::new();
             let live = mqtt_link::Live {
                 temperature_c: last_reading.map_or(f64::NAN, |(celsius, _)| celsius),
                 heater_power_pct: f64::from(control.pid_output()) / 10.0,
                 standby_remaining_ms: machine.standby.remaining_ms,
-                // The ABP2's **last decoded sample**, not this tick's poll
-                // result. `sensorCoordinator().getFilteredPressure()`
-                // (`MQTTManager.cpp:788`) is the coordinator's *cached*
-                // reading, so the C++ publishes the last sample too -- and the
-                // driver's own cadence is 50 ms (`abp2::CADENCE`), so a poll
-                // result is `NotReady` on nineteen ticks out of twenty and the
-                // topic would have been published for one tick in a hundred.
+                // The ABP2's **last decoded sample**, not this tick's poll result: the
+                // coordinator's cached reading is what the telemetry carries, and the
+                // driver's cadence is 50 ms (`abp2::CADENCE`) — so a poll result is
+                // `NotReady` on nineteen ticks out of twenty and the topic would be
+                // published for one tick in a hundred.
                 pressure_bar: pressure
                     .as_ref()
                     .and_then(cc_hal_esp32::Abp2Pressure::last_sample)
@@ -3155,16 +2892,14 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         }
         if uptime.wrapping_sub(last_sse_ms) >= SSE_INTERVAL_MS {
             last_sse_ms = uptime;
-            // `tempHistory.addPoint` (`WebServerManager.cpp:1134`), on the same
-            // call and at the same cadence as the SSE broadcast — in the C++ both
-            // happen inside `sendTempEvent`. The ring drops two of every three
-            // samples itself, so this is a sample per second and a point per
-            // three, which is the spacing the UI's x axis assumes.
+            // The temperature history, on the same call and at the same cadence as the
+            // SSE broadcast. The ring drops two of every three samples itself, so this
+            // is a sample per second and a point per three, which is the spacing the
+            // UI's x axis assumes.
             //
-            // The `f32` narrowing is the C++'s: its `HistoryPoint` members are
-            // `float` (`WebServerManager.cpp:113`). A DS18B20 reading is a
-            // multiple of its own 0.0625 C resolution and the setpoint is
-            // schema-bounded to 0..=150 C, so both are exact in an `f32`.
+            // The `f32` narrowing is the field's type. A DS18B20 reading is a multiple
+            // of its own 0.0625 C resolution and the setpoint is schema-bounded to
+            // 0..=150 C, so both are exact in an `f32`.
             let (current_c, target_c) = (
                 last_reading.map_or(f64::NAN, |(celsius, _)| celsius),
                 control.setpoint(),
@@ -3177,8 +2912,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             net.shared.push_history(
                 current_c,
                 target_c,
-                // The C++'s own promill-to-per cent conversion. The PID output
-                // is 0..=1000 by construction (`WINDOW_MS`), so this is exact.
+                // Promille to per cent. The PID output is 0..=1000 by construction
+                // (`WINDOW_MS`), so this is exact.
                 #[allow(
                     clippy::cast_possible_truncation,
                     reason = "the PID output is bounded to 0..=1000 by WINDOW_MS"
@@ -3231,19 +2966,16 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             );
         }
 
-        // The PID's own P/I/D, once a second. This is the line that answers
-        // "is the controller doing something sensible", and it is why
-        // `cc_domain::Controller` kept the Arduino library's three getters
-        // (`PID_v1.h:279-292`) that nothing in the firmware needed until now.
+        // The PID's own P/I/D, once a second — the line that answers "is the controller
+        // doing something sensible".
         if tick_began_ms.wrapping_sub(last_pid_log_ms) >= PID_LOG_INTERVAL_MS {
             last_pid_log_ms = tick_began_ms;
             let (p, i, d) = control.pid_terms();
             let refusals = actuators.refusals();
             let (pump_active, valve_active) = actuators.pins_read_active();
-            // `PID_v1.h:127` defines the error as `setpoint - input`, so the
-            // log prints that, not its negation: a cold boiler at a 30 °C
-            // setpoint must read `error=+6.4 K`, which is the sign the P term
-            // was computed from.
+            // The error is `setpoint - input`, so the log prints that and not its
+            // negation: a cold boiler at a 30 °C setpoint must read `error=+6.4 K`,
+            // which is the sign the P term is computed from.
             let measured_c = f64::from(sensors.temperature.raw());
             let error_k = control.setpoint() - measured_c;
             info!(
@@ -3340,9 +3072,9 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
         // ---- 9. the tick's period: sleep the rest of it ---------------------
         //
-        // The control period is 04 §2's 100 Hz. The sleep is the remainder of it
-        // rather than a fixed 400 ms, so a slow tick shortens the next one
-        // instead of drifting — the loop holds its *rate*, not its rhythm.
+        // The sleep is the remainder of [`CONTROL_PERIOD_MS`] rather than a fixed
+        // delay, so a slow tick shortens the next one instead of drifting — the loop
+        // holds its *rate*, not its rhythm.
         //
         // **A blocking wait on a wake channel was tried here and is not in the
         // build.** `SignalQueue`, a `std::sync::Mutex` and an ESP-IDF task
@@ -3379,9 +3111,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
 /// Spawn the UART provisioning task on UART0.
 ///
-/// **Only called when there is no SSID**, per 04 §3.2. A failure to install the
-/// UART driver is **not** fatal — it warns and returns, and the machine runs
-/// with no network surface rather than refusing to boot.
+/// A failure to install the UART driver is **not** fatal — it warns and returns, and
+/// the machine runs with no network surface rather than refusing to boot.
 fn start_provisioning(
     uart: esp_idf_hal::uart::UART0<'static>,
     tx: esp_idf_hal::gpio::Gpio1<'static>,
@@ -3419,28 +3150,23 @@ fn start_provisioning(
 /// because dropping
 /// one of those loses an operator's action.
 ///
-/// # Why it was not read where the events are drained
+/// # Why it is read here and not where the scale events are drained
 ///
-/// It used to be the return value of [`crate::config_io::drain_scale`], which runs at step 7b —
-/// **after** `control.tick`. That is the right place for the NVS commit inside
-/// it and the wrong place for a number the reducer is about to decide on, and
-/// the result was that `Sensors::brew_weight` could not be filled from it at
-/// all: `cc-firmware/src/main.rs` wrote the literal `0.0`.
+/// [`crate::config_io::drain_scale`] runs at step 7b, **after** `control.tick`: that
+/// is the right place for the NVS commit inside it and the wrong place for a number
+/// the reducer is about to decide on. A weight taken from there reaches
+/// `Sensors::brew_weight` after this tick's decision, so the field would be a tick
+/// behind the state that reads it.
 ///
-/// That made the by-weight stop condition in
-/// `BrewRunningState::checkSpecificTransitions` (`BrewStates.cpp:294-299`)
-/// unreachable for every target above 0 g, and with it the weight arm of
-/// `recordBrewIfQualified` (`BrewStates.cpp:311`). The Rust was *worse off than
-/// the C++* here: `cc-hal-esp32::Sampler` measures a real weight and publishes
-/// it to `/api/status` and MQTT, and the one consumer that acts on it was
-/// handed a zero. The C++ has the same hole for a different reason — its scale
-/// is never constructed at all (09 §23), so `getBrewWeight()` is 0 there
-/// unconditionally — which makes this a case where matching the oracle's
-/// *outcome* was the wrong target and its *structure* was right.
+/// Left unfilled, the by-weight stop condition in
+/// `BrewRunningState::checkSpecificTransitions` is unreachable for every target above
+/// 0 g, and with it the weight arm of the shot record: `cc-hal-esp32::Sampler`
+/// measures a real weight and `/api/status` and MQTT carry it, and the one consumer
+/// that acts on it gets nothing.
 ///
-/// `None` when no scale is fitted, when the cell has produced nothing yet, or
-/// when it is not answering. All three publish as `null` rather than as 0 g,
-/// because 0 g is a real weight and a UI showing it shows a full cup.
+/// `None` when no scale is fitted, when the cell has produced nothing yet, or when it
+/// is not answering. All three publish as `null` rather than as 0 g, because 0 g is a
+/// real weight and a UI showing it shows a full cup.
 fn scale_weight(sampler: Option<&cc_hal_esp32::Sampler>) -> Option<f64> {
     sampler.and_then(|sampler| sampler.telemetry().weight_g())
 }
@@ -3485,10 +3211,9 @@ fn bring_up_wifi(
     // "the stored SSID is 12 bytes" settles a class of problem that reading
     // `/api/parameters` cannot reach when the machine is offline. `password` is a
     // `Secret` and is exposed only for its length here.
-    // The SSID is not a secret — the C++ prints it on every connection attempt
-    // too, and it is already in every boot log today — so it is printed to say
-    // *which* network is configured, which is the thing a length cannot tell you.
-    // The password is never printed at all, only its length.
+    // The SSID is not a secret — it is already in every boot log — so it is printed
+    // to say *which* network is configured, which is the thing a length cannot tell
+    // you. The password is never printed at all, only its length.
     info!(
         "wifi: stored credential — ssid {:?} ({} bytes), password {} bytes",
         config.system.wifi.ssid,
@@ -3502,8 +3227,7 @@ fn bring_up_wifi(
     if sta.wait_for_connection() {
         info!("wifi: associated, {}", sta.describe());
     } else {
-        // The C++'s behaviour at `CleverCoffeeWiFiManager.cpp:105-110`: an
-        // explicit SSID that does not associate means offline mode, no portal.
+        // An explicit SSID that does not associate means offline mode, no portal.
         warn!("wifi: the configured network is unavailable — running offline");
         sta.leave_offline();
     }
@@ -3512,13 +3236,11 @@ fn bring_up_wifi(
 
 /// The `cc_display` template for a configured [`DisplayTemplate`].
 ///
-/// `DisplayTemplate` is the config enum with the C++'s numeric values
-/// (`Config.h:1144` registers them as an `EnumParamDef`); `TemplateId` is the
-/// display crate's own enum. They are the same six layouts in the same order,
-/// but they are two crates' types and nothing guarantees they stay in step, so
-/// the mapping is written out rather than cast. An out-of-range value falls
-/// back to `Standard`, which is the C++'s default and a layout that always
-/// exists.
+/// `DisplayTemplate` is the config enum; `TemplateId` is the display crate's own
+/// enum. They are the same six layouts in the same order, but they are two crates'
+/// types and nothing guarantees they stay in step, so the mapping is written out
+/// rather than cast. An out-of-range value falls back to `Standard`, the default
+/// layout, which always exists.
 fn template_for(
     configured: cc_domain::system::DisplayTemplate,
 ) -> cc_display::templates::TemplateId {
@@ -3538,7 +3260,7 @@ fn template_for(
 ///
 /// `cc_display::model::Config` is deliberately a *separate* type from
 /// `cc_config::Config`: the display crate is a pure renderer with 48 goldens and
-/// a pixel-parity oracle against real U8g2, and it has no business knowing about
+/// a pixel-for-pixel comparison against real U8g2, and it has no business knowing about
 /// Wi-Fi credentials or the NVS blob. The consequence is that this mapping
 /// exists, and it is the seam where a new display-relevant parameter has to be
 /// wired up by hand — which is the point.
@@ -3589,10 +3311,9 @@ fn display_config(config: &cc_config::Config) -> cc_display::model::Config {
         brew_by_weight_enabled: config.brew.by_weight.enabled,
         brew_by_weight_target: config.brew.by_weight.target_weight,
         mqtt_enabled: config.mqtt.enabled,
-        // `cycles` is an i32 in the config and a u8 on screen. `unwrap_or` rather
-        // than a cast: the C++ stores it as a float param and a machine
-        // configured with a nonsense value should render the default layout
-        // detail, not wrap to 255 cycles.
+        // `cycles` is an i32 in the config and a u8 on screen. `unwrap_or` rather than
+        // a cast: a machine configured with a nonsense value should render the default
+        // layout detail, not wrap to 255 cycles.
         backflush_cycles: u8::try_from(config.backflush.cycles).unwrap_or(5),
     }
 }

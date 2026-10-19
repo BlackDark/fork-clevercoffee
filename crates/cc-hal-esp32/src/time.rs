@@ -1,11 +1,8 @@
 //! The monotonic clock.
 //!
-//! Owner: **R3-12** (the network tier's timeouts) and **R3-13/R3-14** (the
-//! publish budget and the SSE cadence).
-//!
 //! # The one `unsafe` here, and why
 //!
-//! `esp_timer_get_time()` (`components/esp_timer/include/esp_timer.h:223`) is
+//! `esp_timer_get_time()` is
 //! declared:
 //!
 //! ```c
@@ -36,9 +33,8 @@
 //!
 //! # What the clock is *not* used for
 //!
-//! **Not in an ISR.** [09 §22](../../../docs/history/cpp-findings.md):
-//! an FPU instruction in a level-1 ISR panics the original ESP32, because Xtensa
-//! does not save coprocessor state on an interrupt. These functions are
+//! **Not in an ISR.** An FPU instruction in a level-1 ISR panics the original
+//! ESP32, because Xtensa does not save coprocessor state on an interrupt. These functions are
 //! integer-only and neither is called from an ISR — the heater's ISR owns its
 //! own counter — but the rule is worth restating where a clock lives, because a
 //! clock is exactly what a future ISR would reach for.
@@ -72,8 +68,8 @@ pub fn now_us() -> u32 {
 
 /// Milliseconds since boot.
 ///
-/// The whole of the C++'s `millis()` and of the `now_ms` argument every
-/// `cc_netpolicy::resilience` and `cc_netpolicy::wifi` call takes.
+/// Every `cc_netpolicy::resilience` and `cc_netpolicy::wifi` entry point takes
+/// one of these as its `now_ms`.
 ///
 /// A full 32 bits wrap every 49.7 days. Every deadline in this firmware is
 /// expressed with `wrapping_sub`, so a wrap is a subtraction that goes the right
@@ -143,8 +139,7 @@ pub mod tests {
         // stamps agree to **1.4 %**: 1.256 s of device time inside 1.274 s of
         // host time. Whether `delay_ms` is systematically short, or that 12 ms
         // was the tick grid landing unluckily, is an open question and is
-        // deliberately not asserted here — `docs/archive/migration/06-migration-
-        // task-list.md` R2-09b owns the control-loop timing measurement.
+        // deliberately not asserted here.
         //
         // A 200 ms request is 20 ticks, so the quantisation is 5 % rather than
         // 50 %, and the band below still admits a 0.6 factor while rejecting

@@ -1,20 +1,18 @@
 //! The one `unsafe` seam the SSE stream needs, isolated and justified.
 //!
-//! Owner: **R3-14 follow-up** (the single-client-SSE denial of service).
-//!
 //! # Why this exists at all
 //!
 //! ESP-IDF's httpd is **one task** for the whole server. `httpd_server_init`
 //! creates exactly one thread (`components/esp_http_server/src/httpd_main.c:533`,
 //! `httpd_os_thread_create(..., "httpd", ..., httpd_thread, ...)`), and
-//! `httpd_thread` (`:329-350`) is a `while (1) { httpd_server(hd); }` loop over
+//! `httpd_thread` is a `while (1) { httpd_server(hd); }` loop over
 //! a single `select()`. Every URI handler runs on that task, one at a time. A
 //! handler that does not return stops the entire web API — which is exactly what
 //! a handler that holds an SSE stream open does.
 //!
 //! `esp-idf-svc` 0.53.0 adds nothing here: `EspHttpServer::handler_nonstatic`
 //! (`src/http/server.rs:567-598`) just fills in an `httpd_uri_t` and calls
-//! `httpd_register_uri_handler`, and `to_native_handler` (`:660-685`) invokes
+//! `httpd_register_uri_handler`, and `to_native_handler` invokes
 //! the closure and then `complete()`s the response. There is no async layer for
 //! HTTP in the crate (the only async scaffolding in the file is the commented
 //! out WebSocket `asynch` sketch at `:1738-1945`).
@@ -26,22 +24,22 @@
 //!
 //! # The three calls, and what each guarantees
 //!
-//! * `httpd_req_async_handler_begin(r, &out)` (`httpd_txrx.c:650-705`) `malloc`s
+//! * `httpd_req_async_handler_begin(r, &out)` `malloc`s
 //!   a copy of the request and of its `httpd_req_aux`, **copies the response
 //!   header block across** (`:685-687`, `memcpy(async_aux->resp_hdrs,
 //!   r_aux->resp_hdrs, ...)`), sets the original's `remaining_len` to 0, and
-//!   sets `r_aux->sd->for_async_req = true` (`:700`). That last flag is the
+//!   sets `r_aux->sd->for_async_req = true`. That last flag is the
 //!   whole point: `httpd_process_session` returns early for such a session
 //!   (`httpd_main.c:256-258`, "session is busy in an async task, do not process
 //!   here") and `httpd_sess_set_descriptors` skips its fd
 //!   (`httpd_sess.c:91`), so the httpd task's `select()` stops watching the
 //!   socket entirely and goes back to serving everyone else.
-//! * `httpd_resp_send_chunk` (`httpd_txrx.c:339`) writes one chunk. It is the
+//! * `httpd_resp_send_chunk` writes one chunk. It is the
 //!   same function `EspHttpConnection::write` calls, so going through it rather
 //!   than a raw `write(2)` keeps the chunked framing and the socket's
 //!   `send_wait_timeout`.
-//! * `httpd_req_async_handler_complete(r)` (`httpd_txrx.c:707-755`) frees the
-//!   copy, clears `for_async_req` (`:719`) and pokes the control socket so the
+//! * `httpd_req_async_handler_complete(r)` frees the
+//!   copy, clears `for_async_req` and pokes the control socket so the
 //!   httpd task's `select()` wakes and re-arms the fd. **It must be called on
 //!   every path**, and the header note is explicit that a request left
 //!   incomplete eventually stops the server accepting connections at all
@@ -79,7 +77,7 @@
 // for every call is in this module's documentation above; in short: ESP-IDF's
 // httpd is a single task, so an SSE handler that holds its connection open stops
 // the whole web API, and `httpd_req_async_handler_begin` is ESP-IDF's own
-// documented answer (`esp_http_server.h:840-873`) — the only one that exists,
+// documented answer — the only one that exists,
 // and not expressible through `esp-idf-svc` 0.53.0.
 #![allow(
     unsafe_code,
@@ -452,8 +450,7 @@ extern "C" fn sse_handler(req: *mut httpd_req_t) -> esp_idf_sys::esp_err_t {
         // origin and realm once a browser has answered a challenge, and it
         // replays them on every subsequent same-origin request including this
         // one; so the stream works in practice after the operator has logged in
-        // through the UI. The C++ has exactly the same property, because its
-        // middleware covers `/events` too.
+        // through the UI.
         // The header is copied into a scratch buffer because ESP-IDF's accessor
         // writes into a caller-supplied one, and the bytes are only valid while
         // it is alive — so it lives no longer than the comparison.
@@ -504,9 +501,9 @@ extern "C" fn sse_handler(req: *mut httpd_req_t) -> esp_idf_sys::esp_err_t {
                 // 505, 400, 401, 403, 404, 405, 408, 411, 413, 414, 431 and
                 // `ERR_CODE_MAX`), so the only way to send a 503 is
                 // `httpd_resp_send_custom_err` with the status line spelled out.
-                // The C++ answers 503 for this case through ESPAsyncWebServer,
-                // and 503 (not 429, not 500) is what `SSE_MAX_CLIENTS` being
-                // full means.
+                // 503 (not 429, not 500) is what `SSE_MAX_CLIENTS` being full
+                // means: the server is temporarily unable to serve, not that the
+                // client misbehaved and not that the handler failed.
                 httpd_resp_send_custom_err(
                     req,
                     c"503 Service Unavailable".as_ptr(),
@@ -521,25 +518,21 @@ extern "C" fn sse_handler(req: *mut httpd_req_t) -> esp_idf_sys::esp_err_t {
 
 /// Register the JSON `404` for `/api/` paths that matched no route.
 ///
-/// Finding 3.8 of
-/// [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md).
-/// The C++ registers `server_->onNotFound(...)`
-/// (`WebServerManager.cpp:235`), whose `handleNotFound` (`:1006-1027`) answers a
-/// JSON `{"error": …}` for any path starting `/api/` and plain text for the rest.
-/// This firmware served ESP-IDF's default plain-text 404 for both, so a client
-/// that parses JSON got a parse error rather than an answer it could read.
+/// [review-2026-10-03.md
+/// §3](../../../docs/history/review-2026-10-03.md) item 3.8: this firmware served
+/// ESP-IDF's default plain-text 404 for an `/api/` path, so a client that parses
+/// JSON got a parse error rather than an answer it could read.
 ///
 /// # Why one `httpd_register_err_handler` and no router
 ///
-/// ESP-IDF's `httpd` has no catch-all URI: a wildcard match is `httpd_uri_match_wildcard`
-/// (`httpd_uri.c:97-122`), which the httpd already uses for `/api*` and `/ui*`,
-/// and a second `/api*` registration would be ambiguous with the preflight one.
-/// The error handler is the mechanism the C++'s `onNotFound` actually corresponds
-/// to, it needs no state and no `user_ctx`, and ESP-IDF calls it only when
-/// nothing matched — which is precisely the `onNotFound` condition. It is
-/// registered for `HTTPD_404_NOT_FOUND` alone; `405` and `400` keep ESP-IDF's
-/// defaults, because the C++'s `onNotFound` is reached for those too but its
-/// bodies are `ESPAsyncWebServer`'s, not its own.
+/// ESP-IDF's `httpd` has no catch-all URI: a wildcard match is
+/// `httpd_uri_match_wildcard` (`httpd_uri.c:97-122`), which the httpd already
+/// uses for `/api*` and `/ui*`, and a second `/api*` registration would be
+/// ambiguous with the preflight one. The error handler needs no state and no
+/// `user_ctx`, and ESP-IDF calls it only when nothing matched — precisely the
+/// condition a not-found body is for. This function registers it for
+/// `HTTPD_404_NOT_FOUND` and, below, for `HTTPD_405_METHOD_NOT_ALLOWED`; `400`
+/// keeps ESP-IDF's own body.
 ///
 /// `esp-idf-svc` 0.53.0 does not wrap this — there is no `err_handler` method in
 /// `src/http/server.rs` — so it is a raw `esp-idf-sys` call, in the module that
@@ -549,16 +542,15 @@ extern "C" fn sse_handler(req: *mut httpd_req_t) -> esp_idf_sys::esp_err_t {
 /// deliberate rather than an oversight. **A 404 reveals nothing** — the reachable
 /// set is the ~25 routes in [`crate::web::routes`], all of which are already
 /// behind `Auth`, and a client that cannot authenticate learns from this only that
-/// a path does not exist. The C++ puts its auth middleware in front of
-/// `onNotFound`, so a C++ build answers `401` there; see the note in
-/// [`crate::web::start`] where the deliberate difference is recorded.
+/// a path does not exist. The alternative, an authenticated 404, would make the
+/// route table observable to a client that has no credentials.
 pub(crate) fn register_raw_api_not_found(
     server_handle: esp_idf_sys::httpd_handle_t,
 ) -> Result<(), EspError> {
     // SAFETY: `not_found_handler` has the `httpd_err_handler_func_t` signature
     // (`extern "C" fn(*mut httpd_req_t, httpd_err_code_t) -> esp_err_t`,
     // `bindings.rs:56556-56559`) and `HTTPD_404_NOT_FOUND` is a member of
-    // `httpd_err_code_t` (`:56545`). `server_handle` is the live server's handle
+    // `httpd_err_code_t`. `server_handle` is the live server's handle
     // from `RawHandle::handle`, which outlives the registration.
     let rc = unsafe {
         esp_idf_sys::httpd_register_err_handler(
@@ -574,10 +566,10 @@ pub(crate) fn register_raw_api_not_found(
     // **`405` as well, and this is the fix.** The preflight wildcard `/api*` is
     // a URI handler to ESP-IDF, so a mistyped `/api/...` path matches it with
     // the wrong method and ESP-IDF raises `405` rather than `404` — the `404`
-    // handler above never ran, and the client got `text/html` where the C++
-    // returns JSON. Registering the same handler for `405` puts the decision
-    // back in our hands: `cc_web::help::unmatched` tells a mistyped URL (the
-    // C++'s `404`) from a real route with a method it lacks (an honest `405`).
+    // handler above never ran, and the client got `text/html` instead of JSON.
+    // Registering the same handler for `405` puts the decision back in our
+    // hands: `cc_web::help::unmatched` tells a mistyped URL (a `404`) from a
+    // real route with a method it lacks (an honest `405`).
     //
     // SAFETY: as above — same signature, same enum member
     // (`HTTPD_405_METHOD_NOT_ALLOWED`, `bindings.rs:56548`).
@@ -603,9 +595,8 @@ pub(crate) fn register_raw_api_not_found(
 /// socket, and the body this writes has to reach the client first.
 ///
 /// A non-`/api/` path is handed straight back to `httpd_resp_send_err`, which is
-/// ESP-IDF's own default `404` — the byte-for-byte answer the Rust port gave
-/// before this existed, and the C++'s `text/plain` "Not found" (`:1023-1024`)
-/// in everything but wording.
+/// ESP-IDF's own default `404`: plain text, for a client that did not ask for
+/// JSON in the first place.
 extern "C" fn not_found_handler(
     req: *mut httpd_req_t,
     error: esp_idf_sys::httpd_err_code_t,
@@ -644,11 +635,10 @@ extern "C" fn not_found_handler(
             cc_web::help::Unmatched::Api => {
                 // The status is set **explicitly**, and it has to be: ESP-IDF
                 // does not put one on the request before calling a custom error
-                // handler, so `httpd_resp_send` alone answers `200`. The C++
-                // answers this request with `404` (`handleNotFound`), and the
-                // status it raised here was `405` because the preflight
-                // wildcard matched the URI with the wrong method — which is the
-                // divergence this whole path exists to close.
+                // handler, so `httpd_resp_send` alone answers `200`. Without it,
+                // a mistyped URL that the preflight wildcard matched with the
+                // wrong method would answer `405` — which is the divergence this
+                // whole path exists to close.
                 if httpd_resp_set_status(req, c"404 Not Found".as_ptr()) != ESP_OK {
                     return ESP_FAIL;
                 }

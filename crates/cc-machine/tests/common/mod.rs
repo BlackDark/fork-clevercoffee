@@ -1,36 +1,22 @@
-//! Shared fixtures for the ported C++ suites and the reducer's own tables.
+//! Shared fixtures for the reducer's suites.
 //!
-//! # What the C++ test fixtures provide, and what replaces them
+//! [`Harness`] is a machine, a configuration and a clock in one value. It boots into
+//! `PID_NORMAL` with the PID enabled and every operator switch enabled, so a suite starts from
+//! a working machine rather than from `INIT`.
 //!
-//! Every C++ suite in this crate's scope builds the same tower:
+//! # Why the effect list is the assertion target
 //!
-//! ```cpp
-//! systemContext_            = std::make_unique<SystemContext>();
-//! dummyHwManager_           = std::make_unique<HardwareManager>(Config::getInstance());
-//! dummyDisplayManager_      = std::make_unique<DisplayManager>(...);
-//! dummyMqttManager_         = std::make_unique<MQTTManager>();
-//! dummyWiFiManager_         = std::make_unique<NiceMock<MockWiFiManager>>();
-//! machineStateContext_      = std::make_unique<MachineStateContext>(...);
-//! ```
-//!
-//! plus `CleverCoffee::TestHardwareSpy::reset()`, which is how the suites assert
-//! on hardware: `HardwareManager`'s methods increment counters in a global spy
-//! instead of touching a GPIO.
-//!
-//! [`Harness`] is the whole tower in one value. The spy becomes the returned
-//! [`Vec<Effect>`] — which is better than the C++ arrangement, not merely
-//! different: the C++ spy can only count calls, so a test cannot tell
-//! `EnablePump` from `EnablePump` followed by `DisablePump`, and several of the
-//! ported cases have to. Here the effect list is the assertion target, and order
-//! is part of it.
+//! The reducer says what should reach the hardware by returning [`Effect`] values, so a test
+//! asserts on that list. Order is part of the contract: a spy that only counts calls cannot
+//! tell `EnablePump` from `EnablePump` followed by `DisablePump`, and several cases need to.
 //!
 //! # Time
 //!
-//! `C++` tests fake `millis()` with a global (`g_test_millis`) or reach into
-//! `steady_clock` by back-dating `updateStateEntryTime`. [`Harness::elapse`]
-//! advances a plain counter, which is the same thing without a global.
+//! The reducer never reads a clock -- a reading arrives in `Event::Tick` -- so the fixture's
+//! clock is a plain counter that [`Harness::elapse`] advances. A test that drives the state
+//! hooks directly moves it with [`Harness::advance_clock`].
 
-#![allow(dead_code)] // Each ported suite uses a different subset of the fixture.
+#![allow(dead_code)] // Each suite uses a different subset of the fixture.
 
 use cc_config::Config;
 use cc_domain::state::MachineState;
@@ -44,22 +30,20 @@ use cc_machine::{guards, reduce, states, Context, Effect, Event, Machine, Sensor
 /// disjoint fields, and a method taking `&self` would borrow both.
 #[must_use]
 pub fn context_for(config: &Config) -> Context<'_> {
-    // The setpoint is the brew setpoint plus its offset, which is
-    // `ProcessController::updateSetpoint`'s answer in every state except steam.
-    // The state machine only reports it, so the value is not load-bearing.
+    // The setpoint is the brew setpoint plus its offset, which is what process control reports
+    // in every state except steam. The state machine only passes it through, so the value is not
+    // load-bearing for any assertion here.
     #[allow(clippy::cast_possible_truncation)]
-    // Justification: `brew.setpoint` is a configured `f64` and `Celsius` is an
-    // `f32`; the fixture is not testing the cast, it is supplying a plausible
-    // setpoint, and the C++ makes the same narrowing in
-    // `ProcessController::updateSetpoint`.
+    // Justification: `brew.setpoint` is a configured `f64` and `Celsius` is an `f32`; the fixture
+    // is not testing the cast, it is supplying a plausible setpoint.
     let raw = (config.brew.setpoint + config.brew.temp_offset) as f32;
     Context::new(config, Celsius::new(raw))
 }
 
 /// A machine, a configuration, and a clock, as one mutable value.
 pub struct Harness {
-    /// The configuration. Every field is public so a test can set exactly what
-    /// the C++ fixture set, and nothing else.
+    /// The configuration, as the machine reads it. Every field is public so a test can set
+    /// exactly what it needs and nothing else.
     pub config: Config,
     /// The machine under test.
     pub machine: Machine,
@@ -68,10 +52,8 @@ pub struct Harness {
 }
 
 impl Harness {
-    /// A machine in [`MachineState::PidNormal`] with the PID enabled, which is
-    /// the state almost every C++ fixture starts from
-    /// (`setupMachineStateContext(MachineStateId::PID_NORMAL)` plus
-    /// `Config::getInstance().pidEnabled.set(true)`).
+    /// A machine in [`MachineState::PidNormal`] with the PID and every operator switch
+    /// enabled, which is the state most suites want to start from.
     #[must_use]
     pub fn new() -> Self {
         let mut h = Self {
@@ -94,8 +76,7 @@ impl Harness {
         h
     }
 
-    /// A machine in an arbitrary state, as a C++ fixture's
-    /// `machineStateContext_->setCurrentStateId(id)` does.
+    /// A machine in an arbitrary state, without running that state's entry.
     #[must_use]
     pub fn in_state(state: MachineState) -> Self {
         let mut h = Self::new();
@@ -105,23 +86,15 @@ impl Harness {
 
     /// Force the current state without running `on_entry`.
     ///
-    /// The C++'s `setCurrentStateId` writes `MachineStateContext::currentStateId_`,
-    /// which is what `isBrewState(currentState)` and the handlers read — the
-    /// state object is separate. A C++ test that calls
-    /// `state.onEntry(ctx)` therefore has a context whose `currentStateId_` is
-    /// still the *old* value. Reproducing that faithfully is not useful; the port
-    /// sets the state and lets the test call `states::on_entry` explicitly where
-    /// the C++ did.
+    /// The state and the entry time move together, so `state_elapsed_ms` reads 0 from the moment
+    /// the test sets the state. A test that wants the entry effects calls [`Harness::on_entry`]
+    /// itself.
     pub fn enter_state_without_effects(&mut self, state: MachineState) {
         self.machine.state = state;
         self.machine.entry_at = Millis::new(self.now);
     }
 
-    /// A context over this harness's configuration.
-    ///
-    /// The setpoint is the brew setpoint plus its offset, which is
-    /// `ProcessController::updateSetpoint`'s answer in every state except steam.
-    /// The state machine only reports it, so the value is not load-bearing.
+    /// A context over this harness's configuration. See [`context_for`] for the setpoint.
     #[must_use]
     pub fn ctx(&self) -> Context<'_> {
         context_for(&self.config)
@@ -168,10 +141,9 @@ impl Harness {
 
     /// Advance the clock **without** running a tick.
     ///
-    /// `Event::Tick` is the only thing that moves `Machine::now` (the reducer
-    /// never reads a clock), so a test that calls `states::update` directly has to
-    /// move it explicitly — which is the same as the C++ test back-dating
-    /// `updateStateEntryTime`.
+    /// `Event::Tick` is the only thing that moves `Machine::now`, so a test that calls
+    /// `states::update` directly has to move it explicitly or every elapsed-time comparison reads
+    /// 0.
     pub fn advance_clock(&mut self, delta_ms: u32) {
         self.now = self.now.wrapping_add(delta_ms);
         self.machine.now = cc_domain::units::Millis::new(self.now);
@@ -204,7 +176,7 @@ impl Harness {
         self.send(Event::ButtonReleased { switch })
     }
 
-    /// `state.onEntry(context)`.
+    /// Run a state's entry hook and collect the effects.
     pub fn on_entry(&mut self, state: MachineState) -> Vec<Effect> {
         let ctx = context_for(&self.config);
         states::on_entry(state, &mut self.machine, &ctx)
@@ -212,7 +184,7 @@ impl Harness {
             .collect()
     }
 
-    /// `state.onExit(context)`.
+    /// Run a state's exit hook and collect the effects.
     pub fn on_exit(&mut self, state: MachineState) -> Vec<Effect> {
         let ctx = context_for(&self.config);
         states::on_exit(state, &mut self.machine, &ctx)
@@ -220,7 +192,7 @@ impl Harness {
             .collect()
     }
 
-    /// `state.update(context)`.
+    /// Run a state's update hook and collect the effects.
     pub fn update(&mut self, state: MachineState) -> Vec<Effect> {
         let ctx = context_for(&self.config);
         states::update(state, &mut self.machine, &ctx)
@@ -228,14 +200,13 @@ impl Harness {
             .collect()
     }
 
-    /// `state.checkSpecificTransitions(context)`.
+    /// Ask a state for its next state, ignoring the global guards.
     pub fn check_specific(&mut self, state: MachineState) -> Option<MachineState> {
         let ctx = context_for(&self.config);
         states::check_specific(state, &mut self.machine, &ctx)
     }
 
-    /// `BaseState::checkTransitions(context)` — the global guards *then* the
-    /// specific rules, which is what `StateMachine::update()` calls.
+    /// The guards *then* the specific rules, in the order the reducer applies them.
     pub fn check_transitions(&mut self, state: MachineState) -> Option<MachineState> {
         let guard = guards::global_guard(&self.machine);
         if let Some(target) = guards::guard_destination(guard) {
@@ -244,14 +215,13 @@ impl Harness {
         self.check_specific(state)
     }
 
-    /// The destination a tick will actually move to, honouring the C++'s
-    /// self-transition skip (`StateMachine.cpp:107-111`).
+    /// The destination a tick will actually move to: a self-transition is reported as `None`.
     pub fn next_state_this_tick(&mut self) -> Option<MachineState> {
         let current = self.machine.state;
         self.check_transitions(current).filter(|t| *t != current)
     }
 
-    /// `context.getPidState()`.
+    /// The PID state this harness's configuration selects.
     #[must_use]
     pub fn pid_state(&self) -> MachineState {
         states::pid_state(&context_for(&self.config))
@@ -291,13 +261,8 @@ impl Default for Harness {
     }
 }
 
-/// A configuration with automatic brewing and a 3 s pre-infusion + 2 s pause,
-/// the shape `test_state_flow_integration`'s
-/// `configureAutomaticBrewWithPreinfusion` sets
-/// (`test_state_flow_integration/test_main.cpp:68-77`).
-///
-/// Also sets `brew.by_time.enabled` with a 25 s target, so `BREW_RUNNING` has
-/// something to stop on.
+/// A configuration with automatic brewing, a 3 s pre-infusion, a 2 s pause, and a 25 s `by_time`
+/// target so that `BREW_RUNNING` has something to stop on.
 #[must_use]
 pub fn automatic_brew_with_preinfusion() -> Config {
     let mut config = Config::default();
@@ -335,8 +300,9 @@ pub fn count(fx: &[Effect], effect: Effect) -> usize {
 
 /// The index of the first occurrence of `effect`, or `None`.
 ///
-/// The C++ spies count calls, so every ported assertion that was
-/// `EXPECT_GE(spy.n, 1)` becomes "this effect appears, and here is where".
+/// Position is part of the contract: two effects emitted in one tick have a fixed order, and a
+/// test that only checks membership cannot tell a pump that starts after a valve opens from one
+/// that starts before.
 #[must_use]
 pub fn index_of(fx: &[Effect], effect: Effect) -> Option<usize> {
     fx.iter().position(|e| *e == effect)
@@ -346,10 +312,8 @@ pub fn index_of(fx: &[Effect], effect: Effect) -> Option<usize> {
 /// the `ExitState(old)` marker up to the next `ExitState` marker (or the end of
 /// the list).
 ///
-/// That is `onExit(old)` + `EnterState(new)` + `onEntry(new)`, in order, which is
-/// exactly what the C++ tests that reset the spy and then called `onExit` were
-/// measuring without saying so. `EnterState(new)` sits *before* the new state's
-/// entry effects, so the window has to run past it.
+/// That is `on_exit(old)` + `EnterState(new)` + `on_entry(new)`, in order. `EnterState(new)`
+/// sits *before* the new state's entry effects, so the window has to run past it.
 #[must_use]
 pub fn transition_window(fx: &[Effect], old: MachineState, new: MachineState) -> Vec<Effect> {
     let start = index_of(fx, Effect::ExitState(old));
@@ -366,16 +330,16 @@ pub fn transition_window(fx: &[Effect], old: MachineState, new: MachineState) ->
     fx[start..end].to_vec()
 }
 
-/// The part of a [`transition_window`] **before** the new state's entry effects:
-/// `onExit(old)` plus the `EnterState` marker.
+/// The part of a [`transition_window`] **before** the new state's entry effects: the old state's
+/// exit effects plus the `EnterState` marker.
 #[must_use]
 pub fn exit_half(win: &[Effect], new: MachineState) -> Vec<Effect> {
     let end = index_of(win, Effect::EnterState(new)).map_or(win.len(), |i| i + 1);
     win[..end.min(win.len())].to_vec()
 }
 
-/// The part of a [`transition_window`] **after** the `EnterState` marker:
-/// `onEntry(new)`.
+/// The part of a [`transition_window`] **after** the `EnterState` marker: the new state's entry
+/// effects.
 #[must_use]
 pub fn entry_half(win: &[Effect], new: MachineState) -> Vec<Effect> {
     match index_of(win, Effect::EnterState(new)) {

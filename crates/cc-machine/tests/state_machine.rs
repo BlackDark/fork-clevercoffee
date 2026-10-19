@@ -1,41 +1,13 @@
-//! Port of `test/test_state_machine`.
+//! The reducer's contract with the caller: one transition, no unknown states, no effects before
+//! boot.
 //!
-//! ## The port is honest about its source
+//! These are the properties a caller relies on and the state tables cannot show: a `reduce` call
+//! moves the machine at most once, a self-transition is discarded rather than re-entered, an
+//! uninitialised machine consumes every event, and an unrecognised state id is refused rather
+//! than acted on.
 //!
-//! `test/test_state_machine/test_main.cpp` **does not test the state machine**.
-//! Its own comment says so:
-//!
-//! ```cpp
-//! // For now, test the mock infrastructure works
-//! // Full StateMachine tests require additional setup
-//! ```
-//! (`test_state_machine/test_main.cpp:18-19`)
-//!
-//! All five of its cases test gMock plumbing: that a `MockWiFiManager` returns
-//! what it was told to, that a `MockHardwareManager` returns 25.0 °C, that
-//! `EXPECT_CALL(...).Times(2)` counts two calls. None of that behaviour exists
-//! in the Rust port, because there are no mocks: the reducer is pure and the
-//! applier is a trait the test implements. Porting "a mock returns what it was
-//! configured to return" would be porting nothing.
-//!
-//! So this file does two things instead, and says so:
-//!
-//! 1. **The five C++ cases, as `#[ignore]`d tests**, so the mapping is on the
-//!    record and the count is comparable. Run with
-//!    `cargo test -p cc-machine -- --ignored`.
-//! 2. **What the suite should have tested**: the `StateMachine` contract the C++
-//!    leaves untested — at most one transition per iteration, the self-transition
-//!    skip, and the unknown-id behaviour — against the reducer.
-//!
-//! ## C++ case count (5, all mock plumbing)
-//!
-//! | C++ case | here |
-//! | --- | --- |
-//! | `MockWiFiManagerWorks` | [`mock_infrastructure_cases_are_not_portable`] |
-//! | `MockHardwareManagerWorks` | `mock_infrastructure_cases_are_not_portable` |
-//! | `WiFiManagerCanBeConfiguredForOffline` | `mock_infrastructure_cases_are_not_portable` |
-//! | `WiFiManagerTracksConnectionChecks` | `mock_infrastructure_cases_are_not_portable` |
-//! | `HardwareManagerEmergencyShutdown` | [`an_emergency_shutdown_effect_reaches_the_applier`] |
+//! The last test exercises the actuator port directly: an effect is only worth emitting if
+//! something maps it to hardware.
 
 mod common;
 
@@ -46,42 +18,11 @@ use cc_machine::{boot_in, reduce, Actuators, Effect, Event, Machine, MachineChan
 use common::Harness;
 use std::vec::Vec;
 
-#[test]
-#[ignore = "C++ mock-plumbing case; no Rust equivalent (see the module docs)"]
-fn mock_wifi_manager_works() {}
-
-#[test]
-#[ignore = "C++ mock-plumbing case; no Rust equivalent (see the module docs)"]
-fn mock_hardware_manager_works() {}
-
-#[test]
-#[ignore = "C++ mock-plumbing case; no Rust equivalent (see the module docs)"]
-fn wifi_manager_can_be_configured_for_offline() {}
-
-#[test]
-#[ignore = "C++ mock-plumbing case; no Rust equivalent (see the module docs)"]
-fn wifi_manager_tracks_connection_checks() {}
-
-#[test]
-fn mock_infrastructure_cases_are_not_portable() {
-    // The four mock cases above are `#[ignore]`d rather than deleted, so the
-    // 5-case count is comparable. This test is their shared assertion: the Rust
-    // port has nothing for them to be about, and pretending otherwise would be
-    // the worst kind of port — a green test that asserts nothing.
-    assert_eq!(4, 4, "four C++ cases are mock plumbing");
-}
-
-// ---------------------------------------------------------------------------
-// What the suite should have tested: the StateMachine contract
-// ---------------------------------------------------------------------------
-
-/// `StateMachine::update()` performs **at most one** transition per loop
-/// (`StateMachine.cpp:81-86`, and 01 §5).
+/// A tick moves the machine **at most once**.
 ///
-/// Driven from `BREW_PREINFUSION` with pre-infusion disabled *and* a brew-stop
-/// request pending: the C++ checks the stop first and returns `PID_NORMAL`, and
-/// only the next loop gets to the "pre-infusion disabled" rule. The Rust must
-/// land on `PID_NORMAL` and not continue to `BREW_RUNNING` in the same call.
+/// Driven from `BREW_PREINFUSION` with pre-infusion disabled *and* a brew-stop request pending:
+/// the stop is tested first, so the machine lands on `PID_NORMAL` and does not continue on to
+/// `BREW_RUNNING` in the same call. The next state's own rules apply from the next tick.
 #[test]
 fn at_most_one_transition_per_reduce() {
     let mut h = Harness::new();
@@ -119,11 +60,12 @@ fn at_most_one_transition_per_reduce() {
     assert_eq!(next.state, MachineState::PidNormal);
 }
 
-/// `executeTransition`'s self-transition skip (`StateMachine.cpp:107-111`).
+/// A self-transition is discarded, so no hook runs and the entry time does not move.
 ///
-/// An emergency latched while already in `EMERGENCY_STOP` makes guard 1 return
-/// `EMERGENCY_STOP` (`BaseState.h:139-142`, no exclusion). The C++ discards it,
-/// so `onExit`/`onEntry` do not run and the entry time is not restamped.
+/// The case that produces one: an emergency latched while the machine is already in
+/// `EMERGENCY_STOP`, where the guard answers with the state the machine is in. Re-entering it
+/// would re-run the shutdown and re-stamp the entry time on every tick, which is why the answer
+/// is filtered out.
 #[test]
 fn a_self_transition_is_discarded() {
     let mut h = Harness::in_state(MachineState::EmergencyStop);
@@ -135,11 +77,11 @@ fn a_self_transition_is_discarded() {
     assert_eq!(h.state(), MachineState::EmergencyStop);
     assert!(
         !common::has(&fx, Effect::ExitState(MachineState::EmergencyStop)),
-        "onExit must not run for a discarded self-transition: {fx:?}"
+        "the exit hook must not run for a discarded self-transition: {fx:?}"
     );
     assert!(
         !common::has(&fx, Effect::EnterState(MachineState::EmergencyStop)),
-        "onEntry must not run either: {fx:?}"
+        "and neither must the entry hook: {fx:?}"
     );
     assert_eq!(
         h.machine.entry_at,
@@ -148,10 +90,11 @@ fn a_self_transition_is_discarded() {
     );
 }
 
-/// An unknown state id restarts the device in the C++
-/// (`StateFactory.cpp:65-69`). `MachineState` is an enum, so there is no
-/// unknown value to recover from — and `MachineState::from_id` returns `None`
-/// rather than rebooting.
+/// A state id with no state behind it is refused rather than acted on.
+///
+/// [`MachineState`] is an enum, so there is no unrepresentable state to recover from:
+/// `MachineState::from_id` answers `None`, and every caller treats that as "ignore this
+/// record" rather than as a reason to reboot.
 #[test]
 fn an_unknown_state_id_is_rejected_without_rebooting() {
     for id in [1_u16, 21, 30, 79, 111, 999, u16::MAX] {
@@ -162,8 +105,7 @@ fn an_unknown_state_id_is_rejected_without_rebooting() {
     }
 }
 
-/// `StateMachine::update()` returns immediately when the machine has not been
-/// initialised (`StateMachine.cpp:72-75`).
+/// An uninitialised machine consumes every event and produces nothing.
 #[test]
 fn an_uninitialised_machine_consumes_every_event() {
     let cold = Machine::cold();
@@ -180,8 +122,7 @@ fn an_uninitialised_machine_consumes_every_event() {
     }
 }
 
-/// `StateMachine::initialize()` calls `onEntry` on the initial state and stamps
-/// the entry time (`StateMachine.cpp:56-60`).
+/// Boot enters the initial state and stamps the entry time.
 #[test]
 fn boot_enters_the_initial_state() {
     let h = Harness::new();
@@ -191,7 +132,7 @@ fn boot_enters_the_initial_state() {
     assert_eq!(machine.state, MachineState::Init);
     assert_eq!(machine.entry_at, Millis::new(1_234));
     assert_eq!(machine.now, Millis::new(1_234));
-    // `InitState::onEntryImpl` is a log line only.
+    // `INIT`'s entry emits nothing: there is no hardware to touch before a state is chosen.
     assert!(fx.is_empty(), "INIT entry produced {fx:?}");
 }
 
@@ -261,8 +202,7 @@ impl MachineChannels for Sinks {
     }
 }
 
-/// The C++'s `HardwareManagerEmergencyShutdown` case, as the thing it was
-/// reaching for: an emergency shutdown must reach the actuator port.
+/// An emergency shutdown reaches the actuator port, not just the effect list.
 #[test]
 fn an_emergency_shutdown_effect_reaches_the_applier() {
     let mut h = Harness::in_state(MachineState::EmergencyStop);

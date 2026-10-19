@@ -1,51 +1,37 @@
-//! Parity pins for [`09-cpp-findings.md`](../../docs/history/cpp-findings.md)
-//! — every finding that touches the state machine, plus the new ones found while
-//! porting it.
+//! The recorded divergences this crate can demonstrate, one test each.
 //!
-//! # The rule
+//! [`docs/history/divergences.md`](../../docs/history/divergences.md) is the record, and each
+//! section there names its pin in this file. The point of the file is that a deliberate difference
+//! from the machine this firmware replaces cannot be read as a bug and quietly reverted: the
+//! behaviour is asserted here and the ledger says why it is the way it is.
 //!
-//! A C++ bug found during the port is **preserved**, not fixed, and pinned by a
-//! test whose name starts `s<N>_`, matching the numbering in doc 09. Fixing one
-//! silently would make the port's diff against the C++ non-empty in a way nobody
-//! reviewed, and a parity harness that reports "zero unexplained diffs" would
-//! then be reporting a lie.
+//! # The other half: what was deliberately *not* changed
 //!
-//! # …unless it is closed on purpose
+//! Some behaviours that look like defects were left alone on purpose, and those tests are the more
+//! valuable half of this file, because "we left this alone" is the claim most likely to be
+//! reversed by someone who finds it surprising. Each one says so in its own doc comment.
 //!
-//! A finding that has been **closed** gets a `div<N>_` test instead, naming the
-//! behaviour the port now has. A `s<N>_` test that has been replaced must be
-//! deleted, not left alongside, or the pair would disagree.
+//! The divergences:
 //!
-//! The closed ones, all in
-//! [`intentional-diffs.md`](../../docs/history/divergences.md):
+//! * §1 the pump watchdogs: [`div1_the_pump_timeouts_are_armed`],
+//!   [`div1_the_watchdogs_arm_only_while_the_pump_is_commanded_on`],
+//!   [`div1_the_watchdogs_re_arm_after_a_release`].
+//! * [`div2_the_steam_valve_is_whitelist_gated`] -- §2 the steam valve.
+//! * [`div3_the_water_valve_is_tank_gated`] -- §3 the water valve and the tank.
+//! * [`a_sleep_request_is_honoured_with_the_pid_disabled`],
+//!   [`the_sleep_request_is_consumed_and_not_repeated`],
+//!   [`waking_from_standby_still_works_with_the_pid_disabled`] -- §16 sleep with the PID off.
+//! * [`div39_backflush_fill_and_flush_reassert_their_hardware`] -- §39 fill and flush.
 //!
-//! | closed finding | test |
-//! | --- | --- |
-//! | 09 §11 the pump watchdogs are dead | [`div1_the_pump_timeouts_are_armed`], [`div1_the_watchdogs_arm_only_while_the_pump_is_commanded_on`], [`div1_the_watchdogs_re_arm_after_a_release`] |
-//! | 09 §2 the steam valve has no whitelist | [`div2_the_steam_valve_is_whitelist_gated`] |
-//! | 09 §3 the water valve is not tank-gated | [`div3_the_water_valve_is_tank_gated`] |
-//! | 09 §13 backflush fill and flush only logged | [`div39_backflush_fill_and_flush_reassert_their_hardware`] |
+//! And the behaviours left alone, which the ledger lists under its preserved ones:
 //!
-//! 09 §1 (the PID's integer division) is closed too, but in `cc-domain` rather
-//! than here: `cc_domain::pid_parity::scenario_d_the_cpp_goes_nan_and_this_port_does_not`.
-//!
-//! # Index
-//!
-//! | test | finding | applies? |
-//! | --- | --- | --- |
-//! | [`div2_the_steam_valve_is_whitelist_gated`] | §2 the steam valve has no safety whitelist | **closed** |
-//! | [`div3_the_water_valve_is_tank_gated`] | §3 the water valve is not tank-gated | **closed** |
-//! | [`s4_the_emergency_debounce_keeps_the_heater_on`] | §4 S1's debounce keeps heating | yes |
-//! | [`s5_the_emergency_threshold_constant_is_dead`] | §5 two dead "145 °C" constants | yes |
-//! | [`s6_the_anti_windup_dead_band_can_freeze_the_integrator`] | §6 anti-windup gate | no (PID, R2-04) |
-//! | [`s7_the_shipped_pid_gains_look_like_bang_bang`] | §7 gains look like on/off | no (PID, R2-04) |
-//! | [`s8_config_validation_is_per_parameter_only`] | §8 no cross-parameter validation | no (`cc-safety`, R2-05) |
-//! | [`s1_the_pid_sample_time_is_integer_divided_by_1000`] | §1 integer division by zero | **fixed** in `cc-domain`, R1-07 |
-//! | [`div1_the_pump_timeouts_are_armed`] | **new** — the pump watchdogs are dead | **closed** |
-//! | [`s12_the_sensor_error_recovery_clock_is_never_reset`] | **new** — `ErrorStates.cpp:49` is unreachable | yes |
-//! | [`div39_backflush_fill_and_flush_reassert_their_hardware`] | **closed** — backflush fill and flush re-assert | **closed** |
-//! | [`s14_the_water_switch_does_not_wake_the_machine_from_standby`] | **new** — `hasUserActivity()` is a stub | yes |
-//! | [`s15_the_power_off_happens_before_the_standby_request`] | **new** — a one-tick window | yes |
+//! * [`the_emergency_debounce_needs_three_readings`] -- three readings above the threshold.
+//! * [`the_live_emergency_thresholds_are_the_defaults`] -- 150 °C to trip, 100 °C to recover.
+//! * [`the_sensor_error_recovery_delay_is_measured_from_entry`] -- a persistent fault recovers at
+//!   once.
+//! * [`the_water_switch_does_not_wake_the_machine_from_standby`] -- the water switch only extends
+//!   the timer.
+//! * [`the_power_off_happens_before_the_standby_request`] -- one tick of pump after the shutdown.
 
 mod common;
 
@@ -58,25 +44,23 @@ use cc_machine::{
 use common::Harness;
 
 // ---------------------------------------------------------------------------
-// §2 — the steam valve had no safety whitelist. CLOSED.
+// §2 — the steam valve is whitelist-gated
 // ---------------------------------------------------------------------------
 
-/// **Divergence, see [`intentional-diffs.md`](../../docs/history/divergences.md)
-/// #2 and 09 §2.** This replaces `s2_the_steam_valve_is_not_whitelist_gated`,
-/// which pinned the C++ behaviour.
+/// The steam valve is opened only in `STEAM_RUNNING`, and asserted closed everywhere else.
 ///
-/// Three things are asserted, and all three matter:
+/// [`divergences.md` §2](../../docs/history/divergences.md#d02). Three things are asserted, and
+/// all three matter:
 ///
-/// 1. **The whitelist exists and is `STEAM_RUNNING` and nothing else.**
-///    `cc_safety::steam_flow_allowed` is a `match` with no wildcard arm, so
-///    adding a 19th state is a compile error until someone classifies it.
-/// 2. **The reducer honours it.** Over every state and every event, the steam
-///    valve is never *opened* outside `STEAM_RUNNING`, and is *closed* in every
-///    other state — the `steamValveSafetyShutdownCheck` this port adds, which is
-///    the mirror of S5 and the only reason the gap cannot be reopened by a new
-///    state.
-/// 3. **The two whitelists are disjoint**, because the steam and water valves
-///    are the same physical relay (`ValveState.h:8-11`).
+/// 1. **The whitelist is `STEAM_RUNNING` and nothing else.** `cc_safety::steam_flow_allowed` is a
+///    `match` with no wildcard arm, so adding a 19th state is a compile error until someone
+///    classifies it.
+/// 2. **The reducer honours it**, over every state and every event: the valve is never *opened*
+///    outside `STEAM_RUNNING`, and is *closed* in every other state. The close is the mirror of
+///    S5 for the other valve, and it is what stops a new state from reopening the gap.
+/// 3. **The two whitelists are disjoint**, because the steam and water valves are the same
+///    physical relay, so a state on both lists could open the shared relay for water while the
+///    steam list believed steam was flowing.
 #[test]
 fn div2_the_steam_valve_is_whitelist_gated() {
     let config = common::automatic_brew_with_preinfusion();
@@ -87,9 +71,9 @@ fn div2_the_steam_valve_is_whitelist_gated() {
         for ev in all_events() {
             let (next, fx) = reduce(&machine, &ctx, ev);
             if steam_flow_allowed(state) {
-                // STEAM_RUNNING: the port leaves the valve alone rather than
-                // opening it, because nothing in the C++ ever asked for steam
-                // to be drawn (see the module note on `Effect::OpenSteamValve`).
+                // Inside the whitelist the valve is left alone rather than opened: nothing in
+                // this firmware asks for steam to be drawn yet (see the module note on
+                // `Effect::OpenSteamValve`).
                 assert_eq!(
                     common::count(&fx, Effect::OpenSteamValve),
                     0,
@@ -148,21 +132,18 @@ fn div2_the_steam_valve_is_whitelist_gated() {
 }
 
 // ---------------------------------------------------------------------------
-// §3 — the water valve was not gated on an empty tank. CLOSED.
+// §3 — the water valve is gated on the water tank
 // ---------------------------------------------------------------------------
 
-/// **Divergence, see [`intentional-diffs.md`](../../docs/history/divergences.md)
-/// #3 and 09 §3.** This replaces `s3_the_water_valve_is_not_gated_on_an_empty_tank`,
-/// which pinned the C++ behaviour.
+/// An empty tank refuses the pump **and** the water valve.
 ///
-/// The C++ checks `waterTankEmpty_` in `enablePump` and `setPumpPressure`
-/// (`HardwareManager.cpp:325-328,398-406`) and **not** in `openWaterValve`, so an
-/// empty tank in a water-flow state still permits the valve. The port refuses
-/// it.
+/// [`divergences.md` §3](../../docs/history/divergences.md#d03). Refusing the valve as well as the
+/// pump is the divergence: the tank feeds the pump, so a valve left open over an empty tank draws
+/// air into the group head and runs the pump dry.
 ///
-/// The heater is deliberately *not* gated on the tank: the boiler is a separate
-/// vessel, and `hardware.sensors.watertank.keep_heater_on_empty` is a real
-/// configuration the machine must honour.
+/// The heater is deliberately *not* gated on the tank. The boiler is a separate vessel, and
+/// `hardware.sensors.watertank.keep_heater_on_empty` is a real configuration the machine has to
+/// honour.
 #[test]
 fn div3_the_water_valve_is_tank_gated() {
     // `cc-safety`'s verdict now refuses the pump *and* the valve.
@@ -175,7 +156,7 @@ fn div3_the_water_valve_is_tank_gated() {
     assert!(!verdict.verdict.may_pump, "S4 refuses the pump");
     assert!(
         !verdict.verdict.may_open_water,
-        "divergence: S4 also refuses the water valve — see 09 §3"
+        "S4 refuses the water valve as well as the pump"
     );
     assert!(verdict.verdict.may_heat, "the boiler is a separate vessel");
 
@@ -209,31 +190,30 @@ fn div3_the_water_valve_is_tank_gated() {
 }
 
 // ---------------------------------------------------------------------------
-// §4 — the emergency debounce keeps the heater on
+// S1's debounce: three readings, then the latch
 // ---------------------------------------------------------------------------
 
-/// **Preserved deliberately, see 09 §4.** S1 needs three consecutive readings
-/// above `safety.emergency_temp`, so at the production 400 ms sensor interval the
-/// heater stays energised for up to ~800 ms while already above the emergency
-/// temperature.
+/// `cc_safety::DEBOUNCE_COUNT` consecutive readings are needed to latch, and the latch does not
+/// set on the first or on the second.
 ///
-/// The port keeps the debounce exactly: `cc_safety::DEBOUNCE_COUNT == 3`, and the
-/// latch does not set on the first or second above-threshold reading. The
-/// recommendation in doc 09 (trip immediately on a reading above the threshold,
-/// use the debounce only for recovery) is **not** implemented here — that would be
-/// a deliberate divergence for R4-09's `intentional-diffs.md`.
+/// The consequence is a real exposure rather than a style choice: at the production 400 ms sensor
+/// interval the heater stays permitted for up to about 800 ms while the probe already reads above
+/// the emergency temperature. Tripping on the first reading is the safer behaviour and is not
+/// implemented here, so the ledger records this as an open item rather than as a settled decision:
+/// [`divergences.md`](../../docs/history/divergences.md), the preserved-behaviours table.
 ///
-/// The two readings that *do* trip immediately are the implausible ones, and that
-/// is preserved too: `EmergencyStopManager.cpp:25-33` has no debounce for a
-/// reading outside `[0, 200]`.
+/// The debounce counts *distinct* samples, which is what `Telemetry::sample_seq` exists to express.
+/// A test that re-used one telemetry value would model one reading seen repeatedly, and the control
+/// task samples far faster than the probe.
+///
+/// An implausible reading is the exception: anything outside the plausible range latches at once,
+/// because there is no benign explanation for it.
 #[test]
-fn s4_the_emergency_debounce_keeps_the_heater_on() {
+fn the_emergency_debounce_needs_three_readings() {
     let cfg = cc_safety::SafetyConfig::default();
-    // Each iteration is a **distinct sample**, which is what the C++'s debounce
-    // counts and what `Telemetry::sample_seq` exists to express. A test that
-    // re-used one telemetry value would now model one reading seen repeatedly —
-    // the defect fixed on 2026-10-01, where the control task's 100 Hz calls
-    // against a 2.5 Hz probe latched an emergency stop in 30 ms.
+    // Each iteration is a **distinct sample**, which is what the debounce counts and what
+    // `Telemetry::sample_seq` exists to express. Re-using one telemetry value would model one
+    // reading seen repeatedly, and would latch an emergency stop in milliseconds.
     let mut seq = 0_u32;
     let mut telemetry = || {
         seq += 1;
@@ -248,13 +228,12 @@ fn s4_the_emergency_debounce_keeps_the_heater_on() {
         let outcome = cc_safety::reduce(&safety, &telemetry(), &cfg, Millis::new(0));
         assert!(
             !outcome.verdict.latched,
-            "preserved: reading {reading} of {} does not latch — see 09 §4",
+            "reading {reading} of {} does not latch: the debounce needs three",
             cc_safety::DEBOUNCE_COUNT
         );
         assert!(
             outcome.verdict.may_heat,
-            "preserved: the heater is still permitted on reading {reading} — \
-             this is the exposure doc 09 §4 describes"
+            "the heater is still permitted on reading {reading}: two readings do not latch"
         );
         safety = outcome.state;
     }
@@ -282,23 +261,22 @@ fn s4_the_emergency_debounce_keeps_the_heater_on() {
 }
 
 // ---------------------------------------------------------------------------
-// §5 — the two dead "145 °C" constants
+// The live emergency thresholds
 // ---------------------------------------------------------------------------
 
-/// **Preserved deliberately, see 09 §5.** `Temperature::EMERGENCY_THRESHOLD_C =
-/// 145.0` and `EMERGENCY_RESET_THRESHOLD_C = 120.0`
-/// (`constants/Temperature.h:6-7`) are read **nowhere**. The live value is
-/// `config_.emergencyStopTemp`, default 150.0 (`Config.h:813`).
+/// 150 °C trips and 100 °C clears, and both are the configured defaults rather than constants the
+/// machine ignores.
 ///
-/// The port's threshold is 150.0, matching the running firmware, not the dead
-/// constant. 100.0 is `EMERGENCY_SAFE_TEMP_C` (`Temperature.h:11`), which *is*
-/// live and *is* the recovery threshold.
+/// The trip threshold is `safety.emergency_temp`, so a configuration that never sets it trips
+/// where the shipped machine does; the recovery threshold is `cc_safety::EMERGENCY_SAFE_TEMP_C`.
+/// The two are far apart on purpose: a latch that cleared at the trip threshold would chatter on a
+/// probe sitting near it.
 #[test]
-fn s5_the_emergency_threshold_constant_is_dead() {
+fn the_live_emergency_thresholds_are_the_defaults() {
     assert_eq!(
         cc_safety::SafetyConfig::default().emergency_temp,
         Celsius::new(150.0),
-        "the live default is 150 °C, not the dead 145 °C constant (09 §5)"
+        "the default trip threshold is the configured one"
     );
     assert_eq!(
         cc_safety::EMERGENCY_SAFE_TEMP_C,
@@ -306,8 +284,7 @@ fn s5_the_emergency_threshold_constant_is_dead() {
         "the recovery threshold is the live 100 °C constant"
     );
 
-    // A 149 °C reading is above the dead 145 °C constant and below the live
-    // threshold, and must not latch.
+    // A 149 °C reading is below the default threshold, so nothing may latch.
     let cfg = cc_safety::SafetyConfig::default();
     let mut safety = cc_safety::SafetyState::CLEAR;
     let telemetry = cc_safety::Telemetry::new(Celsius::new(149.0), true, MachineState::PidNormal);
@@ -319,23 +296,22 @@ fn s5_the_emergency_threshold_constant_is_dead() {
 }
 
 // ---------------------------------------------------------------------------
-// §11 (new) — the pump watchdogs were never armed. CLOSED.
+// §1 — both pump watchdogs are armed
 // ---------------------------------------------------------------------------
 
-/// **Divergence, see [`intentional-diffs.md`](../../docs/history/divergences.md)
-/// #1 and 09 §11.** This replaces `s11_the_pump_timeouts_are_never_armed`, which
-/// pinned the C++ behaviour.
+/// Both pump watchdogs are armed, and a trip is announced before it acts.
 ///
-/// In the C++ both watchdogs are dead: `PumpTimer` initialises
-/// `isRunning_ = false` (`PumpTimer.h:14`) and **nothing calls `start()`**, so
-/// `isExpired()` returns `false` unconditionally and the two `logError` lines
-/// are unreachable. Hold the water switch forever and the pump runs forever.
+/// [`divergences.md` §1](../../docs/history/divergences.md#d01). The clock starts on the tick that
+/// commands the pump **on**, not on the tick a state is entered, and it is cleared when the pump
+/// is commanded off. Hold the water switch and the pump stops after sixty seconds; hold a brew and
+/// it stops after five minutes. An unbounded pump run on a machine with a 2 kW boiler is the
+/// failure this prevents.
 ///
-/// Here both are **armed on the activating edge** and a trip is **announced**
-/// before it acts. The C++'s constants and its two actions are unchanged.
+/// The two announcement strings are verbatim: they are the ledger's `matchers` for this divergence,
+/// so the parity harness compares against them.
 #[test]
 fn div1_the_pump_timeouts_are_armed() {
-    // The constants survive, with the C++'s values.
+    // The two deadlines, pinned because they are the safety contract.
     assert_eq!(cc_machine::timing::BREW_PUMP_TIMEOUT_MS, 300_000);
     assert_eq!(cc_machine::timing::HOT_WATER_PUMP_TIMEOUT_MS, 60_000);
 
@@ -343,8 +319,8 @@ fn div1_the_pump_timeouts_are_armed() {
     let mut h = Harness::in_state(MachineState::BrewRunning);
     h.config.brew.mode = cc_domain::process::BrewMode::Manual;
 
-    // The activating edge: `BrewRunningState::update` pushes `EnablePump`
-    // (`BrewStates.cpp:245`), and that is where the clock starts.
+    // The activating edge: this tick's update commands the pump on, and that is where the clock
+    // starts.
     let fx = h.elapse(10);
     assert!(common::has(&fx, Effect::EnablePump), "{fx:?}");
     assert_eq!(
@@ -375,13 +351,12 @@ fn div1_the_pump_timeouts_are_armed() {
     assert_eq!(
         at,
         deadline + 10 + 1_000,
-        "`isExpired` is a strict `>`, so the first tick strictly past the deadline"
+        "the deadline test is strict, so the trip lands on the first tick past it"
     );
 
-    // Announced before it acts. `pump_timeouts` runs after `states::update`
-    // (`LoopManager` step 4-tail), so the pump and valve writes for this tick
-    // precede it; what matters is that the trip is *visible*, and that it is
-    // emitted at all rather than being a silent hardware change.
+    // Announced before it acts, in the same tick and after the pump writes. What matters is that
+    // the trip is *visible* and that it is emitted at all, rather than being a silent hardware
+    // change.
     assert!(
         common::has(
             &fx,
@@ -394,12 +369,12 @@ fn div1_the_pump_timeouts_are_armed() {
     assert_eq!(
         PumpWatchdog::Brew.message(),
         "Pump timeout - stopping for safety",
-        "BrewHandler.h:256, verbatim"
+        "verbatim: the ledger's matcher for §1"
     );
     assert!(!fx.contains(&Effect::DisablePump), "{fx:?}");
 
-    // And the C++'s action, unchanged: a brew-stop **request**, consumed by the
-    // *next* `checkTransitions` (`BrewHandler.h:259`).
+    // The action is a brew-stop **request**, consumed by the next tick's transition rather than
+    // this one, so the pump is written exactly once per tick.
     assert!(h.requested(Request::BrewStop), "{fx:?}");
     assert_eq!(
         h.state(),
@@ -443,10 +418,9 @@ fn div1_the_pump_timeouts_are_armed() {
     let (at, fx) = trip.expect("the hot-water watchdog never fired");
     assert!(at > deadline, "it fired after the deadline, at {at} ms");
 
-    // `HotWaterHandler.h:116-120`: log, then `context.disablePump()`. The
-    // tick's own `EnablePump` (from `PidNormalState::update`, which sees the
-    // switch still held) precedes both — which is the point of asserting the
-    // *order of the two watchdog effects*, not their absolute index.
+    // The announcement precedes the stop. The tick's own `EnablePump` comes first -- the water
+    // switch is still held, so `PID_NORMAL`'s update asks for the pump again -- which is why this
+    // asserts the *order of the two watchdog effects* rather than their absolute index.
     let announced = common::index_of(
         &fx,
         Effect::PumpTimeoutFired {
@@ -459,36 +433,34 @@ fn div1_the_pump_timeouts_are_armed() {
     assert_eq!(
         PumpWatchdog::HotWater.message(),
         "Hot water pump timeout - stopping for safety",
-        "HotWaterHandler.h:117, verbatim (and recovered from the previous Rust \
-         firmware, 08 §4.2)"
+        "verbatim: the ledger's matcher for §1"
     );
 }
 
-/// The arming rule is not "any brew state" and not "any state with the switch
-/// held". Asserted against `arm_pump_watchdogs` **directly** rather than through
-/// a tick, because a tick also *transitions*: `BREW_PREINFUSION_PAUSE` moves to
-/// `BREW_RUNNING` inside the same tick (the pause is time-based) and would
-/// therefore be armed for the wrong reason.
+/// The arming rule follows the pump command: not "any brew state", and not "any state with the
+/// water switch held".
+///
+/// Asserted against `arm_pump_watchdogs` **directly** rather than through a tick, because a tick
+/// also *transitions*: `BREW_PREINFUSION_PAUSE` moves to `BREW_RUNNING` inside the same tick (the
+/// pause is time-based) and would therefore be armed for the wrong reason.
 #[test]
 fn div1_the_watchdogs_arm_only_while_the_pump_is_commanded_on() {
     for (state, hot_water, brew_armed, hot_water_armed) in [
-        // The two brew states whose `update()` pushes `EnablePump`
-        // (`BrewStates.cpp:70,245`).
+        // The two brew states whose update commands the pump on.
         (MachineState::BrewPreinfusion, false, true, false),
         (MachineState::BrewRunning, false, true, false),
-        // A pause is a brew state the C++'s own `isBrewActive()` accepts, but
-        // its `update()` pushes `DisablePump` (`BrewStates.cpp:172`), so a pause
-        // is not pump run time and must not run the clock.
+        // A pause is a brew state, but its update commands the pump *off* to hold puck pressure,
+        // so a pause is not pump run time and must not run the clock.
         (MachineState::BrewPreinfusionPause, false, false, false),
         (MachineState::BrewFinished, false, false, false),
-        // Not covered by either C++ timer, and deliberately not extended here.
+        // Neither watchdog covers these two, deliberately: each is bounded by its own timeout.
         (MachineState::ManualFlushRunning, false, false, false),
         (MachineState::BackflushFilling, false, false, false),
         // The water switch means hot water only in PID_NORMAL.
         (MachineState::PidNormal, true, false, true),
         (MachineState::PidNormal, false, false, false),
-        // In STEAM_RUNNING the same switch means water *injection*, not hot
-        // water (`SteamStates.cpp:36-46`), so it must not start that clock.
+        // In STEAM_RUNNING the same switch means water *injection*, not hot water, so it must not
+        // start that clock.
         (MachineState::SteamRunning, true, false, false),
     ] {
         let (brew, hot) = arming_result(state, hot_water);
@@ -541,31 +513,21 @@ fn div1_the_watchdogs_re_arm_after_a_release() {
 }
 
 // ---------------------------------------------------------------------------
-// §12 (new) — the sensor-error recovery clock is never reset
+// A persistent sensor error recovers as soon as the fault clears
 // ---------------------------------------------------------------------------
 
-/// **Preserved deliberately; new finding.**
+/// The recovery delay is measured from **entry** to `SENSOR_ERROR`, not from the moment the fault
+/// clears.
 ///
-/// `SensorErrorState::checkSpecificTransitions` says it will "keep resetting the
-/// clock so recovery delay is measured from when the error actually clears"
-/// (`ErrorStates.cpp:47-50`). It does not, and cannot:
+/// The faulted guard answers with the state the machine is already in, and a self-transition is
+/// discarded, so the entry time is never re-stamped while the probe stays faulted. A fault that
+/// persists for an hour and then clears therefore recovers on the next tick instead of waiting the
+/// recovery delay out.
 ///
-/// `BaseState::checkTransitions` tests `hasSensorError()` with **no exclusion**
-/// (`BaseState.h:145-148`), so while the probe is faulted the guard returns
-/// `SENSOR_ERROR` — a discarded self-transition (`StateMachine.cpp:107-111`) —
-/// and `checkSpecificTransitions` is never called. The `errorStartTime_ =
-/// millis()` line is unreachable.
-///
-/// The delay is therefore measured from **entry**. A probe fault that persists
-/// for an hour and then clears does not wait five seconds; the machine recovers
-/// on the next loop.
-///
-/// The recovery is still safe — it only happens once the error is genuinely
-/// clear, and the guard re-checks every loop — but it is not what the comment
-/// says, and `test_sensor_error_state` cannot see it because its stubs always
-/// report the error clear.
+/// The recovery is still safe: it happens only once the error is genuinely clear, and the guard is
+/// re-checked on every tick. It is the *delay* that does not apply, not the check.
 #[test]
-fn s12_the_sensor_error_recovery_clock_is_never_reset() {
+fn the_sensor_error_recovery_delay_is_measured_from_entry() {
     let mut h = Harness::in_state(MachineState::SensorError);
     h.config.pid.enabled = true;
     h.config.hardware.sensors.watertank.enabled = true;
@@ -586,7 +548,7 @@ fn s12_the_sensor_error_recovery_clock_is_never_reset() {
         assert_eq!(h.state(), MachineState::SensorError, "minute {minute}");
         assert_eq!(
             h.machine.error_since, entry,
-            "preserved: ErrorStates.cpp:49 never runs, so the clock never moves"
+            "the entry time is not re-stamped while the fault persists"
         );
     }
 
@@ -596,7 +558,7 @@ fn s12_the_sensor_error_recovery_clock_is_never_reset() {
     assert_eq!(
         h.state(),
         MachineState::PidNormal,
-        "preserved: the delay is measured from entry, not from the clear"
+        "the delay is measured from entry, not from the clear"
     );
 }
 
@@ -636,32 +598,20 @@ fn div39_backflush_fill_and_flush_reassert_their_hardware() {
 }
 
 // ---------------------------------------------------------------------------
-// §14 (new) — the water switch does not wake the machine from standby
+// The water switch does not wake the machine from standby
 // ---------------------------------------------------------------------------
 
-/// **Preserved deliberately; new finding.**
+/// The water switch is activity for the standby timer and nothing else.
 ///
-/// `StandbyState::checkSpecificTransitions` exits standby on
-/// `isBrewStartRequested() || isSteamStartRequested() || hasUserActivity() ||
-/// shouldExitStandby()` (`SystemStates.cpp:50-51`). The last two are **stubs that
-/// return false**:
+/// It pushes the countdown out -- `Effect::ResetStandbyTimer` -- and does not wake the machine, so
+/// a user who walks up to a sleeping machine, holds the water switch for a cup of hot water and
+/// lets go gets a machine that is still asleep with a freshly extended timer. Only the brew and
+/// steam switches wake it, and the last part of the test shows that.
 ///
-/// ```cpp
-/// bool MachineStateContext::hasUserActivity() const {
-///     // This is a simplified implementation...
-///     return false; // TODO: Implement proper user activity detection
-/// }
-/// ```
-/// (`MachineStateContext.cpp:419-423`)
-///
-/// So only the brew and steam switches can wake the machine. The water switch
-/// cannot — it resets the standby countdown
-/// (`MachineStateContext.cpp:262-267`) and does nothing else. A user who walks up
-/// to a sleeping machine, holds the water switch for a cup of hot water, and lets
-/// go gets a machine that is still asleep and whose standby timer has just been
-/// pushed out.
+/// Kept as it is: [`divergences.md`](../../docs/history/divergences.md) lists it under the
+/// preserved behaviours, where "do not fix these" is the instruction.
 #[test]
-fn s14_the_water_switch_does_not_wake_the_machine_from_standby() {
+fn the_water_switch_does_not_wake_the_machine_from_standby() {
     let mut h = Harness::in_state(MachineState::Standby);
     h.config.pid.enabled = true;
     h.config.standby.enabled = true;
@@ -678,8 +628,7 @@ fn s14_the_water_switch_does_not_wake_the_machine_from_standby() {
     assert_eq!(
         h.state(),
         MachineState::Standby,
-        "preserved: the water switch does not wake the machine \
-         (MachineStateContext.cpp:419-423) — see 09 §14"
+        "the water switch extends the countdown without waking the machine"
     );
     assert_eq!(common::count(&fx, Effect::EnablePump), 0, "{fx:?}");
 
@@ -695,32 +644,20 @@ fn s14_the_water_switch_does_not_wake_the_machine_from_standby() {
 }
 
 // ---------------------------------------------------------------------------
-// §15 (new) — the power-off shutdown precedes the standby request
+// The power-off shutdown precedes the standby request by one tick
 // ---------------------------------------------------------------------------
 
-/// **Preserved deliberately; new finding.**
+/// The hardware is shut down first, and the standby request is consumed on the next tick.
 ///
-/// `PowerHandler::powerOff` (`PowerHandler.h:163-175`):
+/// For that one tick the machine is in `PID_NORMAL` with the hardware already off, and
+/// `PID_NORMAL`'s update commands the pump on again while the water switch is held. Powering off
+/// mid-dispense therefore restarts the pump for one control period: narrow, sub-millisecond in
+/// practice, and real.
 ///
-/// ```cpp
-/// if (state != STANDBY) {
-///     processController->performSafeShutdown();
-///     context->setStandbyRequested(true);
-///     standbyCoordinator().setRemainingTimeMillis(0);
-/// }
-/// ```
-///
-/// The hardware is shut down, and *then* the standby request is set — but the
-/// request is not consumed until the next `checkTransitions`, i.e. the next loop.
-/// For that one loop the machine is in `PID_NORMAL` with the hardware already
-/// off, and `PidNormalState::update` will `enablePump()` if the water switch is
-/// held (`PidStates.cpp:36-38`).
-///
-/// So powering off while dispensing hot water re-enables the pump for one loop
-/// after the "safe shutdown". Narrow — one control-loop iteration, sub-millisecond
-/// in practice — and real.
+/// Kept as it is: [`divergences.md`](../../docs/history/divergences.md) lists it under the
+/// preserved behaviours, where "do not fix these" is the instruction.
 #[test]
-fn s15_the_power_off_happens_before_the_standby_request() {
+fn the_power_off_happens_before_the_standby_request() {
     let mut h = Harness::in_state(MachineState::PidNormal);
     h.config.hardware.switches.power.r#type = cc_domain::hardware::SwitchType::Momentary;
     let _ = h.tick();
@@ -740,8 +677,7 @@ fn s15_the_power_off_happens_before_the_standby_request() {
     let fx = h.tick();
     assert!(
         common::has(&fx, Effect::EnablePump),
-        "preserved: PID_NORMAL's update re-enables the pump in the one loop \
-         between the shutdown and the transition — see 09 §15: {fx:?}"
+        "PID_NORMAL's update restarts the pump between the shutdown and the transition: {fx:?}"
     );
     assert_eq!(
         h.state(),
@@ -796,25 +732,18 @@ fn all_events() -> Vec<Event> {
     events
 }
 
-/// **09 §25, closed:** a request to sleep is honoured with the PID disabled.
+/// A sleep request is honoured while the PID is off.
 ///
-/// `isStandbyRequested()` is checked by exactly two states in the C++
-/// (`PidNormalState`, `PidStates.cpp:85`, and `EepromErrorState`,
-/// `ErrorStates.cpp:78`). `PidDisabledState::checkSpecificTransitions`
-/// (`PidStates.cpp:135-148`) checks only the standby **timer**, so in the C++ a
-/// request to sleep is silently dropped whenever the PID happens to be off.
+/// [`divergences.md` §16](../../docs/history/divergences.md#d16). Found on hardware: `POST
+/// /api/sleep` answered `202 {"accepted":true}`, `control: command Sleep` reached the log, and the
+/// state never left `PID_DISABLED`. Since `pid.enabled` defaults to `false`, that was the
+/// out-of-the-box configuration, so the machine could not be put to sleep through its own web
+/// interface at all.
 ///
-/// Found on hardware by the human driving the web UI: `POST /api/sleep`
-/// answered `202 {"accepted":true}`, `control: command Sleep` appeared in the
-/// log — so the request reached the machine — and the state never left
-/// `PID_DISABLED`. Since `pid.enabled` defaults to `false`, that is the
-/// out-of-the-box configuration, and the machine could not be put to sleep
-/// through its own web interface at all.
-///
-/// Closed 2026-09-30 by the human's decision: `PidDisabled` honours the request,
-/// which is what its sibling state one line away already does.
+/// `PID_DISABLED` therefore honours the request, as the sibling state one line away already did.
+/// Sleep itself needs no heat: putting a cold machine to sleep is a legitimate request.
 #[test]
-fn div13_a_sleep_request_is_honoured_with_the_pid_disabled() {
+fn a_sleep_request_is_honoured_with_the_pid_disabled() {
     let mut h = Harness::in_state(MachineState::PidDisabled);
     // `in_state` sets the *state*; the runtime flag is separate, and leaving it
     // true would let `PidDisabled`'s first arm hand straight back to
@@ -823,27 +752,22 @@ fn div13_a_sleep_request_is_honoured_with_the_pid_disabled() {
     assert_eq!(h.state(), MachineState::PidDisabled, "the precondition");
     assert!(!h.machine.pid.runtime_enabled, "the PID is off");
 
-    // The command sets the request; the **next tick** is where the state
-    // machine checks it — which is the C++'s arrangement too (a request is
-    // polled by `checkSpecificTransitions`, never acted on where it is set).
+    // The command sets the request; the tick that follows is where the state's rules see it. A
+    // request is never acted on where it is set.
     h.send(Event::Command(Command::Standby));
     h.tick();
 
     assert_eq!(
         h.state(),
         MachineState::Standby,
-        "divergence: a sleep request must be honoured with the PID off — \
-         the C++ drops it here (09 §25)"
+        "a sleep request is honoured with the PID off"
     );
 }
 
-/// The request is **consumed**, so a later tick does not re-enter standby.
-///
-/// `MachineStateContext::setStandbyRequested(false)` — every C++ handler that
-/// reads a request also clears it, and that is what stops a stale flag from
-/// driving the machine somewhere it was never asked to go.
+/// The request is **consumed**, so a later tick does not re-enter standby with nothing having
+/// asked it to.
 #[test]
-fn div13_the_sleep_request_is_consumed_and_not_repeated() {
+fn the_sleep_request_is_consumed_and_not_repeated() {
     let mut h = Harness::in_state(MachineState::PidDisabled);
     h.machine.pid.runtime_enabled = false;
     h.send(Event::Command(Command::Standby));
@@ -858,9 +782,9 @@ fn div13_the_sleep_request_is_consumed_and_not_repeated() {
 
 /// Waking from standby still works, and does not need the PID.
 ///
-/// The other half: closing §25 must not make standby a one-way door.
+/// The other half of §16: making sleep work with the PID off must not make standby a one-way door.
 #[test]
-fn div13_waking_from_standby_still_works_with_the_pid_disabled() {
+fn waking_from_standby_still_works_with_the_pid_disabled() {
     let mut h = Harness::in_state(MachineState::PidDisabled);
     h.machine.pid.runtime_enabled = false;
     h.send(Event::Command(Command::Standby));
@@ -873,6 +797,6 @@ fn div13_waking_from_standby_still_works_with_the_pid_disabled() {
     assert_ne!(
         h.state(),
         MachineState::Standby,
-        "divergence: a wake request must be honoured from standby (09 §25)"
+        "a wake request is honoured from standby"
     );
 }

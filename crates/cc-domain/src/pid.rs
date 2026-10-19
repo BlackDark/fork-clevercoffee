@@ -1,101 +1,103 @@
-//! A port of the vendored Arduino `PID_v1` library.
-//!
-//! Source of truth: `lib/Arduino-PID-Library/PID_v1.cpp` and `PID_v1.h`, which
-//! the firmware constructs in `SystemInitializer::initializeContext`
-//! (`src/core/SystemInitializer.cpp:296-305`) and configures in
-//! `initializePID` (`:536-566`).
+//! The PID controller the heater output is computed with, and the defects in the
+//! arithmetic it reproduces on purpose.
 //!
 //! # Parity
 //!
-//! Every arithmetic step below is the corresponding line of `PID_v1.cpp`, in the
-//! same order, in `f64` — because the C++ uses `double`. Nothing is
-//! "improved": the algorithm is reproduced, including its defects, because a
-//! controller that behaves differently is a controller that boils differently.
+//! Every arithmetic step below is a step of the reference implementation, in the same
+//! order, in `f64` -- because the reference uses `double`. Nothing is "improved": the
+//! algorithm is reproduced, including its defects, because a controller that behaves
+//! differently is a controller that boils differently.
 //!
-//! Parity is measured, not asserted by inspection. A fixed four-scenario input
-//! sequence is replayed against the **real** C++ library by
-//! `crates/cc-domain/tools/pid_oracle/run.sh`, and the expected outputs in that
-//! module's test tables (`src/pid_parity.rs`, compiled only under `cfg(test)`)
-//! are that program's output.
+//! Parity is measured, not asserted by inspection. A fixed four-scenario input sequence
+//! was replayed against the reference implementation by
+//! `crates/cc-domain/tools/pid_oracle/pid_oracle.cpp`, and the expected outputs in
+//! `src/pid_parity.rs` -- compiled only under `cfg(test)` -- are that program's output.
+//! The program needs the reference library to compile, and that library is not in this
+//! tree any more, so the vectors are frozen evidence rather than regenerable; see the
+//! program's own header.
 //!
-//! # Deliberate differences from the C++
+//! # Deliberate differences from the reference
 //!
-//! | # | C++ | Here | Why |
-//! | --- | --- | --- | --- |
-//! | D1 | `PID(double* Input, double* Output, double* Setpoint, …)` — three raw pointers to caller-owned variables | [`Controller`] owns the three values as fields | The C++ aliases the caller's `double`s and reads `*myOutput` for its anti-windup test (`PID_v1.cpp:70`). Keeping the values inside the controller is the same aliasing with no possibility of a dangling pointer or an accidental write from elsewhere. The shell assigns `input`/`setpoint`/`output` fields directly. |
-//! | D2 | the constructor calls `millis()` | [`Controller::new`] takes `now: Millis` | A pure function of its arguments. The C++ value is `millis() - SampleTime` (`PID_v1.cpp:42`) and it is reproduced exactly. |
-//! | D3 | seven members are left uninitialised (`PID_v1.h:108-113`) | all initialised to `0.0` | Unobservable in the firmware's usage — `SetMode(AUTOMATIC)` calls `Initialize()` before the first `Compute()` — but a Rust struct cannot be partially uninitialised, and zero is the safe value. See also D-PID-2 below. |
-//! | D4 | `if (Kp < 0 \|\| Ki < 0 \|\| Kd < 0) return;` silently discards the call | [`Controller::set_tunings`] returns `bool` | A rejected tuning is a configuration error, and the caller deserves to know. The firmware's own callers ignore it (`ProcessController.cpp:214`), which is why this is safe. |
+//! * **D1 -- the three values are owned, not aliased.** The reference takes three raw
+//!   pointers to caller-owned variables and reads its own output back for the anti-windup
+//!   test. Keeping the values in the controller is the same arithmetic with no dangling
+//!   pointer and no second writer; the shell assigns `input`, `setpoint` and `output`
+//!   directly.
+//! * **D2 -- the clock is an argument.** The reference's constructor reads a global clock;
+//!   [`Controller::new`] takes `now: Millis` and is a pure function of its arguments. The
+//!   reference's `clock - sample_time` is reproduced exactly, and it is what decides when
+//!   the first compute produces an output.
+//! * **D3 -- every field is initialised.** Seven of the reference's members have no
+//!   initialiser. That is unobservable in this firmware's usage -- entering automatic mode
+//!   initialises the state before the first compute -- but a Rust struct cannot be
+//!   partially uninitialised, and zero is the safe value. See D-PID-2 below.
+//! * **D4 -- a rejected tuning is reported.** The reference discards a call whose gains
+//!   include a negative one; [`Controller::set_tunings`] returns `bool`. A rejected tuning
+//!   is a configuration error and the caller deserves to know. The firmware's own callers
+//!   ignore the result, which is why surfacing it is safe.
 //!
 //! # Reproduced upstream defects
 //!
-//! These are **bugs in the vendored library**, reproduced on purpose so that
-//! parity is exact. They are not endorsed, and R2-04's report flags them for a
-//! human decision rather than fixing them silently.
+//! These are **bugs in the reference implementation**, reproduced on purpose so that
+//! parity is exact. They are not endorsed; each is a recorded divergence rather than
+//! something fixed silently.
 //!
-//! * **D-PID-1 — integer division in the `P_ON_E` derivative term. FIXED.**
-//!   `PID_v1.cpp:85` reads
-//!   `dInput = (lastFilteredInput - oldFiltered) / (SampleTime / 1000);`
-//!   `SampleTime` is an `unsigned long` and `/ 1000` is **integer** division.
-//!   Any sample time below 1000 ms therefore yields a zero divisor, the
-//!   derivative is `±inf`, and the whole output becomes `NaN` — which the C++'s
-//!   own output clamp cannot catch, because `if (x > max) … else if (x < min)`
-//!   lets `NaN` through.
+//! * **D-PID-1 -- integer division in the `P_ON_E` derivative divisor. FIXED.** The
+//!   reference computes `difference / (sample_time / 1000)` where `sample_time` is an
+//!   integer, so `/ 1000` **truncates**. Any sample time below 1000 ms therefore yields a
+//!   zero divisor, the derivative is `±inf`, and the whole output becomes `NaN` -- which
+//!   the reference's own output clamp cannot catch, because a chain of
+//!   `if (x > max) ... else if (x < min)` lets `NaN` through.
 //!
-//!   The shipped firmware escapes this **only by coincidence**:
-//!   `SystemInitializer.cpp:551` sets the sample time to exactly
-//!   `processWindowSize()` = 1000 ms, so `1000 / 1000 == 1`. Nothing enforces
-//!   that, and R1-07 — changing the heater output method — is exactly the kind
-//!   of change that would move the window.
+//!   The machine escapes this **only by coincidence**: the sample time is set to exactly
+//!   the 1000 ms chopper window, so `1000 / 1000 == 1`. Nothing enforces that, and any
+//!   change to the way the heater is driven is exactly the kind of change that would move
+//!   the window.
 //!
-//!   **The port divides by the real elapsed time instead**
-//!   ([`Controller::derivative_seconds_at`]), so the divisor is positive for
-//!   every window and no configuration can produce a `NaN`. The trap stays
-//!   visible: [`Controller::derivative_seconds`] is the nominal term, and this
-//!   paragraph is the reason.
+//!   **This controller divides by the real elapsed time instead**
+//!   ([`Controller::derivative_seconds_at`]), so the divisor is positive for every window
+//!   and no configuration can produce a `NaN`. The trap stays visible:
+//!   [`Controller::derivative_seconds`] is the nominal term, and this paragraph is the
+//!   reason.
 //!
-//!   Parity at the shipped window is unaffected and is *measured*: all four
-//!   oracle scenarios still match the C++ `to_bits()` on every step, maximum
-//!   |delta| **0.0**. The port can only differ from the C++ when a step arrives
-//!   *late*, where the C++ divides by the nominal 1.0 s and the port divides by
-//!   the interval that actually elapsed. That is a deliberate, bounded
-//!   divergence — see `docs/history/divergences.md` #4.
+//!   Parity at the shipped window is unaffected and is *measured*: the agreement
+//!   scenarios (A, B and C) match the reference's bit patterns on every step, maximum
+//!   |delta| **0.0**. This controller can only differ when a step arrives *late*, where
+//!   the reference divides by the nominal 1.0 s and this one divides by the interval that
+//!   actually elapsed -- a deliberate, bounded divergence, §4 of
+//!   `docs/history/divergences.md`.
 //!
-//! * **D-PID-2 — the constructor does not initialise the controller state.**
-//!   `integrator`, `lastInput`, `lastFilteredInput`, `lastFilteredDifferential`,
-//!   `lastError`, `lastPPart` and `lastDPart` have no initialiser in
-//!   `PID_v1.h:108-113`. Correctness depends entirely on `SetMode(AUTOMATIC)`
-//!   calling `Initialize()` (`PID_v1.cpp:238-244`) before the first
-//!   `Compute()`. Construct the controller, leave it in `Manual`, and call
-//!   `compute()` forever and nothing happens — harmless — but a future edit that
-//!   makes `compute()` run in manual mode would read uninitialised memory.
+//! * **D-PID-2 -- the constructor does not initialise the controller state.** The
+//!   integrator, the last input, the filtered input and its difference, the last error and
+//!   the last P and D terms have no initialiser in the reference. Correctness depends
+//!   entirely on entering automatic mode first, which initialises them. Construct the
+//!   controller, leave it in [`Mode::Manual`], and call `compute()` for ever and nothing
+//!   happens -- harmless -- but a future edit that made `compute()` run in manual mode
+//!   would read uninitialised memory.
 //!
-//! * **D-PID-3 — the anti-windup integrator gate uses a strict `<`/`>` pair
-//!   with a dead band.** `PID_v1.cpp:70` only accumulates when the previous
-//!   output is strictly inside `(outMin + 0.01, outMax - 0.01)`. With the
-//!   production limits `(0, 1000)`, an output of exactly `0.0` does **not**
-//!   accumulate, so the very first compute after start-up has `integrator == 0`
-//!   no matter how large the error. That is the shipped behaviour and the
-//!   parity vector pins it.
+//! * **D-PID-3 -- the anti-windup gate has a dead band.** The integrator accumulates only
+//!   while the previous output is strictly inside `(out_min + 0.01, out_max - 0.01)`. With
+//!   the production limits `(0, 1000)`, an output of exactly `0.0` does **not** accumulate,
+//!   so the first compute after start-up has a zero integrator however large the error is.
+//!   That is the shipped behaviour, and a parity vector pins it.
 
 use crate::units::Millis;
 
 /// Whether the proportional term acts on the error or on the measurement.
 ///
-/// `P_ON_M` exists to avoid derivative kick when the setpoint steps. The
-/// firmware selects it for the brew-detection tuning
-/// (`src/control/ProcessController.cpp:214`) and the P term becomes zero.
+/// `P_ON_M` exists to avoid derivative kick when the setpoint steps. The firmware selects
+/// it for the brew-detection tuning, and the P term then contributes nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ProportionalOn {
-    /// Proportional on error. `PID_v1.h` `P_ON_E` = 1.
+    /// Proportional on error, the shipped setting.
     Error,
-    /// Proportional on measurement. `PID_v1.h` `P_ON_M` = 0.
+    /// Proportional on measurement, so a setpoint step does not kick the derivative.
     Measurement,
 }
 
 /// Whether increasing the output raises or lowers the input.
 ///
-/// `DIRECT` = 0, `REVERSE` = 1 in `PID_v1.h`.
+/// A heater is [`ControllerDirection::Direct`]: more duty raises the temperature.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ControllerDirection {
     /// Output up, input up. The only direction the firmware uses.
@@ -107,26 +109,24 @@ pub enum ControllerDirection {
 /// Whether the controller is running.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Mode {
-    /// Hold the output where the shell put it; do not compute.
-    ///
-    /// The C++ `MANUAL` = 0.
+    /// Hold the output where the shell put it and do not compute. The initial mode.
     Manual,
     /// Compute on every sample period.
     ///
-    /// The C++ `AUTOMATIC` = 1. Entering this mode from `Manual` performs the
-    /// bumpless transfer (`Initialize()`), which is why
-    /// [`Controller::set_mode`] has no extra arguments: the input and output
+    /// Entering this mode from [`Mode::Manual`] performs the bumpless transfer: the state
+    /// is initialised from the current input and output, so the output does not jump. That
+    /// is why [`Controller::set_mode`] needs no extra arguments -- the input and output
     /// live in the controller.
     Automatic,
 }
 
-/// A port of the Arduino `PID_v1` controller.
+/// The PID controller.
 ///
-/// See the module documentation for the C++ line-by-line mapping and for the
-/// list of upstream defects that are reproduced deliberately.
+/// See the module documentation for the step-by-step mapping and for the list of upstream
+/// defects reproduced deliberately.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Controller {
-    // ---- externally-owned in the C++; fields here (difference D1) ----------
+    // ---- the three values the reference aliases; fields here (D1) ----------
     /// The process variable. The firmware writes the temperature here.
     pub input: f64,
     /// The controller output, bounded by `out_min ..= out_max`. In this machine
@@ -186,30 +186,29 @@ impl Controller {
     pub const DEFAULT_OUT_MIN: f64 = 0.0;
     /// See [`Self::DEFAULT_OUT_MIN`].
     pub const DEFAULT_OUT_MAX: f64 = 255.0;
-    /// The library's default integrator limits (`PID_v1.cpp:35`).
+    /// The library's default integrator limits.
     pub const DEFAULT_INTEGRATOR_MIN: f64 = -100.0;
     /// See [`Self::DEFAULT_INTEGRATOR_MIN`].
     pub const DEFAULT_INTEGRATOR_MAX: f64 = 100.0;
-    /// The library's default sample period in milliseconds (`PID_v1.cpp:37`).
+    /// The library's default sample period in milliseconds.
     ///
     /// NOTE the firmware immediately overrides this with
     /// `processWindowSize()` = 1000 ms. The default is only observable in the
     /// window between construction and `SetSampleTime`, and it is what
     /// `last_time` is computed from — see difference D2.
     pub const DEFAULT_SAMPLE_TIME: Millis = Millis::new(100);
-    /// The library's default input low-pass coefficient (`PID_v1.h:106`).
+    /// The library's default input low-pass coefficient.
     pub const DEFAULT_FILTER_ALPHA: f64 = 0.9;
 
-    /// Construct, mirroring `PID::PID(...)` (`PID_v1.cpp:20-43`).
+    /// Construct a controller with the three gains, the proportional mode and the
+    /// direction.
     ///
-    /// `now` is what the C++ would have read from `millis()`: the constructor
-    /// sets `lastTime = millis() - SampleTime` using the *default* 100 ms
-    /// sample time, before any `set_sample_time` call, and that value
-    /// determines when the first `compute()` produces an output. The firmware's
-    /// `initializePID` raises the sample time to 1000 ms straight afterwards, so
-    /// in practice the first compute happens one 100 ms tick after boot rather
-    /// than one 1000 ms tick — a quirk this port reproduces rather than
-    /// smooths over.
+    /// `now` is the time the constructor would have read from a clock. It sets
+    /// `last_time = now - sample_time` using the **default** 100 ms sample time, before
+    /// any `set_sample_time` call, and that value decides when the first `compute()`
+    /// produces an output. The firmware raises the sample time to 1000 ms immediately
+    /// afterwards, so the first compute happens one 100 ms tick after boot rather than one
+    /// 1000 ms tick -- a quirk reproduced rather than smoothed over.
     #[must_use]
     pub fn new(
         now: Millis,
@@ -248,60 +247,50 @@ impl Controller {
             last_d_part: 0.0,
             in_auto: false,
         };
-        // PID_v1.cpp:42: `lastTime = millis() - SampleTime;`
+        // `last_time = now - sample_time`, with the default 100 ms period.
         this.last_time = now.since(Self::DEFAULT_SAMPLE_TIME);
-        // PID_v1.cpp:33-35 already set the limits above; then 39-40:
+        // The output limits are already set above, by the struct literal.
         this.set_direction(direction);
         this.set_tunings(kp, ki, kd, proportional_on);
         this
     }
 
-    /// The `P_ON_E` derivative divisor for a sample that lands **exactly** on the
-    /// window.
+    /// The `P_ON_E` derivative divisor for a sample that lands **exactly** on the window.
     ///
-    /// This is `SampleTime / 1000` computed in `f64` — the C++ computes it in
-    /// `unsigned long` (`PID_v1.cpp:85`) and the *shape* of the expression is
-    /// kept so the two are recognisably the same term. The difference is the
-    /// `f64` division, and that difference is the whole of deliberate
+    /// This is `sample_time / 1000` computed in `f64`. The reference computes the same
+    /// expression in integer arithmetic, and the *shape* of it is kept here so the two are
+    /// recognisably the same term. The `f64` division is the whole of deliberate
     /// divergence D-PID-1.
     ///
     /// # D-PID-1, closed
     ///
-    /// The C++ reads
+    /// The reference evaluates `difference / (sample_time / 1000)` with an integer
+    /// `sample_time`, so `/ 1000` **truncates**: any sample time below 1000 ms makes the
+    /// divisor zero, the derivative `±inf`, and the whole output `NaN` -- and the
+    /// reference's own clamp cannot catch that, because `if (x > max) ... else if (x <
+    /// min)` lets a `NaN` through untouched. The machine escapes this **by coincidence**:
+    /// the sample time is set to exactly the 1000 ms chopper window, so
+    /// `1000 / 1000 == 1`, and nothing enforces that.
     ///
-    /// ```cpp
-    /// dInput = (lastFilteredInput - oldFiltered) / (SampleTime / 1000);
-    /// ```
-    ///
-    /// `SampleTime` is an `unsigned long`, so `/ 1000` is **integer** division.
-    /// Any sample time below 1000 ms makes the divisor `0`, the derivative is
-    /// `±inf`, and the whole output becomes `NaN` (it survives the C++'s own
-    /// `if (x > max) … else if (x < min)` clamp, which lets `NaN` through
-    /// untouched). The shipped firmware escapes this **by coincidence** —
-    /// `SystemInitializer.cpp:551` sets the sample time to exactly
-    /// `processWindowSize()` = 1000 ms, so `1000 / 1000 == 1` — and nothing
-    /// enforces that.
-    ///
-    /// In the port the divisor is [`Self::derivative_seconds_at`] with the
-    /// **actual elapsed time**, so it is strictly positive for every window and
-    /// a `SetSampleTime` can never manufacture a `NaN`. The trap is still
-    /// *visible*: [`Self::derivative_seconds`] is the nominal term, this
-    /// function is what the code divides by, and both are in the module docs.
+    /// Here the divisor is [`Self::derivative_seconds_at`] with the **actual elapsed
+    /// time**, so it is strictly positive for every window and no `set_sample_time` can
+    /// manufacture a `NaN`. The trap stays *visible*, though: [`Self::derivative_seconds`]
+    /// is the nominal term, this function is the nominal divisor, and the module
+    /// documentation carries the reasoning twice on purpose.
     ///
     /// # Parity
     ///
-    /// At the shipped 1000 ms window, and for any step that lands exactly on
-    /// it, this is `1.0` and the C++'s is `1.0`, so the term is bit-identical.
-    /// That is measured, not asserted: see
-    /// `crate::pid_parity::scenario_a_production_pon_e_matches_the_cpp_library`
-    /// and its three siblings, which compare `to_bits()` on every step of all
-    /// four oracle scenarios — maximum |delta| **0.0**.
+    /// At the shipped 1000 ms window, and for any step that lands exactly on it, this is
+    /// `1.0` and so is the reference's, so the term is bit-identical. That is measured,
+    /// not asserted: see
+    /// `crate::pid_parity::scenario_a_production_pon_e_matches_the_reference_library` and
+    /// its siblings, which compare bit patterns on every step of the agreement scenarios
+    /// -- a maximum |delta| of **0.0** across A, B and C.
     ///
-    /// The one place the port can differ from the C++ at a 1000 ms window is a
-    /// step that arrives *late*: the C++ divides by the nominal 1.0 s whatever
-    /// the real interval was, the port divides by the real one. That is the
-    /// point of the fix, it is bounded by the scheduling jitter, and it is
-    /// quantified by
+    /// The one place this controller can differ at a 1000 ms window is a step that arrives
+    /// *late*: the reference divides by the nominal 1.0 s whatever the real interval was,
+    /// and this divides by the real one. That is the point of the fix; it is bounded by the
+    /// scheduling jitter, and it is quantified by
     /// `crate::pid_parity::scenario_e_a_late_step_uses_the_real_interval`.
     #[must_use]
     pub fn derivative_seconds(&self) -> f64 {
@@ -311,46 +300,40 @@ impl Controller {
     /// The divisor the `P_ON_E` derivative term **actually** uses: the real
     /// time since the previous `compute`, in seconds.
     ///
-    /// Strictly positive whenever `compute` got past its own guard, because
-    /// that guard is `elapsed >= sample_time` and `set_sample_time` rejects a
-    /// zero period. That is the property the C++ lacks.
+    /// Strictly positive whenever `compute` got past its own guard, because that guard is
+    /// `elapsed >= sample_time` and `set_sample_time` rejects a zero period. That is the
+    /// property a nominal divisor lacks.
     ///
-    /// Why elapsed and not the configured window: the C++'s *intent* is
-    /// plainly `dInput/dt` with `dt` the time between samples, and a controller
-    /// whose `dt` is a configuration constant rather than a measurement is a
-    /// controller whose derivative gain is wrong by exactly the ratio of the
-    /// real interval to the nominal one. On a 100 Hz control loop with a 1000 ms
-    /// window that error is under 1 %, which is why nobody has noticed; move the
-    /// window to 500 ms and the C++ does not merely get it wrong, it divides by
-    /// zero.
+    /// Why the elapsed time and not the configured window: the derivative term means
+    /// `dInput/dt` with `dt` the time between samples, and a controller whose `dt` is a
+    /// configuration constant rather than a measurement has a derivative gain wrong by
+    /// exactly the ratio of the real interval to the nominal one. On a 100 Hz control loop
+    /// with a 1000 ms window that error is under 1 %, which is why it is easy to miss; at a
+    /// 500 ms window it is not an error at all but a division by zero.
     #[must_use]
     pub fn derivative_seconds_at(&self, elapsed: Millis) -> f64 {
         f64::from(elapsed.raw()) / 1000.0
     }
 
-    /// The three gains as the operator entered them — `PID_v1`'s `GetKp`,
-    /// `GetKi` and `GetKd` (`PID_v1.h:279-292`).
+    /// The three gains as the operator entered them.
     ///
-    /// **Needed by the display, and the reason is a defect it caught.** The
-    /// screen's PID row shows `Kp | Kp/Ki | Kd/Kp`
-    /// (`DisplayTemplateBase.h:165`), and the firmware was feeding it the
-    /// controller's *last P, I and D terms* instead — the integral accumulator
-    /// among them, which grows without bound. The row read `4444|81|0 - 100%`:
-    /// three numbers that mean nothing to an operator, the first wide enough to
-    /// push the rest into the output column.
+    /// **Needed by the display.** The screen's PID row shows `Kp | Kp/Ki | Kd/Kp`, and the
+    /// controller's *last P, I and D terms* are not a substitute for the gains: the
+    /// integral accumulator among them grows without bound, and a row built from the terms
+    /// read `4444|81|0 - 100%` -- three numbers that mean nothing to an operator, the first
+    /// wide enough to push the rest into the output column.
     ///
-    /// The gains as entered, not `kp_eff`/`ki_eff`/`kd_eff`: the C++'s `GetKp`
-    /// returns the entered value, and that is what the row is labelled with.
+    /// The gains as entered, not the effective ones the arithmetic uses: the row is
+    /// labelled with what the operator set.
     #[must_use]
     pub fn gains(&self) -> (f64, f64, f64) {
         (self.kp, self.ki, self.kd)
     }
 
-    /// `SetTunings(Kp, Ki, Kd, POn)` (`PID_v1.cpp:145-169`).
+    /// Set the three gains and the proportional mode.
     ///
-    /// Returns `false` and changes nothing if any gain is negative
-    /// (`PID_v1.cpp:146`). The C++ silently returns; surfacing it is difference
-    /// D4.
+    /// Returns `false` and changes nothing if any gain is negative, which the reference
+    /// does silently; surfacing it is difference D4.
     pub fn set_tunings(
         &mut self,
         kp: f64,
@@ -386,11 +369,10 @@ impl Controller {
         true
     }
 
-    /// `SetSampleTime(NewSampleTime)` (`PID_v1.cpp:181-188`).
+    /// Set the sample period.
     ///
-    /// Rescales `ki` and `kd` by the ratio of the new and old periods, exactly
-    /// as the C++ does, so a change of window does not retune the controller.
-    /// A non-positive period is rejected.
+    /// Rescales `ki` and `kd` by the ratio of the new and old periods, so a change of
+    /// window does not retune the controller. A non-positive period is rejected.
     pub fn set_sample_time(&mut self, new_sample_time: Millis) -> bool {
         if new_sample_time.raw() == 0 {
             return false;
@@ -402,16 +384,15 @@ impl Controller {
         true
     }
 
-    /// `SetSmoothingFactor(alpha)` (`PID_v1.cpp:190-192`).
+    /// `SetSmoothingFactor(alpha)`.
     pub fn set_smoothing_factor(&mut self, alpha: f64) {
         self.filter_alpha = alpha;
     }
 
-    /// `SetOutputLimits(Min, Max)` (`PID_v1.cpp:202-218`).
+    /// Set the output limits.
     ///
-    /// Returns `false` and changes nothing if `min >= max` (`PID_v1.cpp:203`).
-    /// The C++ additionally clamps the caller's output and the integrator when
-    /// running; here the output is a field, so both are clamped.
+    /// Returns `false` and changes nothing if `min >= max`. A running controller clamps
+    /// both its output and its integrator to the new limits.
     pub fn set_output_limits(&mut self, min: f64, max: f64) -> bool {
         if min >= max {
             return false;
@@ -426,7 +407,7 @@ impl Controller {
         true
     }
 
-    /// `SetIntegratorLimits(Min, Max)` (`PID_v1.cpp:220-231`).
+    /// `SetIntegratorLimits(Min, Max)`.
     ///
     /// Returns `false` and changes nothing if `min >= max`.
     pub fn set_integrator_limits(&mut self, min: f64, max: f64) -> bool {
@@ -460,7 +441,7 @@ impl Controller {
         self.in_auto
     }
 
-    /// `SetMode(Mode)` (`PID_v1.cpp:238-244`).
+    /// `SetMode(Mode)`.
     ///
     /// Entering [`Mode::Automatic`] from [`Mode::Manual`] performs the bumpless
     /// transfer (`Initialize()`), so no arguments are needed.
@@ -472,7 +453,7 @@ impl Controller {
         self.in_auto = new_auto;
     }
 
-    /// `SetControllerDirection(Direction)` (`PID_v1.cpp:266-273`).
+    /// `SetControllerDirection(Direction)`.
     ///
     /// Flipping direction while running negates the gains in place, which is
     /// why the firmware only ever sets it in the constructor.
@@ -485,7 +466,7 @@ impl Controller {
         self.direction = direction;
     }
 
-    /// `Initialize()` (`PID_v1.cpp:250-258`): the bumpless transfer.
+    /// `Initialize()`: the bumpless transfer.
     ///
     /// Seeds the integrator from the current output and the input history from
     /// the current input, so the first automatic compute does not step.
@@ -496,15 +477,15 @@ impl Controller {
         self.integrator = clamp(self.integrator, self.out_min, self.out_max);
     }
 
-    /// `Compute()` (`PID_v1.cpp:58-138`).
+    /// Compute one step.
     ///
-    /// Returns `true` when a new output was produced, `false` when the sample
-    /// period has not elapsed or the controller is in [`Mode::Manual`] — the
-    /// same contract as the C++, so the caller can use the return value to
-    /// decide whether to log.
+    /// Returns `true` when a new output was produced, and `false` when the sample period
+    /// has not elapsed or the controller is in [`Mode::Manual`] -- so a caller can use the
+    /// return value to decide whether there is anything to log or publish.
     ///
-    /// The C++ reads the clock itself; here it is `now`. The elapsed-time
-    /// subtraction wraps, matching the 32-bit `unsigned long` in `PID_v1.cpp:60`.
+    /// The clock arrives as `now` rather than being read here. The elapsed-time
+    /// subtraction wraps, because a millisecond counter is 32-bit and the controller has to
+    /// survive its 49.7-day rollover.
     pub fn compute(&mut self, now: Millis) -> bool {
         if !self.in_auto {
             return false;
@@ -525,8 +506,8 @@ impl Controller {
             self.integrator += self.ki_eff * error;
         }
 
-        // Exponentially weighted moving average of the input, used only for the
-        // P_ON_E derivative (PID_v1.cpp:74-79).
+        // Exponentially weighted moving average of the input, used only by the P_ON_E
+        // derivative.
         let old_filtered = self.last_filtered_input;
         self.last_filtered_input =
             self.filter_alpha * self.last_filtered_input + (1.0 - self.filter_alpha) * input;
@@ -536,15 +517,16 @@ impl Controller {
         // setpoint steps. P_ON_M uses the *unfiltered* difference because the
         // filter would otherwise leave it nothing to work with.
         let d_input = if self.p_on_e {
-            // PID_v1.cpp:85, with the divisor fixed — see D-PID-1 in the module
-            // docs. `elapsed` is the same `timeChange` the guard above used.
+            // The divisor is the real elapsed time rather than the truncated nominal one
+            // -- see D-PID-1 in the module docs. `elapsed` is the same value the guard
+            // above used.
             (self.last_filtered_input - old_filtered) / self.derivative_seconds_at(elapsed)
         } else {
             input - self.last_input
         };
 
-        // Proportional on measurement: the kp * dInput contribution moves into
-        // the integrator and there is no P part at all (PID_v1.cpp:91-94, 111-116).
+        // Proportional on measurement: the kp * dInput contribution moves into the
+        // integrator and there is no P term at all.
         if !self.p_on_e {
             self.integrator -= self.kp_eff * d_input;
         }
@@ -578,7 +560,7 @@ impl Controller {
         true
     }
 
-    // ---- getters, one per PID_v1.h accessor ------------------------------
+    // ---- accessors --------------------------------------------------------
 
     /// `GetKp()` — the gain as entered, *not* the direction-adjusted value.
     #[must_use]
@@ -651,13 +633,11 @@ impl Controller {
     }
 }
 
-/// `PID_v1.cpp`'s clamp idiom: a chain of `if`s, not a `max`/`min` pair.
+/// The reference's clamp idiom: a chain of `if`s, not a `max`/`min` pair.
 ///
-/// The C++ writes `if (x > max) x = max; else if (x < min) x = min;` in six
-/// places. The order matters for `NaN`: both comparisons are false, so a `NaN`
-/// passes through *unchanged* rather than being snapped to a limit. `f64::clamp`
-/// panics on `NaN` bounds and would not reproduce that, so this helper is the
-/// faithful form.
+/// The order matters for `NaN`: both comparisons are false, so a `NaN` passes through
+/// *unchanged* rather than being snapped to a limit. `f64::clamp` panics on `NaN` bounds
+/// and would not reproduce that, so this helper is the literal form.
 fn clamp(value: f64, min: f64, max: f64) -> f64 {
     if value > max {
         max
@@ -673,7 +653,6 @@ mod tests {
     use super::*;
 
     fn production(now: Millis) -> Controller {
-        // SystemInitializer.cpp:296-305 then :544-556.
         let mut c = Controller::new(
             now,
             62.0,
@@ -767,7 +746,6 @@ mod tests {
         assert!(c.compute(Millis::new(1000))); // output 1.0
         assert!(c.compute(Millis::new(2000))); // integrator accumulates to 1.0
         assert!(c.last_i_part() > 0.0);
-        // PID_v1.cpp:166-168
         assert!(c.set_tunings(1.0, 0.0, 0.0, ProportionalOn::Error));
         assert_close(c.last_i_part(), 0.0);
     }
@@ -815,8 +793,8 @@ mod tests {
     fn derivative_divisor_is_never_zero_at_any_window() {
         let mut c = production(Millis::ZERO);
         assert_close(c.derivative_seconds(), 1.0);
-        // At the shipped 1000 ms window the nominal term is exactly the C++'s
-        // `1000 / 1000`, so the arithmetic is bit-identical.
+        // At the shipped 1000 ms window the nominal term is exactly `1000 / 1000`, so the
+        // arithmetic is bit-identical to the reference's.
         assert_eq!(c.derivative_seconds().to_bits(), 1.0f64.to_bits());
 
         for window_ms in [1_u32, 10, 100, 250, 499, 500, 999, 1000, 2_000, 60_000] {
@@ -831,15 +809,15 @@ mod tests {
         }
     }
 
-    /// The new behaviour being bought: a window the C++ could not survive at all
-    /// now produces a finite, correct derivative.
+    /// The new behaviour being bought: a window the reference could not survive at all now
+    /// produces a finite, correct derivative.
     ///
-    /// The C++ at `SampleTime = 500` divides the filtered input difference by
-    /// zero, so the derivative is `±inf` and the output is `NaN` — reproduced
-    /// verbatim in oracle scenario D. Here it is `difference / 0.5 s`.
+    /// At a 500 ms sample time the reference divides the filtered input difference by zero,
+    /// so the derivative is `±inf` and the output `NaN` -- reproduced verbatim in section D
+    /// of the oracle's expected output. Here it is `difference / 0.5 s`.
     ///
-    /// The numbers are checked against the arithmetic by hand rather than against
-    /// a table, because there is no C++ value to compare to: that is the point.
+    /// The numbers are checked against the arithmetic by hand rather than against a table,
+    /// because there is no reference value to compare to: that is the point.
     #[test]
     fn a_sub_second_window_now_yields_a_finite_derivative() {
         let mut c = Controller::new(
@@ -878,8 +856,8 @@ mod tests {
         // filtered = 0.6*60.8 + 0.4*61 = 60.88; delta = 0.08; dInput = 0.16.
         assert_close(c.delta_input(), 0.16);
 
-        // The integrator and the output are inside their limits, which the C++
-        // can never be at this window.
+        // The integrator and the output are inside their limits, which the reference can
+        // never be at this window.
         assert!((0.0..=500.0).contains(&c.output), "{}", c.output);
         assert!(
             (0.0..=55.0).contains(&c.last_i_part()),
@@ -888,9 +866,9 @@ mod tests {
         );
     }
 
-    /// A late step: the C++ divides by the nominal window whatever the real
-    /// interval was. This is the one place the port can differ from it at a
-    /// 1000 ms window, so it is pinned explicitly rather than left implicit.
+    /// A late step: the nominal divisor is the window whatever the real interval was. This
+    /// is the one place this controller can differ from the reference at a 1000 ms window,
+    /// so it is pinned explicitly rather than left implicit.
     #[test]
     fn a_late_step_uses_the_real_interval() {
         // Built by hand rather than via `production()` so the input is seeded
@@ -913,22 +891,21 @@ mod tests {
         c.output = 0.0;
         c.set_mode(Mode::Automatic);
 
-        // The constructor left `last_time = 0 - 100`, so the first compute at
-        // t = 1000 sees 1100 ms: late even the first time, exactly as the C++.
+        // The constructor left `last_time = 0 - 100`, so the first compute at t = 1000
+        // sees 1100 ms: late even the first time, exactly as the reference.
         assert!(c.compute(Millis::new(1000)));
-        // Nothing has changed yet, so the difference is 0 whatever it is divided
-        // by — the C++ divides 0 by 1.0 and gets 0 too.
+        // Nothing has changed yet, so the difference is 0 whatever it is divided by.
         assert_close(c.delta_input(), 0.0);
         assert_close(c.derivative_seconds_at(Millis::new(1100)), 1.1);
         assert_close(c.derivative_seconds(), 1.0);
 
         c.input = 61.0;
-        // Exactly on the window: divisor 1.0 s, so dInput = 1.0 — the C++'s value.
+        // Exactly on the window: divisor 1.0 s, so dInput = 1.0 -- the reference's value.
         assert!(c.compute(Millis::new(2000)));
         assert_close(c.delta_input(), 1.0);
         assert_close(c.derivative_seconds_at(Millis::new(1000)), 1.0);
 
-        // 500 ms late: divisor 1.5 s, so dInput = 2/1.5. The C++ would say 2.0.
+        // 500 ms late: divisor 1.5 s, so dInput = 2/1.5. A nominal divisor would say 2.0.
         c.input = 63.0;
         assert!(c.compute(Millis::new(3500)));
         assert_close(c.delta_input(), 2.0 / 1.5);
@@ -956,7 +933,7 @@ mod tests {
 mod mode_query_tests {
     use super::{Controller, ControllerDirection, Millis, Mode, ProportionalOn};
 
-    /// A controller with the C++'s production gains (`ProcessController.cpp:296-305`).
+    /// A controller with the production gains.
     fn production() -> Controller {
         let mut pid = Controller::new(
             Millis::ZERO,

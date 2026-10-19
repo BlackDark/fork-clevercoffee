@@ -47,7 +47,7 @@ pub const PPM_LEN: usize = PPM_HEADER.len() + PIXEL_BYTES;
 
 /// Read a P4 PPM back into a framebuffer.
 ///
-/// The oracle writes one, so this is how its output becomes comparable.
+/// U8g2 writes one, so this is how its output becomes comparable.
 ///
 /// # Panics
 ///

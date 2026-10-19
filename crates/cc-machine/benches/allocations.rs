@@ -2,18 +2,15 @@
 //!
 //! # Why this measures allocations and not nanoseconds
 //!
-//! Before `284ad17a`, `reduce()` returned `(Machine, Vec<Effect>)` and allocated a
-//! fresh `Vec` per call, and the control task calls it 4-5 times per 10 ms tick.
-//! Measured at **4.00 heap allocations and ~192 bytes per tick** -- about 400
-//! allocations a second out of the task that also runs the heater deadman, on a
-//! device with ~320 KB of RAM. The C++ allocated nothing there:
-//! `git show main:src/core/LoopManager.cpp` writes relays inline into member
-//! state.
+//! A `reduce` that returns `(Machine, Vec<Effect>)` allocates a fresh `Vec` per call, and the
+//! control task calls it four or five times per 10 ms tick: **4.00 heap allocations and about
+//! 192 bytes per tick**, roughly 400 allocations a second out of the same task that runs the
+//! heater deadman, on a device with 320 KB of RAM.
 //!
-//! A host micro-benchmark of nanoseconds would NOT have caught that. An
-//! allocation is roughly as expensive as the rest of the tick put together, and
-//! what actually matters is allocator pressure on a fragmented 320 KB heap. So
-//! the reported number is allocations, and the time is printed only for scale.
+//! A host micro-benchmark of nanoseconds would NOT have caught that. An allocation costs about
+//! as much as the rest of the tick put together, and what matters is allocator pressure on a
+//! fragmented heap. So the reported number is allocations, and the time is printed only for
+//! scale.
 //!
 //! # The same measurement gates the build
 //!
@@ -52,11 +49,10 @@ const REPORTED_TICKS: u64 = 100_000;
 
 /// One control tick's worth of reducer work, exactly as `Control::tick` does it.
 ///
-/// `Control::tick` (`crates/cc-firmware/src/control.rs`) drives four `reduce`
-/// calls per tick -- the sensor sample, the safety verdict, the command drain
-/// and the tick itself. The two modelled here are the ones that each allocated
-/// a `Vec<Effect>` pre-fix and are representative of the cost; the pre-fix code
-/// measured 4.00 per tick across all four.
+/// `Control::tick` (`crates/cc-firmware/src/control.rs`) drives four `reduce` calls per tick --
+/// the sensor sample, the safety verdict, the command drain and the tick itself. The two
+/// modelled here are the ones that would allocate if `reduce` returned a `Vec`, and they are
+/// representative of the cost.
 fn one_tick(machine: &mut Machine, ctx: &Context<'_>, sensors: Sensors, now: Millis) {
     let (next, _effects) = reduce(machine, ctx, Event::SensorUpdated(sensors));
     *machine = next;
@@ -109,7 +105,6 @@ fn main() {
         per(bytes, REPORTED_TICKS)
     );
     println!();
-    println!("  pre-fix, before 284ad17a: 4.00 allocations and ~192 B per tick,");
-    println!("  plus 420 allocations per parameters_json() at the 10 ms gate.");
+    println!("  target: 0 allocations and 0 bytes, however long the run");
     assert_eq!(allocs, 0, "the control tick allocated {allocs} times");
 }

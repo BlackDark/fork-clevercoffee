@@ -1,23 +1,18 @@
-//! Finding #15: a brew pressed during the emergency latch must not fire on
-//! recovery.
+//! A brew pressed during the emergency latch must not fire when the latch clears.
 //!
-//! **Measured on a bench ESP32, 2026-10-07.** With a bench build
-//! (`just bench-flash`, emergency threshold at 30 °C) the machine was tripped by
-//! warming a DS18B20 by hand. A brew press during the latch was correctly
-//! refused — `enablePump REFUSED — latched 1`, and the pump LED stayed dark. The
-//! probe then cooled below the threshold, the latch cleared, **and the machine
-//! started that same brew with nobody pressing anything.** On a real machine the
-//! water is at brewing temperature and the reservoir is not empty.
+//! **Measured on a bench ESP32, 2026-10-07.** With a bench build (`just bench-flash`, emergency
+//! threshold at 30 °C) the machine was tripped by warming a DS18B20 by hand. A brew press during
+//! the latch was correctly refused -- `enablePump REFUSED - latched 1`, and the pump LED stayed
+//! dark. The probe then cooled below the threshold, the latch cleared, **and the machine started
+//! that same brew with nobody pressing anything.** On a real machine the water is at brewing
+//! temperature and the reservoir is not empty.
 //!
-//! The fix is compliance with this repository's own rules rather than an
-//! invention: `AG-REPO-24` ("states that cannot act on action requests must
-//! drain them") and ADR-0003 rules 2 and 3 (drain on entry, and during update
-//! guarded by the same condition as the exit). It is a divergence from the C++,
-//! recorded in `docs/history/divergences.md` §36.
+//! The state drains its action requests on entry and in its update: `AG-REPO-24` ("states that
+//! cannot act on action requests must drain them") plus ADR-0003 rules 2 and 3.
+//! `docs/history/divergences.md` §36 records the drain.
 //!
-//! The contrast is the point, and it is asserted at the bottom of this file: the
-//! same press in `WATER_TANK_EMPTY` was already drained, which is what the
-//! operator saw on the LEDs during R4-04 case 13.3.
+//! The drain is not a new policy, and the last test is the contrast that shows it: an empty tank
+//! already drained the same press before the latch did.
 
 mod common;
 
@@ -108,9 +103,8 @@ fn the_recovery_tick_starts_no_brew() {
     );
 }
 
-/// The contrast with 13.3, which is what makes this a *fix* rather than a
-/// different policy: `WATER_TANK_EMPTY` already drained the same press, and
-/// that is what the operator watched happen at the LEDs.
+/// The contrast with an empty tank: `WATER_TANK_EMPTY` already drained the same press, so the
+/// latch draining it too is consistency rather than a second policy.
 #[test]
 fn an_empty_tank_drains_the_same_press_and_the_latch_now_does_too() {
     let mut tank = common::Harness::in_state(MachineState::PidNormal);
@@ -126,18 +120,14 @@ fn an_empty_tank_drains_the_same_press_and_the_latch_now_does_too() {
     );
 }
 
-/// **The window the first version of the fix missed.** The tick drain was
-/// originally guarded on `is_emergency_stop()` — `safety.latched` — on the belief
-/// that it was "the same condition as this state's exit transition". It is not:
-/// the exit test is `is_emergency_cleared`, a *temperature* test. `cc_safety`
-/// clears the latch earlier in the same control period, so on the recovery tick
-/// the guard was already false, the drain was skipped, and a request that had
-/// arrived in that window survived into `PID_NORMAL` and started a brew.
+/// **The tick the latch clears on.** The drain in `update` cannot be guarded on the latch: the
+/// exit test is `cc_safety::can_clear`, a *temperature* test, and `cc_safety` clears the latch
+/// earlier in the same control period. On the recovery tick the latch is therefore already false
+/// while the machine is still in `EMERGENCY_STOP`, so a latch-guarded drain would skip exactly
+/// the tick that matters.
 ///
-/// This test is the one that pins it: the request is set **after** the latch has
-/// been cleared and while the machine is still in `EMERGENCY_STOP`, which is
-/// exactly the state of the world on that tick. Removing the unguarded drain
-/// makes it fail.
+/// This test pins that: the request is set **after** the latch has been cleared and before the
+/// tick runs. Removing the unguarded drain makes it fail.
 #[test]
 fn a_request_set_on_the_recovery_tick_is_still_drained() {
     let mut h = latched_machine_with_a_brew_pressed_during_the_latch();
@@ -198,9 +188,8 @@ fn every_action_request_is_drained_except_the_standby_wake_signal() {
     );
 }
 
-/// Where recovery actually lands. The first version of this file asserted only
-/// `assert_ne!(state, EmergencyStop)`, which a regression to `Standby` or a
-/// permanent re-entry loop would satisfy.
+/// Where recovery lands. A bare `assert_ne!(state, EmergencyStop)` would also pass on a
+/// regression to `Standby`, or on a state that never leaves at all.
 #[test]
 fn recovery_lands_in_init_and_not_in_a_brew_state() {
     let mut h = latched_machine_with_a_brew_pressed_during_the_latch();
@@ -213,14 +202,14 @@ fn recovery_lands_in_init_and_not_in_a_brew_state() {
     assert_eq!(
         h.state(),
         MachineState::Init,
-        "EMERGENCY_STOP returns to INIT (EmergencyStopState.cpp:43), not \
-         straight to PID_NORMAL"
+        "EMERGENCY_STOP returns to INIT, which re-reads the runtime PID flag, and \
+         not straight to PID_NORMAL"
     );
     assert!(!h.machine.requests.brew_start);
 }
 
-/// `AG-REPO-24` names the error states too, and with the inhibit deleted a
-/// request that survives one starts a real brew when the machine recovers.
+/// The error states drain as well: a request that survives one starts a real brew when the
+/// machine recovers (`AG-REPO-24`, and §37 of `docs/history/divergences.md`).
 #[test]
 fn a_brew_pressed_during_a_sensor_error_is_not_acted_on_after_it_recovers() {
     use cc_machine::{timing, Sensors};

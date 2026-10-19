@@ -1,28 +1,25 @@
 //! The in-memory configuration value.
 //!
-//! # Generated structure, hand-checked
+//! # Structure
 //!
-//! The 98 fields and their defaults below are transcribed from
-//! `include/clevercoffee/Config.h` and `include/clevercoffee/defaults.h`. The
-//! nesting is chosen so that a `serde_json` serialisation of [`Config`] is
-//! **byte-compatible with the C++ `Config::exportToJson()`** for every key the
-//! C++ exports: `ConfigJson::setNested` (`src/ConfigJson.cpp:83-106`) turns the
-//! dotted key `pid.regular.kp` into `{"pid":{"regular":{"kp":…}}}`, and so does
-//! the struct layout here. `schema::SCHEMA` is the flat view of the same
-//! registry, and a test asserts the two agree.
+//! The 98 fields and their defaults below are the schema's parameters, one field
+//! each. The nesting is chosen so that a `serde_json` serialisation of [`Config`]
+//! is **byte-compatible with the documented export format** for every key: a
+//! dotted key `pid.regular.kp` becomes `{"pid":{"regular":{"kp":…}}}`, which is the
+//! shape `docs/example_config.json` carries and the shape the import test parses.
+//! `schema::SCHEMA` is the flat view of the same registry, and a test asserts the
+//! two agree.
 //!
 //! # Field types
 //!
-//! * `bool`, `i32` and `f64` for the three scalar kinds. The C++ uses `double`
-//!   for every numeric parameter that is not an `int`, so `f64` is the faithful
-//!   choice and avoids a lossy round trip through `f32`.
-//! * The C++ enumerations, as Rust enums from `cc-domain`. They serialise as
-//!   their integer discriminant, matching `EnumParamDef::toJson`
-//!   (`Config.h:420-424`).
+//! * `bool`, `i32` and `f64` for the three scalar kinds. A numeric parameter that
+//!   is not a count is an `f64`, which avoids a lossy round trip through `f32`.
+//! * Rust enums from `cc-domain` for the enumerations. They serialise as their
+//!   integer discriminant, which is what the wire format carries.
 //! * `Secret<String>` for the four credentials. See [`crate::Secret`].
-//! * `String` for the remaining text parameters. The C++ does not length-check
-//!   them at all, so a fixed-capacity type here would reject configurations the
-//!   C++ accepts; see `schema`'s module documentation.
+//! * `String` for the remaining text parameters: a fixed-capacity type here would
+//!   reject configurations that have no length bound to begin with; see `schema`'s
+//!   module documentation.
 //!
 //! # Accessors
 //!
@@ -78,9 +75,9 @@ pub fn revert_key(config: &mut Config, key: &str) -> bool {
     true
 }
 
-/// The whole configuration: 98 typed fields mirroring the C++
-/// `ParamDef` members. See the module documentation for the mapping and
-/// for the six ways this differs from the C++.
+/// The whole configuration: 98 typed fields, one per schema parameter. See the
+/// module documentation for the mapping and for the ways this differs from a
+/// naive per-parameter store.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -403,7 +400,8 @@ impl Default for Steam {
 // A configuration group is a bag of independent user-settable flags, not a
 // state machine: `heating_logo`, `pid_off_logo` and the three fullscreen-timer
 // toggles have no relationship to one another, and collapsing them into
-// two-variant enums would make the JSON diverge from the C++ for no gain.
+// two-variant enums would make an exported configuration harder to read for no
+// gain.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -674,11 +672,10 @@ pub struct HardwareSwitchesBrew {
     ///
     /// Enable physical brew switch.
     ///
-    /// **Defaults to `true`, diverging from the C++'s `false`**
-    /// (`Config.h:985`). The human owns this machine, asked for the four
-    /// operator switches to work, and they were all disabled. Recorded in
-    /// `intentional-diffs.md`; the floating-input risk of an enabled switch on
-    /// an unwired input-only pin is recorded there too.
+    /// **Defaults to `true`.** The human owns this machine, asked for the four
+    /// operator switches to work, and found them all disabled. Recorded as §14 of
+    /// `docs/history/divergences.md`, which also records the floating-input risk of
+    /// an enabled switch on an unwired input-only pin.
     pub enabled: bool,
     /// `hardware.switches.brew.type` - Brew Switch Type
     ///
@@ -818,31 +815,16 @@ pub struct HardwareSensorsTemperature {
 }
 
 impl Default for HardwareSensorsTemperature {
-    /// `TSIC_306`, matching `Config.h:1085-1092`:
+    /// `TSIC_306`.
     ///
-    /// ```cpp
-    /// EnumParamDef<Hardware::TemperatureSensorType> hardwareSensorsTemperatureType{
-    ///     "hardware.sensors.temperature.type",
-    ///     Hardware::TemperatureSensorType::TSIC_306, ...
-    /// ```
+    /// The default is the sensor type this firmware's schema documents, and a machine
+    /// fitted with anything else reports a not-connected temperature sensor that names
+    /// the type it asked for — a visible failure rather than a silent one.
     ///
-    /// An earlier revision defaulted this to `DALLAS_DS18B20`, on the grounds
-    /// that the probe fitted to the development machine is a DS18B20 (family
-    /// `0x28`, ROM `286937aacd78af41`, measured) and that
-    /// `cc_safety::validate_config` rejected `TSIC_306` — so the C++'s default
-    /// would have been a value the machine refused to run.
-    ///
-    /// **Reversed, because the reason no longer holds.** The TSIC-306 driver now
-    /// exists (`cc_protocol::sensor::tsic306`, R3-07) and `validate_config` no
-    /// longer refuses it, so there is no longer a default that the validator
-    /// rejects and no reason to prefer a development-machine fact over the C++'s
-    /// shipped default. The C++'s value is restored for parity.
-    ///
-    /// **What this does not mean** is that a TSIC-306 is fitted anywhere. The
-    /// probe on the attached machine is a DS18B20 and always has been. A
-    /// configuration left at this default on such a machine reports a
-    /// not-connected temperature sensor and says which sensor it asked for —
-    /// which is the correct, visible failure, and the thing the C++ got wrong.
+    /// The DS18B20 probe on the development machine is a fact about that machine, not
+    /// a reason to change the default for every machine. §7 of
+    /// `docs/history/divergences.md` records the decision and the two sensor drivers
+    /// behind it.
     fn default() -> Self {
         Self {
             r#type: TemperatureSensorType::Tsic306,
@@ -905,7 +887,8 @@ pub struct HardwareSensorsScale {
     pub samples: i32,
     /// `hardware.sensors.scale.type` - Scale Type
     ///
-    /// Integrated HX711-based scale with different load cell configurations or Bluetooth Low Energy scales
+    /// Integrated HX711-based scale with different load cell configurations, or a
+    /// Bluetooth Low Energy scale
     #[serde(with = "crate::as_int")]
     pub r#type: ScaleType,
     /// `hardware.sensors.scale.calibration` - Scale Calibration
@@ -993,7 +976,8 @@ pub struct MaintenanceBackflushReminder {
     pub enabled: bool,
     /// `maintenance.backflush_reminder.threshold` - Backflush Reminder Threshold
     ///
-    /// Number of counted brews before a backflush reminder is shown (default ~monthly at 2 shots/day)
+    /// Number of counted brews before a backflush reminder is shown (about
+    /// monthly at 2 shots a day)
     ///
     /// Range: `1 ..= 500`.
     pub threshold: i32,
@@ -1250,11 +1234,11 @@ impl Default for Safety {
 /// The subset of the configuration that decides whether an actuator may be
 /// energised.
 ///
-/// `cc-config` cannot depend on `cc-safety` — the dependency direction in 04 §6
-/// makes them siblings, both below `cc-machine` — so this is a plain view of the
-/// safety-relevant values, and `cc-firmware` (or `cc-hal-esp32`) converts it
-/// with `cc_safety::SafetyConfig::from(view)` at wiring time. Keeping the struct
-/// here means those values are named in exactly one place.
+/// `cc-config` cannot depend on `cc-safety` — they are siblings, and both sit
+/// below `cc-machine` — so this is a plain view of the safety-relevant values, and
+/// `cc-firmware` (or `cc-hal-esp32`) converts it with
+/// `cc_safety::SafetyConfig::from(view)` at wiring time. Keeping the struct here
+/// means those values are named in exactly one place.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SafetyView {
     /// `safety.emergency_temp`, as a [`Celsius`].
@@ -1295,13 +1279,10 @@ pub struct SafetyView {
     /// `brew.by_weight.enabled` — the stop condition that needs a scale to mean
     /// anything, which is why [`SafetyView::scale_fitted`] is here.
     pub brew_by_weight_enabled: bool,
-    /// `hardware.sensors.scale.enabled` — **the C++'s own definition of a
-    /// fitted scale**, and this port's.
+    /// `hardware.sensors.scale.enabled` — **this firmware's definition of a
+    /// fitted scale**.
     ///
-    /// It is the guard on every scale command in the C++
-    /// (`WebServerManager.cpp:540,563`) and the third argument of
-    /// `recordBrewIfQualified` (`BrewStates.cpp:311`), so it is what "this
-    /// machine has a scale" means in the oracle this crate is measured against.
+    /// It is the guard on every scale command.
     ///
     /// A configuration value rather than a live probe, and that is deliberate:
     /// `cc_safety::validate_config` is a pure function of configuration, so the
@@ -1320,8 +1301,8 @@ pub struct SafetyView {
     /// `hardware.sensors.temperature.type`.
     ///
     /// Carried for completeness rather than for validation: both sensor types
-    /// have a driver (R1-03, R3-07), so `cc_safety::validate_config` has nothing
-    /// to say about this value and no longer takes it as a reason to refuse a
+    /// have a driver, so `cc_safety::validate_config` has nothing to say about
+    /// this value and does not treat it as a reason to refuse a
     /// configuration. The firmware still needs to know which driver the
     /// configuration asked for, and it reads it from the `Config`, not from the
     /// `SafetyView`.
@@ -1340,8 +1321,8 @@ impl Config {
         clippy::cast_possible_truncation,
         reason = "the four narrowing casts are the point of this method, and \
                   this is the one place they happen. The `Config` fields are \
-                  `f64` because the C++ uses `double` for every non-integer \
-                  parameter (`Config.h`); `cc_safety::SafetyConfig` is \
+                  `f64` because a numeric parameter is a `double`; \
+                  `cc_safety::SafetyConfig` is \
                   `Celsius`-typed, which is `f32`. Over the schema's ranges \
                   (emergency_temp 120..180, emergency_hysteresis 1..15, \
                   steam_setpoint 100..140, effective_brew_setpoint 20..130) the \
@@ -1369,10 +1350,10 @@ impl Config {
 
     /// The brew setpoint the PID should actually hold.
     ///
-    /// `brew.temp_offset` exists to compensate a probe that reads low
-    /// (`Config.h:804`), and the firmware adds it to the setpoint. Getting this
+    /// `brew.temp_offset` exists to compensate a probe that reads consistently
+    /// high or low, and the firmware **adds** it to the setpoint. Getting this
     /// backwards is the kind of mistake that produces cold coffee and a support
-    /// ticket, so it is a named function.
+    /// ticket, so it is a named function rather than an inline sum.
     #[must_use]
     pub fn effective_brew_setpoint(&self) -> f64 {
         self.brew.setpoint + self.brew.temp_offset
@@ -1380,45 +1361,39 @@ impl Config {
 
     /// The heater chopper window in milliseconds.
     ///
-    /// NOT configurable: the C++ hard-codes `windowSize_ = 1000`
-    /// (`include/clevercoffee/context/ProcessState.h:183`) and the PID output is
-    /// bounded by it (`SystemInitializer.cpp:552`). Exposing it as a constant
-    /// rather than a parameter makes it obvious that changing it changes the
-    /// control loop, which R1-07 has to do deliberately.
+    /// NOT configurable: the PID output is bounded by it, so a configuration
+    /// value here would be a configuration value that changes the control loop.
+    /// A constant makes that explicit.
     pub const HEATER_WINDOW_MS: u32 = 1000;
 
-    /// The PID gains the firmware would compute for the normal (non-brew)
-    /// phase, as `ProcessController::calculatePIDParameters()` does
-    /// (`src/control/ProcessController.cpp:382-390`): `Ki = Kp / Tn` and
-    /// `Kd = Tv * Kp`, with `Ki = 0` when `Tn` is 0.
+    /// The PID gains the firmware computes for the normal (non-brew) phase:
+    /// `Ki = Kp / Tn` and `Kd = Tv * Kp`, with `Ki = 0` when `Tn` is 0.
     ///
-    /// Returned in the order the C++ constructor takes them
-    /// (`SystemInitializer.cpp:297-304`): `(Kp, Ki, Kd)`.
+    /// Returned as `(Kp, Ki, Kd)`.
     ///
-    /// # An `i_max` of 0 also gives `Ki = 0`, and that rule is ours
+    /// # An `i_max` of 0 also gives `Ki = 0`, and that rule is deliberate
     ///
-    /// The C++ derives `Ki` from `Tn` alone and then hands `(0, i_max)` to
-    /// `SetIntegratorLimits`, which **refuses** a window whose `min >= max`
-    /// (`PID_v1.cpp:220-231`). So `pid.regular.i_max = 0` — legal in both
-    /// firmwares, `PID_I_MAX_REGULAR_MIN` is `0.0` (`defaults.h:71`) — left the
-    /// controller on `PID_v1`'s own `-100 ..= +100` (`PID_v1.cpp:35`) while
-    /// reporting a configured ceiling of zero: an operator asking for no
-    /// integral action got an integrator free to wind to either end.
+    /// `Ki` is otherwise derived from `Tn` alone, and the integrator window is
+    /// `(0, i_max)`. A window whose `min >= max` is refused by the controller, so
+    /// `pid.regular.i_max = 0` — legal in the schema, and the floor the schema
+    /// publishes is `0.0` — would leave the controller on its own default window
+    /// while reporting a configured ceiling of zero: an operator asking for no
+    /// integral action would get an integrator free to wind to either end.
     ///
     /// The schema cannot rule the value out, because Home Assistant's number
-    /// entity for `aggIMax` publishes this bound
-    /// (`MQTTManager.cpp:869`, through [`crate::discovery::bounds`]) and a floor
-    /// above zero would diverge from the C++ **and** from this firmware's own
-    /// MQTT surface. `Ki = 0` is instead the honest translation, and it is the
-    /// one this codebase already uses for "no integral action": it is what a
-    /// `Tn` of 0 gives, and `Controller::set_tunings` pins the accumulator to
-    /// zero for it (`PID_v1.cpp:167-169`), so the integral term cannot
-    /// contribute at all.
+    /// entity for `aggIMax` publishes that floor (through
+    /// [`crate::discovery::bounds`]) and a floor above zero would make this
+    /// firmware's own MQTT surface disagree with its schema. `Ki = 0` is instead
+    /// the honest translation, and it is the expression this codebase already uses
+    /// for "no integral action": it is what a `Tn` of 0 gives, and
+    /// `Controller::set_tunings` pins the accumulator to zero for it, so the
+    /// integral term cannot contribute at all. §28 of
+    /// `docs/history/divergences.md` records the decision.
     #[must_use]
     pub fn pid_tunings(&self) -> (f64, f64, f64) {
         let kp = self.pid.regular.kp;
-        // ProcessController.cpp:383-387 guards the division explicitly rather
-        // than relying on IEEE infinity, so a Tn of 0 gives Ki = 0.
+        // The division is guarded explicitly rather than relying on IEEE
+        // infinity, so a Tn of 0 gives Ki = 0.
         let ki = if self.pid.regular.tn == 0.0 || self.pid.regular.i_max == 0.0 {
             0.0
         } else {
@@ -1428,8 +1403,8 @@ impl Config {
         (kp, ki, kd)
     }
 
-    /// The PID gains for the brew-detection phase, from
-    /// `ProcessController::calculateBrewDetectionPIDParameters()`.
+    /// The PID gains for the brew-detection phase: `Ki = Kp / Tn` and
+    /// `Kd = Tv * Kp`, with `Ki = 0` when `Tn` is 0.
     #[must_use]
     pub fn brew_detection_tunings(&self) -> (f64, f64, f64) {
         let kp = self.pid.bd.kp;
@@ -1480,10 +1455,9 @@ impl Config {
 
     /// Whether a `system.wifi.ssid` is stored.
     ///
-    /// The definition of "provisioned" the boot sequence uses
-    /// (04 §3.2: *"the provisioning task is only spawned when no valid
-    /// credentials exist"*), and the same predicate `POST /api/wifi-reset`
-    /// restores.
+    /// The definition of "provisioned" the boot sequence uses — the provisioning
+    /// task is started only when no valid credentials exist — and the same
+    /// predicate `POST /api/wifi-reset` restores.
     #[must_use]
     pub fn is_wifi_provisioned(&self) -> bool {
         !self.system.wifi.ssid.is_empty()
@@ -1497,11 +1471,9 @@ impl Config {
 
     /// Whether the OTA endpoint should be reachable at all.
     ///
-    /// The C++ exposes `/api/ota/firmware` unconditionally and compares
-    /// `system.ota_password` at the handler, so an empty stored password means
-    /// "no password" rather than "disabled". An empty password on a
-    /// network-reachable OTA endpoint is remote code execution, so this is
-    /// spelled out rather than left implicit.
+    /// An empty stored password is **not** "no password": an unauthenticated
+    /// network-reachable OTA endpoint is remote code execution, so an unset
+    /// password disables the endpoint.
     #[must_use]
     pub fn ota_enabled(&self) -> bool {
         !self.ota_password().is_empty()
@@ -1533,12 +1505,15 @@ const REPAIR_STEP_LIMIT: usize = 9;
 
 /// Revert keys `validate` returns until it accepts, or give up.
 ///
-/// Finding #12: boot used to drop all 98 parameters. `validate` is a closure
-/// because `cc-config` does not depend on `cc-safety`. It returns one violation
+/// The alternative is to drop the whole configuration: the first boot on an
+/// unsafe stored `Config` would then lose all 98 parameters rather than the one
+/// that is out of range. `validate` is a closure because `cc-config` does not
+/// depend on `cc-safety`. It returns one violation
 /// at a time, so the loop follows whatever it returns next. [`REPAIR_ESCALATION_KEYS`]
 /// apply one key at a time, and only when those keys make no progress. At most
 /// one step per key [`revert_key`] knows. Unresolved: caller uses full defaults
-/// plus the Wi-Fi credential.
+/// plus the Wi-Fi credential. §38 of `docs/history/divergences.md` records the
+/// bench measurement behind the boot line.
 pub fn repair_unsafe(
     config: &mut Config,
     validate: impl Fn(&Config) -> Option<&'static [&'static str]>,

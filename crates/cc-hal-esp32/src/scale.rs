@@ -1,7 +1,5 @@
 //! The HX711, on two data pins and one shared clock, sampled on its own task.
 //!
-//! Owner: **R3-17**.
-//!
 //! # What this file is
 //!
 //! The device half of [`cc_protocol::sensor::hx711`]. Every decision — how many
@@ -24,14 +22,12 @@
 //! `false`. A machine with no scale must not pay for one, and a machine with
 //! one must not have its control loop perturbed by it. A dedicated task at a
 //! priority above the control task's makes the perturbation bounded and
-//! measurable rather than structural — which is what R4-01b's tick histogram
-//! is for.
+//! measurable rather than structural.
 //!
-//! The task runs at [`SAMPLER_PRIO`], above the control task's 5 (04 §2's
-//! table) and above `esp-mqtt`'s 4. The C++ runs everything in `loopTask` at
-//! priority 1 with `AsyncTCP` at 10 — **the network preempts the control
-//! loop** — and the whole point of 04 §2's priority table is that this
-//! firmware does not.
+//! The task runs at [`SAMPLER_PRIO`], above the control task's 5 and above
+//! `esp-mqtt`'s 4, so a network task cannot preempt the control loop. The table
+//! is [target-architecture.md
+//! §2](../../../docs/history/target-architecture.md).
 //!
 //! # Nothing here waits without a deadline
 //!
@@ -39,14 +35,13 @@
 //! [`cc_protocol::sensor::hx711::SignalWatchdog`] turns "the line has been high
 //! for longer than one conversion" into a fault. A shorted or absent data line
 //! therefore produces a fault within
-//! [`cc_protocol::sensor::hx711::SIGNAL_TIMEOUT`] and the sampler keeps running —
-//! which is the acceptance criterion, and the exact thing
-//! `HX711Scale.cpp:44` and `:51` get wrong.
+//! [`cc_protocol::sensor::hx711::SIGNAL_TIMEOUT`] and the sampler keeps
+//! running, which is the acceptance criterion.
 //!
 //! # The clock is shared, the data lines are not
 //!
 //! GPIO33 is the clock, shared by both cells. GPIO32 and GPIO25 are the two
-//! data lines (`include/clevercoffee/hardware/pinmapping.h`). A shared SCK
+//! data lines ([pins.md](../../../docs/hardware/pins.md)). A shared SCK
 //! cannot clock two amplifiers' data lines independently, so the sampler tells
 //! the bus which cell is next ([`GpioHx711::select`]) and the domain's
 //! [`Scale`](cc_protocol::sensor::hx711::Scale) alternates. That costs each cell
@@ -76,17 +71,16 @@ use crate::task::CONTROL_PRIO;
 
 /// The sampler's `FreeRTOS` priority.
 ///
-/// **Above [`CONTROL_PRIO`]** (04 §2's table) and above `esp-mqtt`'s 4. The
+/// **Above [`CONTROL_PRIO`]**, which is 5, and above `esp-mqtt`'s 4. The
 /// reasoning is in the module docs.
 ///
-/// Note what this does **not** claim: `CONTROL_PRIO` is 5, and lwIP's `tcpip`
-/// task runs at 18, so network work still preempts the control tick on this
-/// toolchain. That is an ESP-IDF default this firmware does not own, and it is
-/// recorded here rather than fixed by raising the control task above 18,
-/// because 18 is where IDF puts a stack that must not miss a keepalive window
-/// and 04 §2 names 5 for control. What the constant buys is that the
-/// *documented* ordering of *this firmware's* tasks is now established rather
-/// than assumed, which is what finding 2.3 was about.
+/// Note what this does **not** claim: lwIP's `tcpip` task runs at 18, so network
+/// work still preempts the control tick on this toolchain. That is an ESP-IDF
+/// default this firmware does not own, and it is recorded here rather than fixed
+/// by raising the control task above 18, because 18 is where IDF puts a stack
+/// that must not miss a keepalive window. What the constant buys is that the
+/// *documented* ordering of *this firmware's* tasks is established rather than
+/// assumed.
 ///
 /// The ceiling is 24 — `ThreadSpawnConfiguration::set` panics outside
 /// `1..24` — and 6 is one above the control task rather than the maximum, so a
@@ -94,8 +88,8 @@ use crate::task::CONTROL_PRIO;
 ///
 /// The relationship is asserted at compile time rather than in a test, for the
 /// reason `heater.rs` asserts its resolution the same way: a `SAMPLER_PRIO` of
-/// 5 or lower would compile, run, and quietly reintroduce exactly the property
-/// 04 §2 says this firmware exists to remove.
+/// 5 or lower would compile, run, and quietly put the sampler below the task it
+/// must not block.
 pub const SAMPLER_PRIO: u8 = 6;
 
 const _: () = assert!(
@@ -135,11 +129,9 @@ pub const SAMPLE_IDLE_MS: u32 = 25;
 
 /// How long the driver discards readings after power-up, in milliseconds.
 ///
-/// 400, which is the C++'s `startMultiple`'s settling wait
-/// (`HX711_ADC.cpp:56-59`: `startMultipleWaitTime = t + 400`, with the comment
-/// "400ms is min. settling time at 10SPS"). Reproduced rather than reduced to
-/// one conversion time, because the C++'s value is a *minimum* the part's own
-/// note gives and the cost of being generous is 400 ms once, at boot.
+/// 400, the minimum settling time at 10 SPS that the part's guidance gives.
+/// Kept rather than reduced to one conversion time, because it is a *minimum*
+/// and the cost of being generous is 400 ms once, at boot.
 pub const SETTLING_MS: u32 = 400;
 
 /// The bus: two data pins and one shared clock.
@@ -249,11 +241,10 @@ impl GpioHx711 {
         &mut self.data_1
     }
 
-    /// Power the amplifier up, as `powerUp()` does (`HX711_ADC.cpp:36-40`).
+    /// Power the amplifier up.
     ///
     /// SCK low is the idle state and is what the datasheet (§4.4) calls
-    /// power-up. The C++ writes it in `begin()` rather than trusting the pin's
-    /// reset value, and so does this.
+    /// power-up. Written here rather than trusting the pin's reset value.
     ///
     /// # Errors
     ///
@@ -287,11 +278,7 @@ impl Hx711Bus for GpioHx711 {
 
     fn in_critical_section<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
         // `interrupt::free` is `portENTER_CRITICAL`/`portEXIT_CRITICAL`
-        // (`esp-idf-hal-0.47.0/src/interrupt.rs`) — the same thing the C++'s
-        // `noInterrupts()` does around a 1-Wire slot
-        // (`OneWire.cpp:186-205`), and the reason `HX711Scale.h:17` sets
-        // `SCK_DISABLE_INTERRUPTS 0` while the library's own `config.h:48-50`
-        // says to set it to 1 for exactly this hazard.
+        // (`esp-idf-hal-0.47.0/src/interrupt.rs`).
         //
         // The window is 25 clocks of two register writes each: tens of
         // microseconds, comfortably inside the original ESP32's 300 ms
@@ -306,14 +293,12 @@ impl Hx711Bus for GpioHx711 {
     }
 
     fn shift_bit(&mut self) -> Result<bool, Self::Error> {
-        // The C++'s order (`HX711_ADC.cpp:341-352`): SCK high, 1 µs, SCK low,
-        // **then** read DOUT. The datasheet latches the output on the falling
-        // edge of SCK (§5.1), so sampling after the edge is what is correct.
+        // SCK high, 1 µs, SCK low, **then** read DOUT. The datasheet latches the
+        // output on the falling edge of SCK (§5.1), so sampling after the edge is
+        // what is correct.
         //
-        // The 1 µs is `SCK_DELAY`, which `HX711Scale.h:16` sets to 1
-        // specifically because "the only mcu reported to need this delay is the
-        // ESP32 (issue #35)" (`HX711_ADC`'s `config.h:44-46`). It is on the
-        // high edge only, as the C++ has it.
+        // The 1 µs is [`SCK_DELAY`], needed on the original ESP32 specifically:
+        // it is the only MCU reported to need one. It is on the high edge only.
         self.clock.set_level(Level::High)?;
         Ets::delay_us(1);
         self.clock.set_level(Level::Low)?;
@@ -488,8 +473,7 @@ impl Telemetry {
 /// What the sampling task is asked to do.
 ///
 /// Sent over a bounded queue. Every variant is a request for the sampler to act
-/// on its own pins; nothing here reaches into control state, which is the
-/// direction 04 §3.2 allows.
+/// on its own pins; nothing here reaches into control state.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SamplerCommand {
     /// Tare against the current average, and report the new offsets.
@@ -707,8 +691,7 @@ fn send<T: Copy>(queue: &HalQueue<T>, value: T) -> bool {
 /// It never blocks on a pin: every read is a query, and the only sleep is
 /// [`SAMPLE_IDLE_MS`] when there is nothing to read. A cell that has stopped
 /// answering therefore costs one poll every [`SAMPLE_IDLE_MS`] forever and is
-/// reported through the watchdog — the acceptance criterion, and the thing
-/// `HX711Scale.cpp:44` gets wrong by spinning.
+/// reported through the watchdog, which is the acceptance criterion.
 #[allow(
     clippy::needless_pass_by_value,
     reason = "these ARE the task: they are moved into it, they are held for its \
@@ -728,9 +711,8 @@ fn run_sampler(
     // 🔴 Armed at the driver's start, not on the first conversion. An absent
     // scale is the case that most needs reporting and the one that never
     // produces a conversion, so a watchdog armed on the first reading would stay
-    // silent for exactly the machine that has no scale. The C++ gets this right
-    // by accident (`HX711_ADC.cpp:129` sets `lastDoutLowTime = millis()` before
-    // its first `update`); `cc_protocol::sensor::hx711`'s watchdog tests say so.
+    // silent for exactly the machine that has no scale.
+    // `cc_protocol::sensor::hx711`'s watchdog tests pin this.
     let mut watchdog = SignalWatchdog::new();
     watchdog.armed_at(Millis::new(now_ms()));
     let mut was_faulted = false;
@@ -738,7 +720,7 @@ fn run_sampler(
 
     // Readings are taken from the first conversion but not acted on until the
     // amplifier has settled — see [`SETTLING_MS`]. Expressed as a deadline
-    // rather than as the C++'s blocking spin.
+    // rather than a blocking spin.
     let settle_until_ms = now_ms().wrapping_add(SETTLING_MS);
     let mut settled = false;
 
@@ -796,9 +778,8 @@ fn run_sampler(
                 FreeRtos::delay_ms(SAMPLE_IDLE_MS);
             }
             Err(ReadError::Fault(Fault::OutOfRange)) => {
-                // A word outside 24 bits. The C++ sets a flag nobody reads
-                // (`HX711_ADC.cpp:371-374`); here it is counted and the sample
-                // is dropped rather than averaged in.
+                // A word outside 24 bits. It is counted and the sample is
+                // dropped rather than averaged in.
                 warn!("scale: a conversion was out of range and was discarded");
                 FreeRtos::delay_ms(SAMPLE_IDLE_MS);
             }
@@ -815,9 +796,7 @@ fn run_sampler(
 
         // --- the fault path ------------------------------------------------
         // Checked every pass, not only after a read, so a cell that goes quiet
-        // while the sampler sleeps is still reported. This is the whole of the
-        // difference from the C++: `HX711Scale.cpp:44` cannot reach this
-        // question at all, because it never returns from the spin.
+        // while the sampler sleeps is still reported.
         let faulted = watchdog.is_faulted(Millis::new(now_ms()));
         if faulted != was_faulted {
             was_faulted = faulted;
@@ -956,9 +935,9 @@ fn now_ms() -> u32 {
 /// (`cc-device-tests`) takes it in `hold_actuators_inactive` before any case
 /// runs. A test that took the peripherals itself would therefore be the second
 /// caller: the first would succeed and every later one would panic on
-/// `.expect("peripherals")`, which is exactly what happened. Two owners of the
-/// chip's peripherals is the mistake `Abp2I2c::new` already documents against
-/// ("belongs to `cc-firmware`'s `main`").
+/// `.expect("peripherals")`. Two owners of the chip's peripherals is the mistake
+/// `Abp2I2c::new` already documents against ("belongs to `cc-firmware`'s
+/// `main`").
 ///
 /// So the owner lends them instead. [`lend_test_pins`] takes them once, and the
 /// case borrows them. The borrow is a one-shot: the cells go to whichever case
@@ -1004,14 +983,12 @@ pub mod tests {
 
     use super::*;
 
-    /// The pin map is the one the C++ uses.
-    ///
-    /// `pinmapping.h`'s `PIN_HXDAT` (32), `PIN_HXDAT2` (25) and `PIN_HXCLK`
-    /// (33), which [`crate::pins`] is the single copy of. If a future edit moves one of these, the scale silently stops
-    /// reading — and nothing else in the firmware would notice, because nothing
-    /// else touches these pins.
+    /// GPIO32 and GPIO25 are the two data lines, GPIO33 the shared clock, and
+    /// [`crate::pins`] is the single copy of that map. If a future edit moves one
+    /// of these, the scale silently stops reading — and nothing else in the
+    /// firmware would notice, because nothing else touches these pins.
     #[cfg_attr(test, test)]
-    pub fn the_pins_are_the_cpp_pin_map() {
+    pub fn the_pins_match_the_board_map() {
         assert_eq!(SCALE_DATA_1, 32);
         assert_eq!(SCALE_DATA_2, 25);
         assert_eq!(SCALE_CLOCK, 33);
@@ -1091,8 +1068,6 @@ pub mod tests {
     /// This is the acceptance criterion in miniature, on real pins: with no
     /// scale attached the pull-up holds DOUT high, `data_high` is `true`, and
     /// the driver must answer "nothing yet" rather than spinning or failing.
-    /// The C++ cannot express this at all — `update()` returns 0 and
-    /// `HX711Scale::init` spins on it forever (`HX711Scale.cpp:44`).
     #[cfg_attr(test, test)]
     pub fn an_unconnected_data_line_reports_not_ready_and_never_clocks() {
         use cc_protocol::sensor::hx711::{read_raw, Rate};

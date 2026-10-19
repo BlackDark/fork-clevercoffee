@@ -17,10 +17,8 @@
 //!
 //! The same applies to `config.set`: every dotted key is looked up in
 //! [`cc_config::schema::SCHEMA`] and rejected if it is unknown, mistyped, or out
-//! of range. The C++ ignores an unknown configuration key
-//! ([`cc_config::json`](../../crates/cc-config/src/json.rs)); a scenario file
-//! must not, or a renamed parameter would leave a scenario quietly testing
-//! nothing.
+//! of range. A scenario file must not accept an unknown key: a renamed parameter
+//! would otherwise leave a scenario quietly testing nothing.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -31,10 +29,9 @@ use serde::Deserialize;
 
 /// The control-loop period a `dry_run` scenario advances by.
 ///
-/// 10 ms, which is the C++'s `Timing::MAIN_LOOP_INTERVAL_MS`
-/// (`include/clevercoffee/constants/Timing.h`). A scenario that says "wait five
-/// seconds" means five hundred iterations against that, so the number is a
-/// parity-relevant constant and not a harness detail.
+/// 10 ms, the cadence the control task runs at. A scenario that says "wait five
+/// seconds" means five hundred iterations against that, so the number is
+/// load-bearing rather than a harness detail.
 pub const DEFAULT_TICK_MS: u32 = 10;
 
 /// One scenario file, parsed and validated.
@@ -49,13 +46,13 @@ pub struct Scenario {
     pub mode: Mode,
     /// The safety paths this scenario exercises, e.g. `["S1", "S4"]`.
     ///
-    /// Free-form on purpose: the S-numbering is 01 §6's and a scenario may
-    /// legitimately cover a path that is not in it. The runner does not
-    /// validate the set, because a closed list here would make adding a safety
-    /// path a two-file change.
+    /// Free-form on purpose: the S-numbering belongs to the architecture, not to
+    /// this field, and a scenario may legitimately cover a path the usual list
+    /// omits. The runner does not validate the set, because a closed list here
+    /// would make adding a safety path a two-file change.
     #[serde(default)]
     pub covers: Vec<String>,
-    /// Why this scenario exists. The C++ line it pins, in prose.
+    /// Why this scenario exists, in prose.
     #[serde(default)]
     pub why: String,
     /// Configuration overrides on top of [`cc_config::Config::default`].
@@ -102,7 +99,7 @@ pub enum Mode {
     Hardware,
 }
 
-/// Configuration overrides, as the C++'s own dotted keys.
+/// Configuration overrides, keyed by the firmware's dotted parameter names.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigOverrides {
@@ -124,7 +121,7 @@ pub struct Capture {
     /// Record the ordered list of entered states.
     #[serde(default = "yes")]
     pub state_transitions: bool,
-    /// Record the effect stream. `dry_run` only; the C++ has no effect stream.
+    /// Record the effect stream. `dry_run` only.
     #[serde(default = "yes")]
     pub effects: bool,
     /// HTTP paths to snapshot. `hardware` only.
@@ -203,8 +200,8 @@ pub enum StimulusKind {
         /// Whether the probe is faulted.
         #[serde(default)]
         has_temperature_error: bool,
-        /// Whether the scale is faulted. Carried for C++ name parity (F13/F14
-        /// are dropped at R2-07, so it is always false on the Rust side).
+        /// Whether the scale is faulted. Always false: the scale-fault events
+        /// are not implemented, and the field keeps the record's shape.
         #[serde(default)]
         has_scale_error: bool,
         /// Brew weight in grams.
@@ -213,7 +210,7 @@ pub enum StimulusKind {
     },
     /// A configuration write, as `/api/parameters` would do it.
     Config {
-        /// The keys to set, by C++ dotted name.
+        /// The keys to set, by dotted parameter name.
         set: BTreeMap<String, serde_json::Value>,
     },
     /// A request from outside the switch layer.
@@ -265,17 +262,17 @@ pub enum OtaAction {
 pub enum Assertion {
     /// These states were entered, in this relative order.
     VisitedStates {
-        /// C++ `SCREAMING_SNAKE` state names.
+        /// `SCREAMING_SNAKE` state names, as `MachineState::name` spells them.
         value: Vec<String>,
     },
     /// None of these was entered.
     NotVisited {
-        /// C++ `SCREAMING_SNAKE` state names.
+        /// `SCREAMING_SNAKE` state names, as `MachineState::name` spells them.
         value: Vec<String>,
     },
     /// The machine ends in this state.
     FinalState {
-        /// A C++ `SCREAMING_SNAKE` state name.
+        /// A `SCREAMING_SNAKE` state name, as `MachineState::name` spells it.
         value: String,
     },
     /// The effect was emitted at least once.
@@ -317,8 +314,8 @@ pub enum Assertion {
         /// An [`cc_machine::Effect`] name.
         after: String,
     },
-    /// The machine ended in 06 §Definitions' *known-safe state*: heater duty
-    /// 0, pump off, both valves closed, emergency latch **not** set.
+    /// The machine ended in the *known-safe state*: heater duty 0, pump off,
+    /// both valves closed, emergency latch **not** set.
     ActuatorSafe,
     /// The pump is off and both valves are closed, and the latch is not set.
     ///
@@ -489,11 +486,10 @@ impl Scenario {
                     // An OTA session has no reducer event, so a `dry_run` driver
                     // cannot produce one from the firmware. It **models** one:
                     // `SafeHardwareShutdown`, then the control loop suspended
-                    // for the session's duration. That is the *fixed* behaviour
-                    // 01 §6 asks for, so the scenario asserts the Rust answer
-                    // and the C++ baseline records the gap. Allowed here, and
-                    // the modelling is stated in the driver and in the format
-                    // doc rather than hidden.
+                    // for the session's duration. The scenario therefore asserts
+                    // the modelled behaviour against a baseline that records none
+                    // of it. Stated here rather than hidden, because the two
+                    // sides are not measuring the same thing.
                     let _ = action;
                 }
                 StimulusKind::Rest | StimulusKind::Wait { .. } | StimulusKind::Sensor { .. } => {}
@@ -506,8 +502,8 @@ impl Scenario {
                     for name in value {
                         parse_state(name).ok_or_else(|| {
                             invalid(format!(
-                                "unknown state {name:?}: expected a C++ SCREAMING_SNAKE \
-                                 MachineStateId enumerator, e.g. BREW_RUNNING"
+                                "unknown state {name:?}: expected a SCREAMING_SNAKE \
+                                 `MachineState::name` string, e.g. BREW_RUNNING"
                             ))
                         })?;
                     }
@@ -515,8 +511,8 @@ impl Scenario {
                 Assertion::FinalState { value } => {
                     parse_state(value).ok_or_else(|| {
                         invalid(format!(
-                            "unknown state {value:?}: expected a C++ SCREAMING_SNAKE \
-                             MachineStateId enumerator"
+                            "unknown state {value:?}: expected a SCREAMING_SNAKE \
+                             `MachineState::name` string"
                         ))
                     })?;
                 }
@@ -612,8 +608,8 @@ fn parse_switch(name: &str) -> Option<cc_machine::SwitchId> {
 
 /// Resolve a state name to its enumeration.
 ///
-/// The names are the C++'s, because parity is measured against the C++ strings
-/// ([`MachineState::name`]).
+/// The comparison is string-for-string, so the names are exactly
+/// [`MachineState::name`].
 fn parse_state(name: &str) -> Option<MachineState> {
     cc_domain::state::ALL.into_iter().find(|s| s.name() == name)
 }
@@ -722,7 +718,7 @@ fn validate_config_key(key: &str, value: &serde_json::Value) -> Result<(), Strin
                 return Err(format!("{key}: expected an integer, got {}", as_text()));
             };
             let Ok(i) = i32::try_from(i) else {
-                return Err(format!("{key}: {i} does not fit in the C++'s int32"));
+                return Err(format!("{key}: {i} does not fit in an int32"));
             };
             ParamValue::Int(i)
         }
@@ -907,9 +903,9 @@ assert:
 
     #[test]
     fn a_dry_run_ota_begin_is_accepted_because_the_driver_models_it() {
-        // The OTA session has no reducer event. The `dry_run` driver models the
-        // fixed behaviour, so a scenario may open one and assert the Rust answer
-        // against a C++ baseline that records the gap.
+        // The OTA session has no reducer event. The `dry_run` driver models it,
+        // so a scenario may open one and assert the modelled behaviour against a
+        // baseline that records no session at all.
         let text = MINIMAL.replace(
             "- { at_ms: 0, kind: rest }",
             "- { at_ms: 0, kind: ota, action: begin, path: firmware.bin }",
@@ -964,9 +960,9 @@ assert:
     }
 
     #[test]
-    fn every_cpp_state_name_is_accepted() {
-        // The scenario files spell states the C++'s way, so all eighteen must
-        // resolve. A new state that is not added here fails this.
+    fn every_state_name_is_accepted() {
+        // The scenario files spell states as `MachineState::name` does, so all
+        // eighteen must resolve. A new state that is not added here fails this.
         for state in cc_domain::state::ALL {
             let name = state.name();
             assert_eq!(parse_state(name), Some(state), "{name} did not resolve");

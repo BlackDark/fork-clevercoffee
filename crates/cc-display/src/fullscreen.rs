@@ -1,5 +1,3 @@
-//! Port of `include/clevercoffee/display/DisplayFullscreenModes.h`.
-//!
 //! The four modes that take over the whole panel: the brew timer, the manual
 //! flush, the hot-water timer, and the offline splash. They are checked before
 //! the system screens, so a machine that is simultaneously, say, in a
@@ -8,14 +6,14 @@
 //!
 //! # The Upright template's coordinates are the surprising part
 //!
-//! `displayFullscreenBrewTimer` draws its cup at `(12, 12)` in the Upright
-//! template and its digits at `(5, 70)` / `(5, 100)` — y = 70 and y = 100 are
-//! off the bottom of a 64-row panel, and are only inside it because the Upright
-//! template renders in the R1/R3 *portrait* space where the height is 128. The
-//! same applies to `displayBrewtimeFs`, which takes its `(x, y)` from the
-//! caller. This is reproduced exactly: the coordinates are logical, the rotation
-//! transform is applied on the way into the buffer, and
-//! `tests/golden.rs` asserts the frames are inside 128x64 *after* the transform.
+//! The brew-timer screen draws its cup at `(12, 12)` in the Upright template and
+//! its digits at `(5, 70)` / `(5, 100)` — y = 70 and y = 100 are off the bottom of
+//! a 64-row panel, and are only inside it because the Upright template renders in
+//! the *portrait* space, where the height is 128. The brew-time readout takes its
+//! `(x, y)` from the caller for the same reason. This is reproduced exactly: the
+//! coordinates are logical, the rotation transform is applied on the way into the
+//! buffer, and `tests/golden.rs` asserts the frames are inside 128x64 *after* the
+//! transform.
 
 use crate::bitmaps_data as bm;
 use crate::display::Display;
@@ -26,7 +24,7 @@ use crate::model::{BrewTimerState, Config, DisplayInput};
 use crate::templates::{should_display_brew_timer, Stage, TemplateId};
 use crate::widgets;
 
-/// `displayFullscreenBrewTimer`.
+/// The fullscreen brew timer.
 ///
 /// Returns `None` when the mode does not apply, which is every time the feature
 /// is off or no brew is running.
@@ -77,24 +75,22 @@ pub fn draw_brew_timer(
     Some(Stage::FullscreenBrew)
 }
 
-/// `displayFullscreenManualFlushTimer`.
+/// The fullscreen manual-flush timer.
 ///
 /// Two conditions, not one: the machine must be in a manual-flush state *and*
-/// the current state must be `MANUAL_FLUSH_RUNNING` specifically. The second is
-/// redundant today (they are the same state) but the C++ checks both, and
-/// narrowing it is the kind of "simplification" that changes behaviour when a
-/// second flush state is added.
+/// the current state must be `ManualFlushRunning` specifically. The second is
+/// redundant today (they are the same state), but narrowing it is the kind of
+/// "simplification" that changes behaviour when a second flush state is added.
 pub fn draw_manual_flush_timer(
     d: &mut Display,
     input: &DisplayInput,
     config: &Config,
     template: TemplateId,
 ) -> Option<Stage> {
-    // `Config::displayFullscreenManualFlushTimer`
-    // (`DisplayFullscreenModes.h:82-84`). The C++ gates this screen on
-    // **policy AND config AND state**; the port had policy and state, so a
-    // machine with the flag off — which is the shipped default — still got the
-    // fullscreen timer. The brew timer above has always had this check.
+    // The screen needs policy **and** config **and** state. Gating it on the
+    // policy and the state alone would show the fullscreen timer on a machine with
+    // the flag off, which is the shipped default. The brew timer always had this
+    // check.
     if !config.fullscreen_manual_flush_timer {
         return None;
     }
@@ -116,14 +112,13 @@ pub fn draw_manual_flush_timer(
     Some(Stage::FullscreenManualFlush)
 }
 
-/// `displayFullscreenHotWaterTimer`.
+/// The fullscreen hot-water timer screen.
 pub fn draw_hot_water_timer(
     d: &mut Display,
     input: &DisplayInput,
     config: &Config,
     template: TemplateId,
 ) -> Option<Stage> {
-    // `Config::displayFullscreenHotWaterTimer` (`DisplayFullscreenModes.h:107-109`).
     // Same missing second gate as the manual flush above, and this one fires on
     // ordinary hot-water and steam use rather than on an edge case.
     if !config.fullscreen_hot_water_timer {
@@ -144,12 +139,12 @@ pub fn draw_hot_water_timer(
     Some(Stage::FullscreenHotWater)
 }
 
-/// `displayOfflineMode`.
+/// The offline splash.
 ///
-/// The offline splash is a countdown: it shows for `displayOffline` frames
-/// (1..=19) and the caller increments the counter each time. The C++ checks
-/// `> 0 && < 20`; `0` means "not offline" and `>= 20` means the fallback has
-/// run its course. Reproduced, including the off-by-one at both ends.
+/// A countdown: it shows for `display_offline` frames (1..=19) and the caller
+/// increments the counter each time. `0` means "not offline" and `>= 20` means
+/// the fallback has run its course, so the guard is `> 0 && < 20`, off-by-one
+/// inclusive.
 pub fn draw_offline(d: &mut Display, input: &DisplayInput) -> Option<Stage> {
     if input.display_offline == 0 || input.display_offline >= 20 {
         return None;
@@ -160,8 +155,8 @@ pub fn draw_offline(d: &mut Display, input: &DisplayInput) -> Option<Stage> {
 
 /// Whether the post-brew screen is showing, for the Modern template's dispatch.
 ///
-/// Not a stage of its own: in the C++ the post-brew screen is a *branch of
-/// `ModernTemplate::renderNormalDisplay`*, checked against the brew-timer FSM.
+/// Not a stage of its own: the post-brew screen is a *branch of the normal
+/// render*, checked against the brew-timer FSM.
 #[must_use]
 pub const fn is_post_brew(state: BrewTimerState) -> bool {
     matches!(state, BrewTimerState::PostBrew)

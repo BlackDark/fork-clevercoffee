@@ -1,37 +1,32 @@
 //! R3 bring-up: NVS, Wi-Fi, provisioning, MQTT, HTTP and SSE.
 //!
-//! Owner: **R3-08, R3-12, R3-13, R3-14** (tasks A–E).
-//!
 //! # Where the fail-closed rule is wired, and why here
 //!
-//! 04 §6 makes `cc-config` and `cc-safety` **siblings**: `cc-config` may not
-//! depend on `cc-safety` (CI-enforced, 05 §6), and `cc-safety` may not depend on
-//! `cc-config` — `SafetyConfig` is a five-field hand-off view
-//! ([`cc_config::Config::safety_view`]), not a `Config`. So neither can host the
-//! join.
+//! `cc-config` and `cc-safety` are **siblings**: `cc-config` may not depend on
+//! `cc-safety` (CI-enforced), and `cc-safety` may not depend on `cc-config` —
+//! `SafetyConfig` is a five-field hand-off view ([`cc_config::Config::safety_view`]),
+//! not a `Config`. So neither can host the join.
 //!
 //! The join lives in `cc-firmware`, and that is the right place for three
 //! reasons:
 //!
 //! 1. **It is a boot-order decision, not a storage decision.** Whether an unsafe
-//!    stored configuration is *discarded and kept* (run the defaults, and on the
-//!    next boot discover the same blob and discard it again) or *discarded and
-//!    erased* is a question about what the firmware then does, and that is
-//!    startup policy. [`bring_up_config`] makes the choice explicitly and logs
-//!    which one it made.
-//! 2. **`cc-firmware` is the only crate that may know the startup order.** Every
-//!    other crate takes its configuration as a value.
-//! 3. **It is fifteen lines and it runs once per boot, in one place**, where the
-//!    log line that reports a discarded configuration belongs. The safety
-//!    *decision* is not here and is fully tested in `cc-safety`; this is the
-//!    three-line call of it that 08 §4.1's log messages describe.
+//!    stored configuration is *discarded and kept* (run the defaults, and on the next
+//!    boot discover the same blob and discard it again) or *discarded and erased* is a
+//!    question about what the firmware then does, and that is startup policy.
+//!    [`bring_up_config`] makes the choice explicitly and logs which one it made.
+//! 2. **`cc-firmware` is the only crate that may know the startup order.** Every other
+//!    crate takes its configuration as a value.
+//! 3. **It is fifteen lines and it runs once per boot, in one place**, where the log
+//!    line that reports a discarded configuration belongs. The safety *decision* is not
+//!    here and is fully tested in `cc-safety`.
 //!
-//! The decision that an unsafe blob is **kept on disk rather than erased** is
-//! deliberate and worth naming: erasing it destroys the evidence, so the next
-//! boot reports `Defaults` instead of `DiscardedUnsafe` and the operator never
-//! learns that their configuration was rejected. The blob is inert — the
-//! firmware runs the defaults regardless — and `GET /api/nvs-debug` still shows
-//! it, so the diagnosis survives a reboot. Rejection is also reported at `warn`.
+//! The decision that an unsafe blob is **kept on disk rather than erased** is deliberate
+//! and worth naming: erasing it destroys the evidence, so the next boot reports
+//! `Defaults` instead of `DiscardedUnsafe` and the operator never learns that their
+//! configuration was rejected. The blob is inert — the firmware runs the defaults
+//! regardless — and `GET /api/nvs-debug` still shows it, so the diagnosis survives a
+//! reboot. Rejection is also reported at `warn`.
 //!
 //! # The task layout
 //!
@@ -43,9 +38,8 @@
 //! | httpd | the REST API and the SSE stream | ESP-IDF's own task |
 //! | esp-mqtt | the MQTT session | ESP-IDF's own task |
 //!
-//! The control task is the only watchdog subscriber and the only feeder, and the
-//! only thing that may open the heater gate (04 §3.4). Nothing in this module
-//! touches an actuator.
+//! The control task is the only watchdog subscriber and the only feeder, and the only
+//! thing that may open the heater gate. Nothing in this module touches an actuator.
 
 use core::fmt::Write as _;
 use std::sync::{Arc, Mutex};
@@ -119,13 +113,12 @@ pub fn bring_up_config() -> Result<Booted, EspError> {
         }
     };
 
-    // Finding 3.6. Only when **this** firmware's store came up empty: a machine
-    // that already has a Rust configuration has nothing to be told, and walking
-    // a namespace nobody will read on every boot would be work for no possible
-    // output. The words and the decision are `cc_config::predecessor`'s and are
-    // host-tested; the enumeration is `cc_hal_esp32::nvs::probe_predecessor`'s,
-    // and it cannot fail — a probe that could stop the firmware booting would be
-    // a worse fault than the one it reports.
+    // Only when **this** firmware's store came up empty: a machine that already has a
+    // Rust configuration has nothing to be told, and walking a namespace nobody will
+    // read on every boot would be work for no possible output. The words and the
+    // decision are `cc_config::predecessor`'s and are host-tested; the enumeration is
+    // `cc_hal_esp32::nvs::probe_predecessor`'s, and it cannot fail — a probe that could
+    // stop the firmware booting would be a worse fault than the one it reports.
     let predecessor = if stored.is_some() {
         PredecessorProbe::Skipped
     } else {
@@ -306,8 +299,8 @@ pub fn start_http(
     let session = Arc::clone(&network.ota);
     let sse = Arc::clone(&network.sse);
     let config = Arc::new(config.clone());
-    // Non-blocking, drop-newest. A full queue means the control task is behind,
-    // which is a condition to shed, not to report (04 §3.2).
+    // Non-blocking, drop-newest. A full queue means the control task is behind, which
+    // is a condition to shed, not to report.
     let sink: Arc<dyn Fn(Command) + Send + Sync + 'static> = Arc::new(move |command: Command| {
         let _ = commands.try_send(command);
     });
@@ -330,34 +323,29 @@ pub fn start_http(
 
 /// Publish the radio's readings into the shared snapshot.
 ///
-/// The radio is `Sta`, which is a live handle to the netif and the driver. The
-/// control task publishes a [`Telemetry`] it builds itself and has no handle on
-/// `Sta`; reaching across for one is the coupling 04 §3.2 forbids.
-/// So the holder of the radio publishes these four fields, and the control task
-/// leaves them alone — which it does by *not writing them*, because
-/// [`Shared::publish`] is a whole-slot replace, so the two publishers have to
-/// agree on who owns which fields. That agreement is the four fields on
-/// [`Telemetry`] the control task's own publish leaves at their defaults.
+/// The radio is `Sta`, which is a live handle to the netif and the driver. The control
+/// task publishes a [`Telemetry`] it builds itself and has no handle on `Sta`. So the
+/// holder of the radio publishes these four fields, and the control task leaves them
+/// alone — which it does by *not writing them*, because [`Shared::publish`] is a
+/// whole-slot replace, so the two publishers have to agree on who owns which fields.
+/// That agreement is the four fields on [`Telemetry`] the control task's own publish
+/// leaves at their defaults.
 ///
-/// **This is what `/api/status`'s `wifiAssociated`, `wifiSignal`, `wifiOffline`
-/// and `ip` come from**, and until it was called the control task's publish
-/// left them at their defaults — so a machine associated at −53 dBm reported
-/// `wifiAssociated: false, wifiSignal: 0, ip: null`. Measured on hardware, not
-/// inferred.
+/// **This is what `/api/status`'s `wifiAssociated`, `wifiSignal`, `wifiOffline` and `ip`
+/// come from.** Without it those fields stay at their defaults, so a machine associated
+/// at −53 dBm reports `wifiAssociated: false, wifiSignal: 0, ip: null`.
 ///
-/// Note the ownership consequence, because it is the part that bites later: the
-/// snapshot is a single slot and both publishers write it, so the two must not
-/// race. They do not — both `publish` and `publish_radio` are called from the
-/// control task, sequentially, and each is one [`Snapshot`] write over the whole
-/// slot.
+/// Note the ownership consequence, because it is the part that bites later: the snapshot
+/// is a single slot and both publishers write it, so the two must not race. They do not —
+/// both `publish` and `publish_radio` are called from the control task, sequentially, and
+/// each is one [`Snapshot`] write over the whole slot.
 ///
-/// **This function must stay on a slow cadence.** It does four `esp-idf` FFI
-/// round-trips and, on the old `String` field, one heap allocation. It used to
-/// be called from every 10 ms control tick, which was both a performance defect
-/// and the write side of a use-after-free (fixed by `30b59c48`): the reassignment
-/// `free()`d the previous IP buffer that the httpd task could be reading. The
-/// caller now gates it on the same 1 s [`crate::main::WIFI_POLL_MS`] the radio
-/// poll uses, which is the only cadence any of these values can change at.
+/// **This function must stay on a slow cadence.** It does four `esp-idf` FFI round-trips
+/// and, on the old `String` field, one heap allocation. Called from every 10 ms control
+/// tick it was both a performance defect and the write side of a use-after-free: the
+/// reassignment `free()`d the previous IP buffer the httpd task could be reading. The
+/// caller now gates it on the same 1 s [`crate::main::WIFI_POLL_MS`] the radio poll uses,
+/// which is the only cadence any of these values can change at.
 pub fn publish_radio(shared: &Shared, sta: Option<&Sta>) {
     // Read-modify-write, so this cannot be a bare `set`. Both publishers are on
     // the control task and are sequential, which is what makes the
@@ -394,21 +382,13 @@ pub fn publish_radio(shared: &Shared, sta: Option<&Sta>) {
 
 /// Publish the SSE `new_temps` event, if an HTTP server is running.
 ///
-/// Called from the control task at the C++'s cadence
-/// (`WebServerManager.cpp:1128-1143`, driven from `LoopManager::updateWebsite`).
-/// It reads the snapshot the control task has *just* published, so the frame
-/// cannot disagree with `/api/status`.
-/// Publish the SSE `new_temps` event, if an HTTP server is running.
+/// Called from the control task at [`crate::main::SSE_INTERVAL_MS`]. It reads the
+/// snapshot the control task has *just* published, so the frame cannot disagree with
+/// `/api/status`.
 ///
-/// Called from the control task at the C++'s cadence
-/// (`WebServerManager.cpp:1128-1143`, driven from `LoopManager::updateWebsite`).
-/// It reads the snapshot the control task has *just* published, so the frame
-/// cannot disagree with `/api/status`.
-///
-/// This is the C++'s division of labour exactly: the **producer** is the main
-/// loop and the **transport** is the event source. Here the producer is this
-/// function and the transport is the broadcaster task `Web::start` spawned, so
-/// the cadence lives where the C++ puts it rather than inside the stream.
+/// The **producer** is the control task and the **transport** is the event source: this
+/// function produces, and the broadcaster task `Web::start` spawned delivers. The cadence
+/// therefore lives in the control task and not inside the stream.
 pub fn broadcast_temps(network: &Network) {
     let snapshot = network.shared.snapshot();
     network
@@ -417,7 +397,8 @@ pub fn broadcast_temps(network: &Network) {
     network.sse.note_push_attempt();
 }
 
-/// Log the heap the way ADR-0002 wants it reported, once a minute.
+/// Log the heap once a minute: free, the minimum ever seen, and the large-response floor
+/// with the two counters that show whether it is being respected.
 pub fn log_heap_once_a_minute(network: &Network) {
     info!(
         "heap: {} B free, {} B minimum — the large-response floor is {} B \
@@ -432,11 +413,10 @@ pub fn log_heap_once_a_minute(network: &Network) {
 
 /// What the provisioning task captured, waiting for the control task to store it.
 ///
-/// A credential is **not** a [`cc_hal_esp32::web::Command`]. Those are `Copy` and
-/// eight bytes because they cross a `hal::task::queue::Queue` (04 §3.2), and a
-/// `String` cannot. That constraint is why a credential takes this route
-/// instead, and it is a good one: a credential that could travel as a command
-/// would be a credential an HTTP handler could set.
+/// A credential is **not** a [`cc_hal_esp32::web::Command`]. Those are `Copy` and eight
+/// bytes because they cross a task queue, and a `String` cannot. That constraint is why a
+/// credential takes this route instead, and it is a good one: a credential that could
+/// travel as a command would be a credential an HTTP handler could set.
 pub enum Staged {
     /// `wifi set <ssid>`, the password line, then `wifi apply`.
     Set(cc_hal_esp32::provisioning::Pending),
@@ -591,13 +571,10 @@ pub fn apply_staged(
 
 /// Run the UART provisioning loop until a credential is staged.
 ///
-/// The task ends by *returning* once a command has been handed to the control
-/// task: 04 §3.2 says the provisioning task "exits after success", and it is the
-/// control task that stores the credential and resets the machine, because the
-/// control task owns the store. The C++ reboots from its own task
-/// (`CleverCoffeeWiFiManager.cpp:148-151`, `ESP.restart()` after a portal save)
-/// because in the C++ that task *is* the one holding the configuration; doing
-/// the same here would reset the machine before the write, every time.
+/// The task ends by *returning* once a command has been handed to the control task, and
+/// it is the control task that stores the credential and resets the machine, because the
+/// control task owns the store. Resetting from this task instead would reset the machine
+/// before the write, every time.
 #[allow(
     clippy::needless_pass_by_value,
     reason = "the `Serial` IS the task: it owns UART0 for the task's whole life \
@@ -644,9 +621,9 @@ pub fn run_provisioning(serial: cc_hal_esp32::provisioning::Serial<'_>, handoff:
                         _ => "ok accepted — the machine stores it, then reboots",
                     },
                 );
-                // 04 §3.2: "the provisioning task ... exits after success". After
-                // a refusal the machine is in the same unprovisioned state it was
-                // in, so the operator re-boots when they are ready.
+                // The provisioning task exits after success. After a refusal the machine
+                // is in the same unprovisioned state it was in, so the operator re-boots
+                // when they are ready.
                 return;
             }
             session.expire_window();

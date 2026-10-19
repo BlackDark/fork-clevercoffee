@@ -1,7 +1,5 @@
 //! Strobe acquisition and frame assembly: a pure function of edge timestamps.
 //!
-//! Owner: **R3-07**.
-//!
 //! # This is the app note's §1.3 decoder, written out
 //!
 //! > When the falling edge of the start bit occurs, measure the time until the
@@ -67,10 +65,9 @@ pub struct Frame {
     pub raw: u16,
     /// The measured `Tstrobe`, in microseconds.
     ///
-    /// Kept because it is a **calibration readout**: it is the half-period the
-    /// sensor is actually running at, and a value drifting away from 62 says the
-    /// sensor's clock is drifting or the line is being distorted. The C++ has the
-    /// same number in `ZACwire::bitThreshold` and never reports it.
+    /// A **calibration readout**: the half-period the sensor is actually running at, so a value
+    /// drifting away from 62 µs would say the clock is drifting or the line is being distorted. The
+    /// driver exposes it; nothing in the firmware logs it today.
     pub strobe_us: u32,
 }
 
@@ -80,22 +77,21 @@ impl Frame {
     /// The app note's formula (`T = (DS / 2047) · (HT − LT) + LT`, `HT = 150`,
     /// `LT = −50`), computed in `f32`.
     ///
-    /// # Not the C++'s arithmetic, and the difference is up to 0.1 °C
+    /// # Why not the integer-shift form, which differs by up to 0.1 °C
     ///
-    /// `ZACwire::getTemp` (`ZACwire.cpp:62`) uses
-    /// `((temp * 250L >> 8) - 499) / 10.0`, which is the same line written with
-    /// an integer shift and an integer subtract. Two consequences:
+    /// The same line written with an integer shift and an integer subtract --
+    /// `((temp * 250 >> 8) - 499) / 10.0` -- is the alternative. Two consequences decide it:
     ///
-    /// * `raw * 250 >> 8` truncates, so the result is quantised to 0.1 °C and
-    ///   biased low by up to 0.1 °C;
-    /// * at `raw = 0` the C++ gives `(-499)/10.0` = **−49.9 °C**, not the
-    ///   datasheet's −50.0 °C, and at `raw = 2047` it gives 150.0 °C.
+    /// * `raw * 250 >> 8` truncates, so the result is quantised to 0.1 °C and biased low by up to
+    ///   0.1 °C;
+    /// * at `raw = 0` it gives `(-499)/10.0` = **−49.9 °C**, not the datasheet's −50.0 °C, and at
+    ///   `raw = 2047` it gives 150.0 °C.
     ///
-    /// The app note's formula is used because the app note is the
-    /// specification, and because a driver whose floor is 0.1 °C off the
-    /// datasheet is a driver whose floor is wrong in the direction that matters
-    /// for a `temp <= 0.0` reject. The two agree exactly at the top of the range
-    /// and differ by at most one 0.1 °C step everywhere else.
+    /// The app note's formula is used because the app note is the specification, and because a
+    /// floor
+    /// 0.1 °C off the datasheet is wrong in the direction that matters for a `temp <= 0.0` reject.
+    /// The two agree exactly at the top of the range and differ by at most one 0.1 °C step
+    /// everywhere else.
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
     pub fn celsius(self) -> f32 {
@@ -150,17 +146,16 @@ impl core::fmt::Display for FrameError {
 /// drained whenever the decode task gets round to it — is decoded from the next
 /// real start bit rather than refused.
 ///
-/// The scan is bounded by a single rule: **a candidate is rejected only if its
-/// pulse is not a start bit.** Every other failure is reported, because a
-/// candidate that *is* a start bit and then fails means the waveform is a
-/// damaged `ZACwire` frame, and hunting for another start bit inside a damaged
-/// frame is how a decoder ends up assembling a frame out of two transmissions.
+/// The scan is bounded by a single rule: **a candidate is rejected only if its pulse is not a start
+/// bit.** Any other failure ends the scan with an error, because a candidate that *is* a start bit
+/// and then fails means the waveform is a damaged `ZACwire` frame, and hunting for another start
+/// bit inside a damaged frame is how a decoder ends up assembling a frame out of two transmissions.
 ///
 /// # Errors
 ///
-/// [`FrameError`], in the order the checks are made. Every one of them means
-/// "no reading", never "a reading that might be wrong": the caller maps all of
-/// them onto the C++'s 222, and none of them can produce a temperature.
+/// [`FrameError`], in the order the checks are made. Every one of them means "no reading", never "a
+/// reading that might be wrong": the caller maps all of them onto `Outcome::ReadFailed`, and none
+/// of them can produce a temperature.
 pub fn decode_frame(edges: &[Edge]) -> Result<Frame, FrameError> {
     // No falling edge at all means a line that never moved: a disconnected probe,
     // or a capture that began after the last transmission. That is
@@ -183,11 +178,10 @@ pub fn decode_frame(edges: &[Edge]) -> Result<Frame, FrameError> {
             return Err(FrameError::NoStartBit);
         }
         match try_from(edges, first) {
-            // Only acquisition failure advances the search. A frame that *is*
-            // framed but then fails — short of bits, a bad period, a bad stop
-            // gap, bad parity — is reported as it is, because hunting for another
-            // start bit inside a damaged frame is how a decoder ends up
-            // assembling a frame out of two transmissions.
+            // Only an acquisition failure advances the search. A frame that *is* framed but then
+            // fails -- short of bits, a bad period, a bad stop gap, bad parity -- is returned as an
+            // error, because hunting for another start bit inside a damaged frame is how a decoder
+            // ends up assembling a frame out of two transmissions.
             Err(FrameError::NoStartBit) => first += 1,
             other => return other,
         }
@@ -419,21 +413,20 @@ mod tests {
     }
 
     #[test]
-    fn the_cpp_integer_conversion_differs_only_by_its_own_rounding() {
-        // `ZACwire.cpp:62`: `((temp * 250L >> 8) - 499) / 10.0`. Pinned so the
-        // divergence in `Frame::celsius` is quantified rather than asserted.
-        let cpp = |raw: u16| ((u32::from(raw) * 250) >> 8) as f32 / 10.0 - 49.9;
+    fn the_integer_conversion_differs_only_by_its_rounding() {
+        // The integer-shift form `((temp * 250L >> 8) - 499) / 10.0`, pinned so the difference from
+        // `Frame::celsius` is quantified rather than asserted.
+        let reference = |raw: u16| ((u32::from(raw) * 250) >> 8) as f32 / 10.0 - 49.9;
         // Exactly equal at the top of the range.
-        assert_eq!(cpp(2047), 150.0);
-        // And never more than one 0.1 C step away anywhere else, biased low.
-        // The two lines have slightly different slopes -- 200/2047 = 0.0977044
-        // against the C++'s 250/256/10 = 0.09765625 -- and different offsets, so
-        // they *cross*: the app note's is lower at the bottom of the range and
-        // higher part way up. What matters is that they never differ by a whole
-        // 0.1 C step, and the two places where the C++ is visibly wrong.
+        assert_eq!(reference(2047), 150.0);
+        // And never more than one 0.1 C step away anywhere else, biased low. The two lines have
+        // slightly different slopes -- 200/2047 = 0.0977044 against 250/256/10 = 0.09765625 -- and
+        // different offsets, so they *cross*: the app note's is lower at the bottom of the range
+        // and higher part way up. What matters is that they never differ by a whole 0.1 C step, and
+        // the two places where the integer form is visibly wrong.
         for raw in 0..=2047u16 {
             let mine = Frame { raw, strobe_us: 62 }.celsius();
-            let theirs = cpp(raw);
+            let theirs = reference(raw);
             assert!(
                 (mine - theirs).abs() <= 0.1 + 1e-4,
                 "raw {raw}: {mine} vs {theirs}"
@@ -446,7 +439,7 @@ mod tests {
                 strobe_us: 62
             }
             .celsius()
-                < cpp(0)
+                < reference(0)
         );
         assert!(
             Frame {
@@ -454,11 +447,11 @@ mod tests {
                 strobe_us: 62
             }
             .celsius()
-                > cpp(43)
+                > reference(43)
         );
-        // The floor is the one place it is visibly wrong: the datasheet says
-        // -50.0 and the C++ says -49.9.
-        assert_eq!(cpp(0), -49.9);
+        // The floor is where the integer form is visibly wrong: the datasheet says -50.0 and it
+        // gives -49.9.
+        assert_eq!(reference(0), -49.9);
         assert_eq!(
             Frame {
                 raw: 0,

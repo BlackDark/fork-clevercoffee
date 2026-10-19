@@ -133,9 +133,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // + the two reboot cases below.
     let total = cases.len() + 2;
 
-    // The actuators, first, before anything else exists — the ordering 04 §4
-    // specifies, and the reason is that a test binary on a live machine has to
-    // be in the safe state before it starts doing anything at all.
+    // The actuators, first, before anything else exists. A test binary on a live
+    // machine has to be in the safe state before it starts doing anything at all.
     let _actuators = hold_actuators_inactive()?;
 
     let checkpoint = Checkpoint::open();
@@ -186,8 +185,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 /// `inactive` is `Level::Low`, which is correct for the `HIGH_TRIGGER` relays
 /// this board's defaults select. If the board were wired `LOW_TRIGGER` the
 /// production firmware would already be driving the boiler on every boot, which
-/// is the pre-existing open question (R0-01), not something a test binary
-/// changes.
+/// is the pre-existing open question, not something a test binary changes.
 type Actuators = (
     PinDriver<'static, InputOutput>,
     PinDriver<'static, InputOutput>,

@@ -1,28 +1,23 @@
 //! Wi-Fi station mode: bring-up, the hostname ordering, and the monitor.
 //!
-//! Owner: **R3-12** (task B).
+//! # What is here and what is not
 //!
-//! # What this replaces
+//! Two decisions live elsewhere and are host-tested there:
 //!
-//! `src/network/CleverCoffeeWiFiManager.cpp`, 260 lines, of which the
-//! interesting parts are:
+//! * the retry / circuit-breaker / offline-mode decision is
+//!   [`cc_netpolicy::wifi::Monitor`]; this file performs the ESP-IDF call it asks
+//!   for and nothing else.
+//! * the four-bucket signal mapping is [`cc_netpolicy::wifi::Signal`].
 //!
-//! * `configureWiFiManager` + `attemptConnection` — the tzapu `WiFiManager`
-//!   captive portal. **Not ported here**; the reason is at the bottom of this
-//!   file, and it is a decision rather than an omission.
-//! * `checkAndMaintainConnection` — the retry / circuit-breaker / offline-mode
-//!   decision. That is [`cc_netpolicy::wifi::Monitor`], host-tested; this file
-//!   performs the ESP-IDF call it asks for and nothing else.
-//! * `getSignalStrength` — the four-bucket mapping. Also
-//!   [`cc_netpolicy::wifi::Signal`].
+//! The captive portal is **not here**, and the reason is at the bottom of this
+//! file: it is a decision rather than an omission.
 //!
 //! # The hostname ordering, and why it is structural here
 //!
-//! `include/clevercoffee/network/WiFiStaConnect.h:13-30` exists for one
-//! reason, stated in its own comment: *"Apply STA hostname before `WiFi.begin`
-//! so DHCP client ID matches config"*. Setting it after the association starts
-//! applies it to the *next* association, and the symptom is a machine whose
-//! name changes when its DHCP lease renews, months later.
+//! The hostname must be applied before the association starts, so the DHCP
+//! client identifier matches the configuration. Setting it after the association
+//! starts applies it to the *next* association, and the symptom is a machine
+//! whose name changes when its DHCP lease renews, months later.
 //!
 //! In `esp-idf-svc` the ordering is not something to get right by discipline —
 //! it is a property of the types. There is no public `set_hostname` on the
@@ -57,21 +52,17 @@ use log::{info, warn};
 
 use crate::time::now_ms;
 
-/// The C++'s STA connect timeout, in milliseconds.
+/// The STA connect timeout, in milliseconds.
 ///
-/// `CleverCoffeeWiFiManager.cpp:100` polls `WiFi.status()` for 10 s after
-/// `beginStaWithHostname`, and `:70` sets `setConnectTimeout(10)` with the
-/// comment *"using 10s to connect to WLAN, 5s is sometimes too short!"*. Both
-/// are 10 s; this port uses one number for both.
+/// One number for both the association wait and the driver's own timeout: 10 s,
+/// because 5 s is sometimes too short for an association to complete.
 pub const CONNECT_TIMEOUT_MS: u32 = 10_000;
 
 /// How often the monitor is polled, in milliseconds.
 ///
-/// The C++ runs `checkAndMaintainConnection` from the main loop, which is
-/// continuous. Here the network task has its own cadence, deliberately slower
-/// than the control tick: 1 s is far finer than the 10 s–5 min backoff
-/// schedule needs, and a 400 ms poll would wake the task 2.5 times a second to
-/// discover it had nothing to do.
+/// Deliberately slower than the control tick: 1 s is far finer than the
+/// 10 s–5 min backoff schedule needs, and a 400 ms poll would wake the task 2.5
+/// times a second to discover it had nothing to do.
 pub const MONITOR_PERIOD_MS: u32 = 1_000;
 
 /// Bring up the process-wide network stack: lwIP and the default event loop.
@@ -118,11 +109,10 @@ impl Sta {
     /// network stack, and it carries the hostname, so
     /// `esp_netif_set_hostname` runs inside `EspNetif::new_with_conf` before the
     /// Wi-Fi driver exists. By the time [`Sta::connect`] can call
-    /// `esp_wifi_connect()`, the DHCP client identifier is fixed. That is the
-    /// whole of the C++'s rule, and it is why `EspWifi::new` is not used: that
-    /// constructor builds its own netif (`wifi.rs:1590-1592`) from
-    /// `NetifStack::Sta`, with no hostname, which is exactly the bug the C++
-    /// header warns about.
+    /// `esp_wifi_connect()`, the DHCP client identifier is fixed. That is why
+    /// `EspWifi::new` is not used: that constructor builds its own netif
+    /// (`wifi.rs:1590-1592`) from `NetifStack::Sta`, with no hostname, which
+    /// reproduces the ordering bug.
     ///
     /// `sys_loop` is the process-wide default event loop, created once by
     /// [`init_stack`] and shared with the HTTP server. It is a parameter rather
@@ -169,10 +159,9 @@ impl Sta {
 
     /// Log the ordering fact at boot.
     ///
-    /// The C++ has this as a comment. This has it as a log line, because the
-    /// ordering is invisible at runtime: a wrong hostname is a DHCP problem on a
-    /// network the machine may not be on for weeks, and the only evidence will
-    /// be whatever this line said at the boot it went wrong.
+    /// The ordering is invisible at runtime: a wrong hostname is a DHCP problem
+    /// on a network the machine may not be on for weeks, and the only evidence
+    /// will be whatever this line said at the boot it went wrong.
     #[allow(
         clippy::unused_self,
         reason = "a method on `Sta` so it can only be called once an interface \
@@ -208,8 +197,7 @@ impl Sta {
     /// Whether the station is associated.
     ///
     /// `WifiDriver::is_connected` (`wifi.rs:741-753`) is "STA mode enabled and
-    /// the STA status is `Connected`" — the association, not the DHCP lease.
-    /// The C++'s `WiFi.status() == WL_CONNECTED` is the same test, and both are
+    /// the STA status is `Connected`" — the association, not the DHCP lease, and
     /// deliberately *not* "has an IP": the monitor's backoff must not treat a
     /// slow DHCP server as a failed association.
     #[must_use]
@@ -229,11 +217,10 @@ impl Sta {
         self.wifi.sta_netif().get_ip_info().ok().map(|ip| ip.ip)
     }
 
-    /// The received signal strength in dBm, or the C++'s -100 dBm stand-in.
+    /// The received signal strength in dBm, or -100 when none is reported.
     ///
-    /// `CleverCoffeeWiFiManager.cpp:246`. Reproduced so the bucket arithmetic in
-    /// [`cc_netpolicy::wifi::Signal`] is the C++'s arithmetic rather than a
-    /// slightly different one.
+    /// -100 keeps the bucket arithmetic in [`cc_netpolicy::wifi::Signal`] on one
+    /// continuous scale rather than introducing a separate "no reading" case.
     #[must_use]
     pub fn rssi(&self) -> i32 {
         if self.is_associated() {
@@ -245,8 +232,8 @@ impl Sta {
 
     /// The 0–4 signal bucket, or [`Signal::Offline`] while offline mode is set.
     ///
-    /// `CleverCoffeeWiFiManager::getSignalStrength`, including its refusal to
-    /// report a signal at all while offline (`:234-236`).
+    /// Offline is a state, not a bucket: a reading cached from before the
+    /// disconnect is not evidence about the link now.
     #[must_use]
     pub fn signal(&self) -> Signal {
         if self.monitor.is_offline() {
@@ -264,9 +251,7 @@ impl Sta {
 
     /// Start an association with `ssid` and `password`.
     ///
-    /// An empty password means an open network, matching
-    /// `beginStaWithHostname` (`WiFiStaConnect.h:22-26`), which branches on
-    /// exactly this.
+    /// An empty password means an open network.
     ///
     /// # Errors
     ///
@@ -283,10 +268,6 @@ impl Sta {
     /// is what this call used to do — the station announced **WPA2 only, no
     /// PMF**, and an AP that offers WPA3 would not associate: no `wifi:state:`
     /// transitions at all, a 10 s timeout, five retries, offline.
-    ///
-    /// The C++ does not have this problem: `WiFi.begin(ssid, password)`
-    /// (`WiFiStaConnect.h:26-28`) leaves `wifi_authmode` at zero, which ESP-IDF
-    /// reads as "accept whatever the AP offers".
     ///
     /// So the station says [`AuthMethod::WPA2WPA3Personal`] and advertises PMF
     /// as **capable and required** — which is what WPA3 needs, and which a WPA2
@@ -337,21 +318,17 @@ impl Sta {
 
     /// Block until the station is associated, or [`CONNECT_TIMEOUT_MS`] passes.
     ///
-    /// The C++'s 10 s poll at `CleverCoffeeWiFiManager.cpp:99-104`, at its
-    /// `delay(100)` granularity.
-    ///
     /// The only blocking call in the network tier, and it is bounded: it returns
     /// whether it succeeded and the caller decides. It runs on the network task,
-    /// never on the control task (04 §3.2), so a 10 s wait here cannot delay a
-    /// heater decision.
+    /// never on the control task, so a 10 s wait here cannot delay a heater
+    /// decision.
     ///
-    /// Also — unlike the C++ — it needs no watchdog dance. The C++ wraps exactly
-    /// this call in `disableLoopWDT()` (`:96-97`, and again at `:117`) because
-    /// its watchdog is a 5 s task watchdog and its poll is 10 s. Here the single
-    /// subscription belongs to the control task alone (04 §3.4), so the network
-    /// task is not a subscriber and there is nothing to disable. That is worth
-    /// naming, because "I removed the `disableLoopWDT`" otherwise reads as "I
-    /// removed a safety net".
+    /// It needs no watchdog suspension: the single subscription belongs to the
+    /// control task alone
+    /// ([target-architecture.md
+    /// §2](../../../docs/history/target-architecture.md)), so the network task is
+    /// not a subscriber and there is nothing to disable. That is worth naming,
+    /// because otherwise the absence reads as a removed safety net.
     pub fn wait_for_connection(&mut self) -> bool {
         let deadline = now_ms().wrapping_add(CONNECT_TIMEOUT_MS);
         while now_ms() < deadline {
@@ -365,12 +342,10 @@ impl Sta {
 
     /// Disconnect and associate again with the stored credentials.
     ///
-    /// `reconnectStaWithHostname` (`WiFiStaConnect.h:32-37`) calls
-    /// `WiFi.disconnect()`, `applyStaHostname()` and `WiFi.begin()`. Here the
-    /// second step is a no-op, and it is a no-op for a reason: the hostname is a
-    /// netif field, set at construction, and it survives a disconnect. That is
-    /// [`Self::log_ordering`] restated at the point where the C++ would have had
-    /// to re-apply it.
+    /// There is no hostname step between the disconnect and the connect, because
+    /// the hostname is a netif field, set at construction, and it survives a
+    /// disconnect. That is [`Self::log_ordering`] restated at the point where a
+    /// re-apply would otherwise be added.
     ///
     /// # Errors
     ///
@@ -382,9 +357,6 @@ impl Sta {
     }
 
     /// Associate with whatever [`Sta::connect`] last configured.
-    ///
-    /// `esp_wifi_connect()` with no re-configuration, which is what `WiFi.begin()`
-    /// does in the C++'s `reconnectStaWithHostname`.
     ///
     /// # Errors
     ///
@@ -403,8 +375,7 @@ impl Sta {
         self.wifi.disconnect()
     }
 
-    /// One iteration of the C++'s `checkAndMaintainConnection`, plus the ESP-IDF
-    /// call it asks for.
+    /// One iteration of the monitor, plus the ESP-IDF call it asks for.
     ///
     /// The decision is [`Monitor::poll`]'s; this performs it. Returns whether
     /// the machine is offline, which is the one thing a caller must react to
@@ -447,11 +418,9 @@ impl Sta {
 
     /// A one-line description of the link that contains no credential.
     ///
-    /// The SSID is deliberately absent. The C++ logs it on every attempt
-    /// (`:96-98`, `:213`, `:221`) and shows it on the OLED (`:135-136`); this
-    /// port does not, for the same reason it never logs the Wi-Fi password: a
-    /// support log is a place credentials end up, and the SSID is half of a
-    /// credential pair.
+    /// The SSID is deliberately absent, for the same reason the Wi-Fi password
+    /// never appears: a support log is a place credentials end up, and the SSID
+    /// is half of a credential pair.
     #[must_use]
     pub fn describe(&self) -> String {
         let ip = self
@@ -486,30 +455,26 @@ fn bounded<const N: usize>(value: &str) -> Result<heapless::String<N>, EspError>
 // The captive portal: evaluated and deferred
 // ---------------------------------------------------------------------------
 //
-// `configureWiFiManager` and the portal half of `attemptConnection`
-// (`CleverCoffeeWiFiManager.cpp:64-77, 110-127`) are **not** ported here, and the
-// reason is a decision, not an omission.
+// The portal is **not** here, and the reason is a decision, not an omission.
 //
 // * **It is redundant with what is here.** The UART protocol is proven on this
-//   hardware (08 §5.2, recovered from a real image), and a portal needs a
-//   browser, which needs a working Wi-Fi interface — the thing being
-//   provisioned. The portal is the fallback for "you cannot open a terminal",
-//   not for "you cannot open a terminal *and* have no cable".
-// * **It costs heap this firmware does not have.** A softAP plus a DNS
-//   interceptor plus an HTTP form, concurrently with the control loop, the REST
-//   server, MQTT and the telnet stream, is the same arithmetic that produced
-//   ADR-0002's OOM abort. 02 §6 records that every available Rust
-//   captive-portal crate binds port 80 itself, so the portal and the REST API
-//   could not share it anyway.
-// * **The plan defers it too.** 05 §5 P1 vs P2, and the recovered oracle that
-//   did both carried a `littlefs` partition and an embedded React bundle that
-//   this firmware does not yet have.
+//   hardware, and a portal needs a browser, which needs a working Wi-Fi
+//   interface — the thing being provisioned. The portal is the fallback for "you
+//   cannot open a terminal", not for "you cannot open a terminal *and* have no
+//   cable".
+// * **It costs heap this firmware does not have.** A soft access point plus a
+//   DNS interceptor plus an HTTP form, concurrently with the control loop, the
+//   REST server, MQTT and the telnet stream, is the same arithmetic that
+//   produced ADR-0002's OOM abort. Every available Rust captive-portal crate
+//   binds port 80 itself, so the portal and the REST API could not share it
+//   anyway.
+// * **A portal needs storage this firmware has not got.** Its page is served
+//   from a `littlefs` partition, and the UI here is a compiled-in bundle.
 //
 // It is sequenced, not dropped: `POST /api/wifi` and `POST /api/wifi/clear`
-// (08 §5.1) already expose the same two operations over REST, so a machine that
-// *is* on the network can be re-provisioned without the portal. What a portal
-// adds is only the first-contact case, and that is the case the UART line
-// covers.
+// already expose the same two operations over REST, so a machine that *is* on the
+// network can be re-provisioned without the portal. What a portal adds is only
+// the first-contact case, and that is the case the UART line covers.
 
 #[cfg(any(test, feature = "device-tests"))]
 #[cfg_attr(feature = "device-tests", doc(hidden))]
@@ -528,9 +493,8 @@ pub mod tests {
 
     #[cfg_attr(test, test)]
     pub fn the_connect_timeout_is_the_cpp_ten_seconds() {
-        // CleverCoffeeWiFiManager.cpp:70 and :100 both use 10 s, with the
-        // comment "5s is sometimes too short!". A test because it is the kind of
-        // number that gets tidied to a round 5.
+        // A test because it is the kind of number that gets tidied to a round 5,
+        // and 5 s is sometimes too short for an association to complete.
         assert_eq!(CONNECT_TIMEOUT_MS, 10_000);
     }
 

@@ -92,9 +92,8 @@ fn multi_glyph_string_widths_match_u8g2() {
 #[test]
 fn the_utf8_width_entry_point_agrees_on_latin1_text() {
     // The firmware's strings are ASCII plus one Latin-1 byte, so U8g2's two
-    // decoders agree on every real input. `displayWrappedMessage` is the only
-    // caller of the UTF-8 one; if these ever diverge, that widget's line breaks
-    // stop matching the C++.
+    // decoders agree on every real input. A caller that measures with one and
+    // draws with the other would still disagree the moment that changes.
     let fonts = all();
     let mut failures = Vec::new();
 

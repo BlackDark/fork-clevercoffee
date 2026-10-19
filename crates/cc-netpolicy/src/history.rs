@@ -1,49 +1,29 @@
 //! The temperature-history ring.
 //!
-//! Owner: **R3-09** (the timeseries ring behind `GET /api/history`).
-//!
-//! # What it replaces
-//!
-//! `TemperatureHistory` in `src/network/WebServerManager.cpp:107-156`: a
-//! fixed 600-point ring of `{currentTemp, targetTemp, heaterPower}` triples,
-//! written from `sendTempEvent` (`:1134`) and rendered oldest-first by
-//! `generateJson` (`:134-153`).
-//!
 //! # Why it is here and not in the HTTP layer
 //!
-//! Finding 4.4 moved this file out of `cc-domain` and into `cc-netpolicy`,
-//! alongside the link and publish policy that share its "no dependencies at
-//! all" property. The argument below is why it is not in `cc-web` either, and
-//! finding 4.4 did not change it.
-//!
-//! The C++'s ring is a file-static next to the web server, which is possible
-//! there because `Config::getInstance()` is a singleton the whole firmware
-//! reads. Here the configuration and the machine live in the control task, and
-//! no HTTP handler may reach into either (04 §3.2). So the ring is a **value**
-//! with no dependencies at all — which also means the arithmetic that decides
-//! what a client sees is host-testable, where a ring living in the httpd task
-//! would only be testable on hardware.
+//! The ring is a **value** with no dependencies at all. The configuration and the
+//! machine live in the control task and no HTTP handler may reach into either, so
+//! the ring cannot be filled from the HTTP side. Keeping it here also means the
+//! arithmetic that decides what a client sees is host-testable, where a ring
+//! living in the httpd task would only be testable on hardware.
 //!
 //! # The two numbers that are not arbitrary
 //!
-//! * [`CAPACITY`] = 600, the C++'s `HISTORY_SIZE`. At the C++'s cadence that is
-//!   30 minutes of history.
-//! * [`SKIP_INTERVAL`] = 2, the C++'s. `addPoint` drops two samples and keeps
-//!   the third, so one point lands every three `sendTempEvent` calls. The UI
-//!   assumes exactly that spacing — it reconstructs timestamps as
-//!   `now - 3 * i` seconds (`CleverCoffeeContext.tsx:240-243`) — so the skip is
-//!   part of the wire contract, not an optimisation.
+//! * [`CAPACITY`] = 600, which is 30 minutes of history at the sample cadence.
+//! * [`SKIP_INTERVAL`] = 2: two samples are dropped and the third kept, so one
+//!   point lands every three samples. The UI assumes exactly that spacing and
+//!   reconstructs timestamps as `now - 3 * i` seconds, which makes the skip part
+//!   of the wire contract rather than an optimisation.
 
-/// How many points the ring keeps. `HISTORY_SIZE` (`WebServerManager.cpp:109`).
+/// How many points the ring keeps.
 pub const CAPACITY: usize = 600;
 
-/// How many samples are dropped between two kept points. `SKIP_INTERVAL`
-/// (`WebServerManager.cpp:110`).
+/// How many samples are dropped between two kept points.
 ///
-/// The C++ writes it as `if (++skipCounter <= SKIP_INTERVAL) return;`, so a
-/// counter starting at zero keeps every third call. Reproduced exactly,
-/// including the counter's reset to zero on the sample it keeps — an
-/// off-by-one here changes the chart's time axis.
+/// A counter starting at zero keeps every third sample. The counter resets to
+/// zero on the sample it keeps, because an off-by-one here changes the chart's
+/// time axis.
 pub const SKIP_INTERVAL: u32 = 2;
 
 /// One sample: the reading, the target, and the heater's output in per cent.
@@ -71,18 +51,17 @@ impl Point {
 
 /// The 600-point ring, oldest point first when read out.
 ///
-/// The C++'s `currentIndex`/`valueCount` pair, kept as a write cursor and a
-/// count rather than as a growable buffer: the ring is full-size from the first
-/// instant, so adding a point never reallocates and a client reading it while
-/// the control task writes it cannot see a half-built vector.
+/// A write cursor and a count rather than a growable buffer: the ring is
+/// full-size from the first instant, so adding a point never reallocates and a
+/// reader cannot observe a half-built state.
 #[derive(Clone, Debug)]
 pub struct History {
     points: [Point; CAPACITY],
-    /// `currentIndex` — where the next point goes.
+    /// Where the next point goes.
     next: usize,
-    /// `valueCount` — how many points are actually in the ring.
+    /// How many points are actually in the ring.
     len: usize,
-    /// `skipCounter` — samples seen since the last one kept.
+    /// Samples seen since the last one kept.
     skip: u32,
 }
 
@@ -100,12 +79,11 @@ impl History {
 
     /// Offer a sample. Returns whether it was kept.
     ///
-    /// The return value is not in the C++ — it has no caller that cares — but
-    /// here it is what lets the caller log the ring filling up, and what lets a
-    /// test assert the skip arithmetic without reading the buffer.
+    /// The return value is what lets the caller log the ring filling up, and what
+    /// lets a test assert the skip arithmetic without reading the buffer.
     pub fn push(&mut self, current_temp: f32, target_temp: f32, heater_power: f32) -> bool {
-        // `if (++skipCounter <= SKIP_INTERVAL) return;` — note the increment
-        // happens on the dropped samples too, which is the whole arithmetic.
+        // The increment happens on the dropped samples too, which is the whole
+        // arithmetic.
         self.skip += 1;
         if self.skip <= SKIP_INTERVAL {
             return false;
@@ -134,9 +112,7 @@ impl History {
 
     /// The oldest point's index.
     ///
-    /// The C++ computes it inline in `generateJson` (`:144-146`) from the two
-    /// cursors; it is the same arithmetic, named once so the reader and the
-    /// writer cannot compute it differently.
+    /// Named once so the reader and the writer cannot compute it differently.
     #[must_use]
     const fn oldest(&self) -> usize {
         if self.next >= self.len {
@@ -149,9 +125,9 @@ impl History {
     /// The point `index` places from the oldest, or `None` past the end.
     ///
     /// Indexed access rather than a `Vec` because this crate is `no_std` with no
-    /// `alloc` (04 §1), and because the only caller walks the ring three times
-    /// to write three JSON columns — handing back a 7 KB copy to do that would
-    /// be the larger cost.
+    /// `alloc`, and because the only caller walks the ring three times to write
+    /// three JSON columns — handing back a 7 KB copy to do that would be the
+    /// larger cost.
     #[must_use]
     pub fn get(&self, index: usize) -> Option<Point> {
         if index >= self.len {
@@ -183,7 +159,7 @@ mod tests {
 
     #[test]
     fn the_first_two_samples_are_dropped_and_the_third_is_kept() {
-        // The C++'s counter: `++skipCounter <= 2` drops two, then resets.
+        // The counter drops two, then resets.
         let mut h = History::new();
         assert!(!h.push(1.0, 0.0, 0.0));
         assert!(!h.push(2.0, 0.0, 0.0));
@@ -241,8 +217,8 @@ mod tests {
 
     #[test]
     fn an_empty_ring_reports_empty_rather_than_zeroes() {
-        // The reason the C++'s `valueCount` exists: a chart that draws 600
-        // zeroes is a chart of nothing, and it looks like a flatlined boiler.
+        // A chart that draws 600 zeroes is a chart of nothing, and it looks like
+        // a flatlined boiler.
         let h = History::new();
         assert!(h.is_empty());
         assert!(h.get(0).is_none());

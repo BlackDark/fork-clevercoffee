@@ -40,8 +40,7 @@ const TEMPLATES: [TemplateId; 6] = [
     TemplateId::Modern,
 ];
 
-/// The three languages the firmware carries, which are the C++'s three
-/// (`defaults.h:196-200`).
+/// The three languages the firmware carries.
 const LANGUAGES: [Language; 3] = [Language::English, Language::German, Language::Spanish];
 
 /// A translated string and where to find it.
@@ -189,9 +188,8 @@ fn every_screen_fits_in_every_language() {
 /// A list rather than a bare `assert!`, so the check below is **still able to
 /// fail**: a *new* translation that overruns its column is a different entry, and
 /// an entry that gets fixed should be deleted from here rather than the check
-/// relaxed. Every one of these is C++ behaviour (`DisplayWidgets.h`'s
-/// `kValueColumnOffset = 50` against the same strings in `languages.h`), so they
-/// are reported rather than silently re-laid-out.
+/// relaxed. These come from the Scale template's fixed 50 px value column, so
+/// they are recorded rather than silently re-laid-out.
 const KNOWN_LABEL_OVERRUNS: &[(&str, Language, i32)] = &[
     // The Scale template's value column is 50 px; these are the labels that reach
     // past it. `pressure` in **English** collides on a stock machine.
@@ -357,11 +355,10 @@ fn the_unit_is_inside_the_frame_and_clear_of_the_widest_value() {
 
 /// **The inverted field closes on the frame's edge**, on every template.
 ///
-/// The C++ uses one constant, `kValueColumnWidth = 78`, which is exact for the
-/// Scale template (row origin `x = 0`, so the box runs 50..127) and 33 px too
-/// wide for Standard and Minimal (origin `x = 34`, so the box ran 84..**161**
-/// and its right border was never drawn). That is the "the values don't fit"
-/// report.
+/// A single 78 px box is exact for the Scale template (row origin `x = 0`, so
+/// the box runs 50..127) and 33 px too wide for Standard and Minimal (origin
+/// `x = 34`, so the box would run 84..161 and its right border would never be
+/// drawn). That is the "the values don't fit" report.
 #[test]
 fn the_inverted_field_ends_on_the_last_column() {
     for (name, origin) in [("standard", 34), ("minimal", 34), ("scale", 0)] {
@@ -377,7 +374,7 @@ fn the_inverted_field_ends_on_the_last_column() {
             "the {name} field should close on the last column"
         );
     }
-    // The Scale template's box must be unchanged: 78 px, the C++'s constant.
+    // The Scale template's box must be unchanged: 78 px.
     assert_eq!(cc_display::widgets::inverted_field_box(0).1, 78);
 }
 

@@ -18,8 +18,8 @@
 //!   * The asset table is `&'static`, so serving costs **zero RAM**: the bytes
 //!     live in flash and `httpd` streams them out of a stack buffer.
 //!   * The build is hermetic in the sense that matters: the image on the device
-//!     is exactly the bundle in the tree. The C++ needs `pio run -t uploadfs`
-//!     as a *second* step that can silently drift from the app image.
+//!     is exactly the bundle in the tree, with no second upload step that can
+//!     silently drift from the app image.
 //!
 //! # What this script does NOT decide
 //!

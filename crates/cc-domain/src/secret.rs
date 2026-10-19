@@ -1,20 +1,18 @@
 //! A value that refuses to print itself.
 //!
-//! Skill rule 7: "Never put a credential anywhere it can leak. Not in source,
-//! not in a command-line argument, not in a log, not in a commit, not in an
-//! unencrypted example file." The cheapest place to enforce that is the type:
-//! if a password's `Debug` and `Display` print `[redacted]`, then it cannot be
-//! logged by accident, no matter how the log statement is written.
+//! A credential must not leak: not into source, not into a command-line argument, not into
+//! a log, not into a commit, not into an unencrypted example file. The cheapest place to
+//! enforce that is the type. If a password's `Debug` and `Display` print `[redacted]`, then
+//! it cannot be logged by accident, however the log statement is written.
 //!
 //! # Why this lives in `cc-domain` and not in `cc-config`
 //!
-//! It started in `cc-config`, which is where the first four credential-bearing
-//! fields live (`system.wifi.ssid`, `system.wifi.password`, `mqtt.password`,
-//! `system.auth.password`). R3-12 added a fifth user: the UART provisioning
-//! parser in `cc_protocol::provisioning`, which has to hand a password to the
-//! Wi-Fi stack and must not be printable in the process. `cc-domain` is the
-//! crate both depend on, and it is the one that can be read on its own, which
-//! is the property that makes redaction auditable.
+//! Four credential-bearing fields live in `cc-config` (`system.wifi.ssid`,
+//! `system.wifi.password`, `mqtt.password`, `system.auth.password`), and the UART
+//! provisioning parser in `cc_protocol::provisioning` is a fifth user: it has to hand a
+//! password to the Wi-Fi stack and must not be printable in the process. `cc-domain` is the
+//! crate both depend on, and it is the one that can be read on its own, which is the
+//! property that makes redaction auditable.
 //!
 //! `cc_config::Secret` is a re-export of this type, so the configuration
 //! crate's public API is unchanged.

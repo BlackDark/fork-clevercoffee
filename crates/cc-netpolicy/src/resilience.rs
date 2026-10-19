@@ -1,61 +1,44 @@
 //! The retry and circuit-breaker policy the network tier runs on.
 //!
-//! Owner: **R3-12 / R3-13**.
+//! Each construct has exactly one production configuration:
 //!
-//! # What this is
+//! | Construct | Configuration |
+//! | --- | --- |
+//! | [`RetryPolicy`] | 10 s initial, 5 min cap, ×2, 5 attempts |
+//! | [`CircuitBreaker`] | 5 failures, 60 s open, 30 s half-open |
 //!
-//! A port of `include/clevercoffee/utils/Resilience.h` — `RetryPolicy` and
-//! `CircuitBreaker` — with the C++'s own defaults, because the C++ constructs
-//! exactly one of each and both are network-tier:
+//! # Two deliberate choices
 //!
-//! | Construct | Construction site | Value |
-//! | --- | --- | --- |
-//! | `RetryPolicy` | `CleverCoffeeWiFiManager.cpp:37-43`, `MQTTManager.cpp:51-57` | 10 s initial, 5 min cap, ×2, 5 attempts |
-//! | `CircuitBreaker` | `CleverCoffeeWiFiManager.cpp:46-52`, `MQTTManager.cpp:60-64` | 5 failures, 60 s open, 30 s half-open |
+//! ## The backoff multiplier is an exact rational, not a `double`
 //!
-//! The behaviour is reproduced exactly, including the parts that look like
-//! oversights. They are not oversights *for the C++*, which only ever runs one
-//! policy; they are oversights that this port must either reproduce or name.
+//! The delay is `initial_delay_ms × (num/den)^attempts`, computed in `u64` with
+//! saturating multiplication, so the schedule is a property of the code rather
+//! than of the FPU: `0.1` in `double` is not `0.1`, and a delay derived from it
+//! would move with the floating-point unit. For the production multiplier of 2
+//! the two forms agree bit for bit.
 //!
-//! # Two things that are not the C++'s, and why
+//! ## The clock is passed in, never read
 //!
-//! ## 1. The backoff multiplier is an exact rational, not a `double`
+//! Every method takes `now_ms` explicitly. A default argument that reads a global
+//! clock is untestable, because the test has to know what "now" was.
 //!
-//! The C++ computes `initialDelayMs_ * std::pow(backoffMultiplier_, attempt)`
-//! in `double` and truncates the result to `unsigned long`. For the values the
-//! firmware constructs — 10 000 × 2ⁿ, n ≤ 5 — that is exact, so a `u32` shift
-//! is bit-identical and this is not a behaviour change. For any *other*
-//! multiplier it would not be: `0.1` in `double` is not `0.1`, and the schedule
-//! would depend on the FPU. Since the firmware only ever builds one policy, the
-//! port takes the multiplier as an exact `num / den` pair and computes the
-//! backoff in `u64` with saturating multiplication, so the schedule is a
-//! property of the code and not of the FPU.
+//! # Behaviour that looks like an oversight
 //!
-//! ## 2. The clock is passed in, never read
-//!
-//! The C++ defaults every time argument to `millis()`. A default argument that
-//! reads a global clock is untestable — the test has to know what "now" was —
-//! and 09 §22 is a standing reminder that this firmware's timing is not
-//! something to be casual about. Every method here takes `now_ms` explicitly.
-//!
-//! # What is reproduced verbatim
+//! Each of these is reproduced on purpose and pinned by a test:
 //!
 //! * `should_retry` is `current < max`, and a `max` of 0 means unlimited.
 //! * `can_retry_now` is *always true* on the first attempt, whatever
-//!   `last_attempt_ms` is. That is `Resilience.h:107-109`, and it is why the
-//!   first reconnection attempt after a drop is immediate.
-//! * `can_attempt` in `HALF_OPEN` admits an attempt only while
-//!   `half_open_attempts_ == 0`, and nothing ever increments
-//!   `half_open_attempts_`. So a half-open breaker admits **every** attempt
-//!   until one succeeds twice or one fails. Preserved, and pinned by
-//!   `div_half_open_admits_every_attempt`.
-//! * `update_state` in `HALF_OPEN` closes the circuit when
-//!   `half_open_timeout` has elapsed **and** no attempt was made, on the
-//!   strength of having not been used. Preserved, and pinned by
-//!   `div_half_open_closes_on_idleness_not_on_success`.
-//! * `record_failure` in `CLOSED` resets the failure count to 0 when it opens
-//!   the circuit (`Resilience.h:253-258`). Preserved, and pinned by
-//!   `div_opening_the_circuit_clears_the_failure_count`.
+//!   `last_attempt_ms` is, which is why the first reconnection attempt after a
+//!   drop is immediate.
+//! * `can_attempt` in [`CircuitState::HalfOpen`] admits an attempt only while
+//!   `half_open_attempts == 0`, and nothing ever increments that counter, so a
+//!   half-open breaker admits **every** attempt until one succeeds twice or one
+//!   fails. Pinned by `div_half_open_admits_every_attempt`.
+//! * `update_state` in half-open closes the circuit when the half-open timeout
+//!   has elapsed **and** no attempt was made, on the strength of having not been
+//!   used. Pinned by `div_half_open_closes_on_idleness_not_on_success`.
+//! * `record_failure` while closed resets the failure count to 0 when it opens
+//!   the circuit. Pinned by `div_opening_the_circuit_clears_the_failure_count`.
 
 use core::fmt;
 
@@ -71,7 +54,7 @@ pub enum CircuitState {
     HalfOpen,
 }
 
-/// Exponential-backoff retry policy, ported from `Resilience.h`'s `RetryPolicy`.
+/// Exponential-backoff retry policy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RetryPolicy {
     initial_delay_ms: u32,
@@ -87,13 +70,11 @@ impl RetryPolicy {
     /// The policy both network call sites construct: 10 s initial, 5 min cap,
     /// doubling, 5 attempts.
     ///
-    /// `CleverCoffeeWiFiManager.cpp:37-43` and `MQTTManager.cpp:51-57` both
-    /// build exactly this, and both pass `max_attempts = 5` with the comment
-    /// "matches maxWifiReconnects".
+    /// Both pass `max_attempts = 5`, which matches the reconnect count the
+    /// Wi-Fi link was tuned for.
     pub const WIFI: Self = Self::new(10_000, 300_000, 5);
 
-    /// A policy with an exact-rational backoff multiplier of 2/1, which is what
-    /// the firmware uses.
+    /// A policy whose backoff multiplier is exactly 2, written as 2/1.
     #[must_use]
     pub const fn new(initial_delay_ms: u32, max_delay_ms: u32, max_attempts: u32) -> Self {
         Self {
@@ -110,7 +91,7 @@ impl RetryPolicy {
     /// Whether another attempt is permitted by the attempt count alone.
     ///
     /// `false` once `max_attempts` attempts have been made. A `max_attempts` of
-    /// 0 means unlimited, which is the C++'s `if (maxAttempts_ == 0) return true`.
+    /// 0 means unlimited.
     #[must_use]
     pub const fn should_retry(&self) -> bool {
         self.max_attempts == 0 || self.attempts < self.max_attempts
@@ -159,9 +140,8 @@ impl RetryPolicy {
 
     /// Whether enough wall-clock time has passed for the next attempt.
     ///
-    /// Always `true` before the first attempt, whatever `now_ms` is. This is
-    /// `Resilience.h:107-109` and it is the reason a dropped link is retried
-    /// immediately rather than after the first backoff.
+    /// Always `true` before the first attempt, whatever `now_ms` is, so a
+    /// dropped link is retried immediately rather than after the first backoff.
     #[must_use]
     pub fn can_retry_now(&self, now_ms: u32) -> bool {
         if self.attempts == 0 {
@@ -184,10 +164,9 @@ impl RetryPolicy {
 
     /// Milliseconds from `now_ms` until the next attempt is due.
     ///
-    /// Zero when it is already due. This is a **countdown**, which is what a
-    /// "next retry in N ms" log line wants; the C++ prints the *scheduled*
-    /// delay at `:244-247` instead, which is a different (and less useful)
-    /// number whenever the check happens part-way through a backoff.
+    /// Zero when it is already due. A countdown rather than the scheduled delay:
+    /// part-way through a backoff the scheduled delay is the less useful number
+    /// to log.
     #[must_use]
     pub fn ms_until_retry(&self, now_ms: u32) -> u32 {
         if self.can_retry_now(now_ms) {
@@ -197,14 +176,14 @@ impl RetryPolicy {
             .saturating_sub(now_ms.wrapping_sub(self.last_attempt_ms))
     }
 
-    /// Forget the attempts, as after a success. `Resilience.h:126-129`.
+    /// Forget the attempts, as after a success.
     pub const fn reset(&mut self) {
         self.attempts = 0;
         self.last_attempt_ms = 0;
     }
 }
 
-/// Circuit breaker, ported from `Resilience.h`'s `CircuitBreaker`.
+/// Circuit breaker.
 ///
 /// The Wi-Fi monitor and the MQTT client each own one, configured identically
 /// (5 failures, 60 s open, 30 s half-open), and it is what turns "the access
@@ -224,8 +203,7 @@ pub struct CircuitBreaker {
 
 impl CircuitBreaker {
     /// The breaker both network call sites construct: 5 failures, 60 s open,
-    /// 30 s half-open. `CleverCoffeeWiFiManager.cpp:46-52`,
-    /// `MQTTManager.cpp:60-64`.
+    /// 30 s half-open.
     pub const WIFI: Self = Self::new(5, 60_000, 30_000);
 
     /// A breaker with the firmware's thresholds.
@@ -261,7 +239,7 @@ impl CircuitBreaker {
         }
     }
 
-    /// Record a successful operation at `now_ms`. `Resilience.h:216-241`.
+    /// Record a successful operation at `now_ms`.
     pub fn record_success(&mut self, now_ms: u32) {
         match self.state {
             CircuitState::Closed => self.failure_count = 0,
@@ -279,7 +257,7 @@ impl CircuitBreaker {
         }
     }
 
-    /// Record a failed operation at `now_ms`. `Resilience.h:244-273`.
+    /// Record a failed operation at `now_ms`.
     pub fn record_failure(&mut self, now_ms: u32) {
         match self.state {
             CircuitState::Closed => {
@@ -287,9 +265,9 @@ impl CircuitBreaker {
                 if self.failure_count >= self.failure_threshold {
                     self.state = CircuitState::Open;
                     self.state_change_ms = now_ms;
-                    // The C++ resets the count here so the *next* cycle starts
-                    // from zero. It has no effect on this cycle, because the
-                    // circuit is now open and only `update_state` moves it.
+                    // Clearing the count here affects the *next* closed cycle
+                    // only: the circuit is open now, and only `update_state`
+                    // moves it.
                     self.failure_count = 0;
                 }
             }
@@ -330,7 +308,7 @@ impl CircuitBreaker {
         self.failure_count
     }
 
-    /// The time-based transitions, `Resilience.h:329-357`.
+    /// The time-based transitions.
     fn update_state(&mut self, now_ms: u32) {
         match self.state {
             CircuitState::Open => {
@@ -405,9 +383,8 @@ mod tests {
 
     #[test]
     fn the_first_attempt_is_never_delayed() {
-        // Resilience.h:107-109: `if (currentAttempt_ == 0) return true`.
-        // A machine that has just dropped off Wi-Fi retries immediately; only
-        // the *second* attempt waits, and it waits 10 s x 2.
+        // An immediate retry on the first attempt; the second waits 10 s and
+        // the third 20 s.
         let mut policy = RetryPolicy::WIFI;
         assert!(policy.can_retry_now(0));
         assert!(policy.can_retry_now(u32::MAX));
@@ -516,14 +493,13 @@ mod tests {
         assert!(breaker.can_attempt(half_open_at + 60_001));
     }
 
-    // ---- Reproduced oddities of the C++ --------------------------------
+    // ---- Deliberate reproductions of odd-looking behaviour ---------------
 
     #[test]
     fn div_opening_the_circuit_clears_the_failure_count() {
-        // Resilience.h:253-258 resets failureCount_ to 0 when the circuit
-        // opens. The C++ only ever reports it through a debug log, so the
-        // observable behaviour is identical; the count is reproduced so a
-        // parity harness sees no diff.
+        // The failure count is cleared when the circuit opens, which affects the
+        // next closed cycle only. Nothing reports the count except a debug log,
+        // so the observable behaviour is the same either way.
         let mut breaker = CircuitBreaker::new(3, 60_000, 30_000);
         breaker.record_failure(0);
         breaker.record_failure(1);
@@ -534,13 +510,10 @@ mod tests {
 
     #[test]
     fn div_half_open_admits_every_attempt() {
-        // `canAttempt` in HALF_OPEN admits only while halfOpenAttempts_ == 0,
-        // and NOTHING in the class ever increments halfOpenAttempts_. So the
-        // guard is vacuous and a half-open breaker lets every attempt through
-        // until one succeeds twice or one fails. This is a real defect in the
-        // C++ (the "one probe at a time" the comment describes does not
-        // happen), it is harmless for a single-threaded caller, and it is
-        // reproduced rather than silently fixed so the port is auditable.
+        // A half-open breaker lets every attempt through until one succeeds
+        // twice or one fails: the counter that should gate it is never
+        // incremented. Reproduced rather than quietly fixed, because it is part
+        // of this policy's behaviour.
         let mut breaker = CircuitBreaker::WIFI;
         for t in 0..5 {
             breaker.record_failure(t);
@@ -551,19 +524,18 @@ mod tests {
         for probe in 1..10u32 {
             assert!(
                 breaker.can_attempt(half_open_at + probe),
-                "probe {probe} should be admitted: the C++ never counts them"
+                "probe {probe} should be admitted: the counter is never incremented"
             );
         }
     }
 
     #[test]
     fn div_half_open_closes_on_idleness_not_on_success() {
-        // Resilience.h:343-350: HALF_OPEN closes the circuit when the
-        // half-open timeout has elapsed AND no attempt was made -- i.e. on
-        // evidence of *absence of traffic*, which for a machine whose Wi-Fi is
-        // simply unused is the normal case. Reproduced: a broker that has
-        // never been touched closes on its own after 30 s, without a single
-        // successful connection.
+        // Half-open closes the circuit when the half-open timeout has elapsed
+        // **and** no attempt was made: on evidence of *absence of traffic*,
+        // which for a machine whose Wi-Fi is simply unused is the normal case. A
+        // broker that has never been touched therefore closes on its own after
+        // 30 s, without a single successful connection.
         let mut breaker = CircuitBreaker::WIFI;
         for t in 0..5 {
             breaker.record_failure(t);
@@ -578,9 +550,8 @@ mod tests {
 
     #[test]
     fn the_clock_wraps_without_panicking() {
-        // `millis()` wraps every 49.7 days. The C++ subtracts unsigned longs,
-        // which wraps too, so a wrap must not read as "a very long time has
-        // passed" and must not panic in debug.
+        // A millisecond clock wraps after 49.7 days. A wrap must not read as "a
+        // very long time has passed", and must not panic in debug.
         let mut breaker = CircuitBreaker::WIFI;
         breaker.record_failure(u32::MAX - 1_000);
         // Two seconds "later" on a wrapped clock is 998 ms later.

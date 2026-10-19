@@ -92,8 +92,8 @@ pub const CASES: &[Case] = &[
         run: display::tests::the_addresses_are_the_datasheet_pair,
     },
     Case {
-        name: "display::the_refresh_interval_is_the_csqs_hundred_milliseconds",
-        run: display::tests::the_refresh_interval_is_the_csqs_hundred_milliseconds,
+        name: "display::the_refresh_interval_is_a_hundred_milliseconds",
+        run: display::tests::the_refresh_interval_is_a_hundred_milliseconds,
     },
     Case {
         name: "display::a_frame_is_eight_writes_not_sixty_four",
@@ -208,8 +208,8 @@ pub const CASES: &[Case] = &[
         run: provisioning::tests::a_reader_drops_a_line_that_is_not_utf8,
     },
     Case {
-        name: "scale::the_pins_are_the_cpp_pin_map",
-        run: scale::tests::the_pins_are_the_cpp_pin_map,
+        name: "scale::the_pins_match_the_board_map",
+        run: scale::tests::the_pins_match_the_board_map,
     },
     Case {
         name: "scale::the_sampler_stack_fits_the_datasets_it_carries",
@@ -300,12 +300,12 @@ pub const CASES: &[Case] = &[
         run: actuators::tests::the_default_bundle_is_high_trigger_throughout,
     },
     Case {
-        name: "telnet::the_port_and_banner_are_the_csqs",
-        run: telnet::tests::the_port_and_banner_are_the_csqs,
+        name: "telnet::the_port_and_banner_are_pinned",
+        run: telnet::tests::the_port_and_banner_are_pinned,
     },
     Case {
-        name: "telnet::the_heartbeat_is_the_csqs_thirty_seconds",
-        run: telnet::tests::the_heartbeat_is_the_csqs_thirty_seconds,
+        name: "telnet::the_heartbeat_is_thirty_seconds",
+        run: telnet::tests::the_heartbeat_is_thirty_seconds,
     },
     Case {
         name: "telnet::a_shed_engages_below_the_floor_and_recovers_above_it",
@@ -352,8 +352,8 @@ pub const CASES: &[Case] = &[
         run: web::tests::the_advertised_options_handler_is_a_wildcard_over_the_api,
     },
     Case {
-        name: "web::every_csqs_api_route_is_registered",
-        run: web::tests::every_csqs_api_route_is_registered,
+        name: "web::every_api_route_is_registered",
+        run: web::tests::every_api_route_is_registered,
     },
     Case {
         name: "web::every_route_the_frontend_calls_is_registered",
@@ -424,8 +424,8 @@ pub const CASES: &[Case] = &[
         run: web::tests::the_large_response_floor_is_the_adrs_floor,
     },
     Case {
-        name: "web::the_large_response_limit_is_above_the_csqs_19kb",
-        run: web::tests::the_large_response_limit_is_above_the_csqs_19kb,
+        name: "web::the_large_response_limit_is_above_19kb",
+        run: web::tests::the_large_response_limit_is_above_19kb,
     },
     Case {
         name: "web::the_shared_telemetry_round_trips",

@@ -5,9 +5,9 @@
 //! The buffer is page-major, vertical, LSB-on-top: byte
 //! `buf[(y >> 3) * 128 + x]` holds the eight pixels of column `x` for rows
 //! `8 * page ..= 8 * page + 7`, with bit `y & 7` selecting the row. That is
-//! exactly `u8g2_ll_hvline_vertical_top_lsb` (`u8g2_ll_hvline.c:72`), and it
+//! exactly `u8g2_ll_hvline_vertical_top_lsb`, and it
 //! is also the SSD1306/SH1106 page-addressing wire format, so the same 1024
-//! bytes go straight out over I2C with no repacking (R3-09).
+//! bytes go straight out over I2C with no repacking and no per-pixel work.
 //!
 //! The alternative — a linear `y * 128 + x` bitmap — is friendlier to read but
 //! would mean a transposing pass on every flush. Keeping U8g2's layout is what
@@ -18,64 +18,62 @@
 //! Drawing takes *logical* coordinates in a `0..width` x `0..height` space that
 //! [`Rotation`] selects. Under `R1`/`R3` that space is 64 wide and 128 tall,
 //! and the mapping onto the physical 128x64 page buffer is U8g2's
-//! `u8g2_draw_l90_r1`..`r3` (`u8g2_setup.c:349-441`), reproduced in
-//! [`Display::draw_hv_line`](Display::draw_hv_line). The UPRIGHT template is
-//! drawn in that rotated space
-//! and the *coordinates in the templates are the rotated ones*, matching the
-//! C++ — `UprightTemplate::displayHeatBar` really does draw at y=124, which is
-//! off the top of a 64-row screen and only sensible under `R1`/`R3`.
+//! `u8g2_draw_l90_r1`..`r3`, reproduced in
+//! [`Display::draw_hv_line`](Display::draw_hv_line). The upright template is
+//! drawn in that rotated space, and the *coordinates in the templates are the
+//! rotated ones*: the heat bar really does draw at y=124, which is off the top of
+//! a 64-row screen and only sensible under `R1`/`R3`.
 //!
-//! That is the single most surprising thing about porting this display, and it
-//! is why [`Rotation::width`]/[`Rotation::height`] exist instead of hard-coding
-//! 128x64 in the clip test.
+//! That is the single most surprising thing about this display, and it is why
+//! [`Rotation::width`]/[`Rotation::height`] exist instead of hard-coding 128x64 in
+//! the clip test.
 
 use crate::font::{Font, HeightMode};
 
-/// Panel width in pixels. `defaults.h:224`.
+/// Panel width in pixels, in the unrotated space.
 pub const DISPLAY_WIDTH: i32 = 128;
 
-/// Panel height in pixels. `defaults.h:225`.
+/// Panel height in pixels, in the unrotated space.
 pub const DISPLAY_HEIGHT: i32 = 64;
 
 /// Framebuffer size in bytes: 16 tiles across, 8 pages down.
 pub const BUFFER_LEN: usize = (DISPLAY_WIDTH as usize) * (DISPLAY_HEIGHT as usize / 8);
 
-/// `STATUS_BAR_Y_POS`, `defaults.h:226-227`.
+/// The y the status bar starts at.
 pub const STATUS_BAR_Y_POS: i32 = 12;
 
 /// The display rotation, and with it the logical coordinate space.
 ///
-/// `OledDriver::getU8G2Rotation` (`src/ui/OledDriver.cpp:80-96`) maps an
-/// integer `0..3` onto `U8G2_R0..R3`, and `prepareDisplay` (`:66-79`) computes
-/// it as `displayInverted * 2 + (template == UPRIGHT)`. Ported verbatim:
+/// An integer `0..3` selects it, computed as
+/// `inverted * 2 + (template is upright)`:
 ///
 /// | rotation | set when | logical space |
 /// |----------|----------|---------------|
 /// | [`R0`](Rotation::R0) | neither | 128 x 64 |
 /// | [`R1`](Rotation::R1) | UPRIGHT template | 64 x 128 |
-/// | [`R2`](Rotation::R2) | `displayInverted` | 128 x 64 |
+/// | [`R2`](Rotation::R2) | inverted | 128 x 64 |
 /// | [`R3`](Rotation::R3) | both | 64 x 128 |
 ///
 /// R1/R3 swap width and height because U8g2's `u8g2_update_dimension_r1`
-/// overwrites `width` with `pixel_height` (`u8g2_setup.c:245`). R2 is a 180
+/// overwrites `width` with `pixel_height`. R2 is a 180
 /// degree turn of R0; R3 is a 90 degree turn of R2.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rotation {
-    /// `U8G2_R0` — identity.
+    /// Identity.
     R0,
-    /// `U8G2_R1` — 90 degrees clockwise.
+    /// 90 degrees clockwise.
     R1,
-    /// `U8G2_R2` — 180 degrees.
+    /// 180 degrees.
     R2,
-    /// `U8G2_R3` — 270 degrees clockwise.
+    /// 270 degrees clockwise.
     R3,
 }
 
 impl Rotation {
-    /// The rotation from `OledDriver`'s integer, where anything else is R0.
+    /// The rotation for an index of `0..=3`; anything else is `R0`.
     ///
-    /// The C++ `switch` has a `default: return U8G2_R0` arm
-    /// (`OledDriver.cpp:93`), so out-of-range is not an error.
+    /// Out-of-range is not an error: an unrecognised index falls back to the
+    /// identity rotation.
     #[must_use]
     pub const fn from_index(index: i32) -> Self {
         match index {
@@ -86,7 +84,7 @@ impl Rotation {
         }
     }
 
-    /// The index `OledDriver` computes for this rotation.
+    /// The integer this rotation is indexed by.
     #[must_use]
     pub const fn index(self) -> i32 {
         match self {
@@ -287,7 +285,7 @@ pub struct Display {
     x: i32,
     y: i32,
     rotation: Rotation,
-    /// Panel power-save request. `OledDriver`/`IDisplayManager` own acting on it.
+    /// Panel power-save request. The HAL reads it; this only records it.
     power_save: bool,
 }
 
@@ -364,12 +362,12 @@ impl Display {
         self.fb
     }
 
-    /// `clearBuffer`.
+    /// Zero the framebuffer.
     pub fn clear_buffer(&mut self) {
         self.fb = Framebuffer::new();
     }
 
-    /// `setPowerSave`. Recorded, not acted on — see R3-09.
+    /// Record a panel power-save request.
     pub fn set_power_save(&mut self, enabled: bool) {
         self.power_save = enabled;
     }
@@ -405,7 +403,7 @@ impl Display {
         self.font_pos_top = false;
     }
 
-    /// `OledDriver::prepareDisplay` (`src/ui/OledDriver.cpp:34`).
+    /// Puts the display into the state every template expects to start from.
     ///
     /// The firmware runs this once, when the display is first acquired, and
     /// every template then draws on top of whatever state it leaves. Two of the
@@ -421,10 +419,10 @@ impl Display {
     ///   way, and the first goldens showed a clipped readout.
     ///
     /// Idempotent, and cheap: it sets six fields. The pipeline calls it once per
-    /// frame rather than once at boot, which is a superset of the C++'s
-    /// behaviour -- no template can observe the difference, because each one
-    /// sets the font it needs anyway -- and it keeps the rotation and the
-    /// initial state in one place instead of two.
+    /// frame rather than once at boot, which is a superset of what is needed --
+    /// no template can observe the difference, because each one sets the font it
+    /// needs anyway -- and it keeps the rotation and the initial state in one
+    /// place instead of two.
     pub fn prepare_display(&mut self, rotation: Rotation) {
         self.clear_buffer();
         self.font = Some(crate::font::profont11());
@@ -592,7 +590,7 @@ impl Display {
     /// The `a > b` repair arm matters. U8g2's callers can pass a negative
     /// start — `drawFrame` with `w == 0` computes `x += w; x--`, and
     /// `u8g2_draw_l90_r1` produces wrapped values — and without the repair the
-    /// subtraction underflows a `u8g2_uint_t`. Ported rather than "cleaned up",
+    /// subtraction underflows a `u8g2_uint_t`. Reproduced rather than "cleaned up",
     /// because the two behaviours differ for exactly those inputs.
     fn clip_intersection2(a: i32, len: i32, c: i32, d: i32) -> Option<(i32, i32)> {
         let mut a = a;
@@ -665,7 +663,7 @@ impl Display {
 
     /// The rotation transform, then the buffer write.
     ///
-    /// This is `u8g2_draw_l90_r0..r3` (`u8g2_setup.c:309-441`) followed by
+    /// This is `u8g2_draw_l90_r0..r3` followed by
     /// `u8g2_draw_hv_line_2dir`. The R1/R3 arms both *flip* `dir`, which is why
     /// a horizontal line in portrait space lands as a vertical line in the
     /// page buffer.
@@ -766,7 +764,7 @@ impl Display {
     /// `drawLine` — Bresenham, with U8g2's axis-swap and its `x2 == 255`
     /// guard.
     ///
-    /// Ported from `u8g2_line.c`. The `x2 == 255` clamp exists because the
+    /// Reproduces `u8g2_line.c`. The `x2 == 255` clamp exists because the
     /// loop condition is `x <= x2` on an 8-bit coordinate and 255 would wrap;
     /// it is reproduced because it changes the last pixel of a line that ends
     /// exactly at the right edge.
@@ -860,7 +858,6 @@ impl Display {
         true
     }
 
-    /// The clip window as a [`Rect`].
     #[must_use]
     fn clip_rect(&self) -> Rect {
         let (x0, y0, x1, y1) = self.clip_window();
@@ -887,7 +884,7 @@ impl Display {
 
     /// `drawDisc` — a filled circle, midpoint algorithm.
     ///
-    /// Ported from `u8g2_circle.c`'s `u8g2_draw_disc`, including the fact that
+    /// Reproduces `u8g2_circle.c`'s `u8g2_draw_disc`, including the fact that
     /// it is built from *vertical* lines of `y+1` and `x+1` — which is what
     /// makes a filled disc solid rather than a ring.
     pub fn draw_disc(&mut self, x0: i32, y0: i32, rad: i32) {
@@ -984,10 +981,10 @@ impl Display {
         self.draw_pixel(x0 - y, y0 + x);
     }
 
-    /// `drawTriangle` — filled, via U8g2's convex-polygon scanline filler.
+    /// A filled triangle, via U8g2's convex-polygon scanline filler.
     ///
-    /// Ported from `u8g2_polygon.c`. The polygon machinery exists to fill a
-    /// triangle with no seams; `ModernTemplate::drawHeatingIcon` uses it, and
+    /// Reproduces `u8g2_polygon.c`. The polygon machinery exists to fill a
+    /// triangle with no seams; the Modern layout's heating icon uses it, and
     /// a naive three-edge fill leaves gaps on the shallow side of the flame.
     pub fn draw_triangle(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, x2: i32, y2: i32) {
         self.fill_convex_polygon(&[(x0, y0), (x1, y1), (x2, y2)]);
@@ -995,8 +992,8 @@ impl Display {
 
     /// U8g2's `pg_prepare`/`pg_exec` for a small convex polygon.
     ///
-    /// Ported from `u8g2_polygon.c`. The machinery exists to fill a triangle
-    /// with no seams: `ModernTemplate::drawHeatingIcon` uses it, and filling
+    /// Reproduces `u8g2_polygon.c`. The machinery exists to fill a triangle
+    /// with no seams: the Modern layout's heating icon uses it, and filling
     /// from the three edges directly leaves gaps on the shallow side of the
     /// flame, because the two sides step in x at different rates than the
     /// scanline steps in y.
@@ -1111,9 +1108,9 @@ impl Display {
 
     // -------------------------------------------------------------- bitmaps
 
-    /// `drawXBMP` — a big-endian 1bpp bitmap, `blen`-bytes per row.
+    /// A big-endian 1bpp bitmap, `blen` bytes per row. U8g2's `drawXBMP`.
     ///
-    /// Ported from `u8g2_bitmap.c`'s `u8g2_DrawHXBMP` + `u8g2_DrawXBMP`,
+    /// Reproduces `u8g2_DrawHXBMP` and `u8g2_DrawXBMP` from `u8g2_bitmap.c`,
     /// including the run-length form of the inner loop (U8g2 replaced the
     /// per-pixel version) and the fact that unset bits paint the *background*
     /// colour unless transparency is on. Transparency is off, as on the device.
@@ -1135,7 +1132,7 @@ impl Display {
         }
     }
 
-    /// One row of `u8g2_DrawHXBMP`, ported from `u8g2_bitmap.c`.
+    /// One row of `u8g2_DrawHXBMP`, following `u8g2_bitmap.c`.
     ///
     /// U8g2's current form (the `#else` arm, with `#define OLD` commented out)
     /// scans forward over a run of *identical* bits, then draws the run in one
@@ -1174,7 +1171,7 @@ impl Display {
 
     // ----------------------------------------------------------------- text
 
-    /// `getStrWidth` for the current font.
+    /// The measured width of `text` in the current font (U8g2's `getStrWidth`).
     ///
     /// Returns 0 with no font set, matching U8g2's behaviour of dereferencing
     /// a null `font` being undefined — the firmware always sets a font before
@@ -1224,9 +1221,7 @@ impl Display {
     /// firmware draws is ASCII plus that one byte, so the two walks agree on
     /// all real input.
     ///
-    /// `Display::draw_utf8` was the same walk, mirroring the C++'s separate
-    /// `drawUTF8` entry point. It had no callers and was deleted;
-    /// [`Display::draw_str`] is the one string entry point.
+    /// This is the one string entry point.
     pub fn draw_str(&mut self, x: i32, y: i32, text: &str) -> i32 {
         self.draw_string(x, y, text)
     }
@@ -1234,7 +1229,7 @@ impl Display {
     /// `u8g2_draw_string`, one code point at a time.
     ///
     /// The decoder stops at `\n` — U8g2 does this so one string can hold
-    /// several lines, and `displayWrappedMessage` relies on it. See
+    /// several lines, and the wrapped-message helper relies on it. See
     /// [`Display::draw_str`] for why this walks code points.
     pub fn draw_string(&mut self, x: i32, y: i32, text: &str) -> i32 {
         let mut x = x;
@@ -1253,9 +1248,9 @@ impl Display {
     /// `u8g2_draw_string` with the UTF-8 decoder (`u8x8_utf8_next`).
     ///
     /// For the Latin-1 text the firmware draws this is identical to
-    /// [`Display::draw_string`]; it is kept because `displayWrappedMessage`
-    /// calls the C++'s `drawUTF8` explicitly, and because a genuinely non-Latin
-    /// code point must be looked up as itself rather than as its UTF-8 bytes.
+    /// [`Display::draw_string`]; it is kept because the wrapped-message helper
+    /// selects it explicitly, and because a genuinely non-Latin code point must
+    /// be looked up as itself rather than as its UTF-8 bytes.
     pub fn draw_string_utf8(&mut self, x: i32, y: i32, text: &str) -> i32 {
         let mut x = x;
         let mut sum = 0;
@@ -1592,7 +1587,7 @@ mod tests {
 
     #[test]
     fn the_oled_driver_rotation_rule_is_reproduced() {
-        // prepareDisplay: rotation = displayInverted * 2 + (UPRIGHT ? 1 : 0).
+        // rotation = inverted * 2 + (upright ? 1 : 0).
         for inverted in [false, true] {
             for upright in [false, true] {
                 let mut rotation = 0;
@@ -1662,7 +1657,7 @@ mod tests {
         let mut d = Display::new();
         d.draw_frame(10, 10, 4, 3);
         let outline = d.into_framebuffer();
-        // A 4x3 outline: 2*4 + 2*(3-2) = 10, matching the oracle.
+        // A 4x3 outline: 2*4 + 2*(3-2) = 10, matching U8g2.
         assert_eq!(outline.lit_count(), 10);
         assert!(!outline.pixel(11, 11), "interior must stay clear");
         assert!(outline.pixel(10, 10) && outline.pixel(13, 12));
@@ -1671,7 +1666,7 @@ mod tests {
     #[test]
     fn a_zero_sized_box_draws_nothing() {
         // U8g2 documents "restriction: does not work for w = 0 or h = 0".
-        // Measured against the oracle: `drawBox(5,5,0,4)` and `drawBox(5,5,4,0)`
+        // Measured against U8g2: `draw_box(5, 5, 0, 4)` and `draw_box(5, 5, 4, 0)`
         // both light 0 pixels -- `drawBox`'s loop runs `h` times over a
         // zero-length line, and each of those is dropped by `len == 0`.
         let mut d = Display::new();
@@ -1685,16 +1680,16 @@ mod tests {
     #[test]
     fn a_zero_width_frame_draws_its_side_lines() {
         // The mirror image of the `drawBox` case, and a genuine U8g2 quirk
-        // rather than a defect in this port. `drawFrame(5,5,0,4)` lights 4
-        // pixels in C++: the top and bottom horizontals are zero-length and
-        // vanish, but the two verticals are `drawHVLine(x, y, h-2, 1)` with
+        // rather than a defect in this port. `draw_frame(5,5,0,4)` lights 4
+        // pixels: the top and bottom horizontals are zero-length and
+        // vanish, but the two verticals are `draw_hv_line(x, y, h - 2, 1)` with
         // `h-2 == 2`, which are not. The second vertical lands at
         // `x + w - 1 == 4`, i.e. one column LEFT of the requested x, because
         // U8g2 computes it as `x += w; x--` unconditionally.
         //
         // Reproduced rather than guarded, because a caller that passes w == 0
-        // gets what the device gives, and "fixing" it here would desynchronise
-        // the oracle. The overlap check also passes: `intersects(5,5,5,9,...)`
+        // gets what the device gives, and "fixing" it here would desynchronise the
+        // comparison. The overlap check also passes: `intersects(5,5,5,9,...)`
         // is true, so U8g2 proceeds to draw.
         let mut d = Display::new();
         d.draw_frame(5, 5, 0, 4);
@@ -1706,7 +1701,7 @@ mod tests {
 
     #[test]
     fn a_zero_height_frame_draws_its_top_line() {
-        // Oracle: `drawFrame(5,5,4,0)` lights 4 pixels in one row at y=5 --
+        // Measured: `draw_frame(5, 5, 4, 0)` lights 4 pixels in one row at y=5 --
         // the `h >= 2` arm is skipped, so only the top horizontal survives.
         let mut d = Display::new();
         d.draw_frame(5, 5, 4, 0);
@@ -1762,7 +1757,7 @@ mod tests {
         d.draw_str(0, 10, "A");
         // Inside A's box there must now be both ink and cleared background.
         let fb = d.into_framebuffer();
-        // Oracle: drawing "A" at (0,10) over a fully-lit 128x64 leaves 19
+        // Measured: drawing "A" at (0,10) over a fully-lit 128x64 leaves 19
         // pixels dark. That is A's own box: 8173 lit out of 8192.
         assert_eq!(8192 - fb.lit_count(), 19, "A's box must be exactly 19 px");
         let header = font::profont11().glyph_header(u16::from(b'A')).unwrap();
@@ -1780,7 +1775,7 @@ mod tests {
     #[test]
     fn a_control_character_has_no_glyph_and_does_not_advance() {
         // The ten fonts encode 0x20..0x7E plus a symbol block; 0x01..0x1F are
-        // absent from all of them. Verified against the oracle: the whole
+        // absent from all of them. Verified against U8g2: the whole
         // 0x01..0x1F range is missing from every profont and every fub.
         for f in [
             font::profont10(),
@@ -1816,7 +1811,7 @@ mod tests {
     #[test]
     fn the_degree_sign_is_present_wherever_the_templates_draw_it() {
         // Every template draws the degree sign by casting 176 to `char`, i.e.
-        // U+00B0. Enumerated against the oracle: the six profonts all carry it;
+        // U+00B0. Enumerated against U8g2: the six profonts all carry it;
         // the fub faces carry it too. Asserted so that swapping a font in a
         // template cannot silently drop the unit (a missing glyph advances the
         // pen by zero, which jams the digits against the "C").
@@ -1871,7 +1866,7 @@ mod tests {
         // The heating-icon shape: apex at the top, flat base at the bottom.
         // `min_y` is a single vertex, so U8g2's `is_min_y_not_flat` is SET and
         // the fill pre-advances one row -- the first scanline drawn is y=1, not
-        // y=0. Row widths below are the oracle's, pixel for pixel.
+        // y=0. Row widths below are U8g2's, pixel for pixel.
         let mut d = Display::new();
         d.draw_triangle(8, 0, 3, 12, 13, 12);
         let fb = d.into_framebuffer();
@@ -1908,7 +1903,7 @@ mod tests {
     fn a_flat_minimum_y_fills_the_base_row() {
         // The mirror case: base at the top, apex at the bottom. `min_y` is a
         // flat *edge*, so `is_min_y_not_flat` is clear, no pre-advance happens,
-        // and the base row is filled at full width. The oracle's row widths for
+        // and the base row is filled at full width. U8g2's row widths for
         // this shape are 10, 9, 9, 9, 8, 7, 7, 7, 6, 5, 5, 5, 4, 3, 3, 3, 2, 1, 1, 1.
         let mut d = Display::new();
         d.draw_triangle(10, 5, 20, 5, 15, 25);

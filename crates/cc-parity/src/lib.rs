@@ -1,4 +1,4 @@
-//! The parity scenario harness (06 R1-08).
+//! The parity scenario harness.
 //!
 //! # What this is
 //!

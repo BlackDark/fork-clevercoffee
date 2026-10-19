@@ -1,12 +1,8 @@
 //! Every branch of the safety paths S1-S5, one named test each, plus both
-//! fail-closed configuration rules recovered from 08 §4.1.
+//! fail-closed configuration rules.
 //!
-//! The S1/S3 assertions are ported case-for-case from
-//! `test/test_emergency_stop_manager/test_main.cpp` (18 cases) and the S4
-//! assertions from `test/test_hardware_water_tank/test_main.cpp` (5 cases).
-//! Where the C++ test drives hardware through a pin spy, the Rust tests assert
-//! on the verdict the applier is obliged to write, which is the same decision
-//! observed one layer earlier.
+//! The tests assert on the verdict the applier is obliged to write, which is the
+//! same decision the hardware sees, observed one layer earlier.
 
 use cc_domain::hardware::{RelayTriggerType, TemperatureSensorType};
 use cc_domain::process::BrewMode;
@@ -19,13 +15,12 @@ use cc_safety::{
 };
 
 /// The compiled-in defaults: `emergency_temp` 150, `hysteresis` 5, steam
-/// setpoint 120 (`Config.h:813-829`, `defaults.h:20`).
+/// setpoint 120.
 fn cfg() -> SafetyConfig {
     SafetyConfig::default()
 }
 
-/// The same defaults with a different threshold, mirroring the C++ test's
-/// `SetUp`.
+/// The same defaults with a different threshold.
 fn cfg_with(emergency_temp: f32, hysteresis: f32) -> SafetyConfig {
     SafetyConfig {
         emergency_temp: Celsius::new(emergency_temp),
@@ -66,7 +61,7 @@ fn verdict_of(outcome: &Outcome) -> Verdict {
 }
 
 // ===================================================================== S1 —
-// Overtemp with debounce. Ported from test_emergency_stop_manager.
+// Overtemp with debounce.
 
 #[test]
 fn s1_single_high_reading_does_not_trigger() {
@@ -76,14 +71,13 @@ fn s1_single_high_reading_does_not_trigger() {
 
     assert!(!verdict_of(&out).latched, "one reading must not trip");
     assert_eq!(out.state.high_reading_count, 1);
-    // Parity note, and worth stating plainly: the C++ keeps heating while the
-    // debounce counts, so at the production 400 ms sensor interval
-    // (`Timing::TEMPERATURE_SENSOR_INTERVAL_MS`) the machine can hold the
-    // heater on through two further readings - 800 ms - at a temperature
-    // already above the emergency threshold. That is
-    // `EmergencyStopManager.cpp:36-50` behaving as designed: the debounce
-    // exists to reject sensor noise. It is a real, deliberate exposure, and
-    // narrowing it would be a recorded behaviour change, not a port.
+    // Worth stating plainly: the heater stays on while the debounce counts, so at
+    // the production 400 ms sensor interval
+    // (`Timing::TEMPERATURE_SENSOR_INTERVAL_MS`) the machine can hold the heater
+    // on through two further readings - 800 ms - at a temperature already above
+    // the emergency threshold. The debounce exists to reject sensor noise, and
+    // this is the exposure it buys. Narrowing it would be a recorded behaviour
+    // change, not a refactor.
     assert!(
         verdict_of(&out).may_heat,
         "the C++ does not block while counting"
@@ -203,7 +197,7 @@ fn s1_temperature_just_above_the_threshold_counts() {
 
 #[test]
 fn s1_configured_threshold_changes_where_it_trips() {
-    // Config.h:815 allows 120-180; the C++ test uses 130.
+    // The schema allows 120-180; this test uses 130.
     let config = cfg_with(130.0, 5.0);
     let mut state = SafetyState::CLEAR;
     for _ in 0..2 {
@@ -273,8 +267,8 @@ fn s1_a_nan_reading_trips_immediately() {
 
 #[test]
 fn s1_the_tsic_fault_sentinels_trip_immediately() {
-    // 01 §3: the TSIC-306 driver reports 221/222 for a faulted probe. If these
-    // were plausible the machine would debounce a hard sensor fault.
+    // The TSIC-306 driver reports 221/222 for a faulted probe. If these were
+    // plausible the machine would debounce a hard sensor fault.
     let config = cfg();
     for sentinel in [221.0f32, 222.0f32] {
         let out = reduce_temp(SafetyState::CLEAR, sentinel, &config);
@@ -292,16 +286,14 @@ fn s1_the_boundary_of_the_valid_range_does_not_trip() {
 }
 
 // ===================================================================== S2 —
-// The emergency latch. Ports the HardwareManager guard assertions.
+// The emergency latch.
 
 /// A pre-latched state plus a reading that does **not** clear it.
 ///
-/// The C++ clears the latch from inside `checkEmergencyConditions` whenever the
-/// reading drops below `emergency_temp - hysteresis` *and* below 100 C
-/// (`EmergencyStopManager.cpp:60-63`), so a latched state handed to `reduce`
-/// together with a cool reading recovers immediately — which is S3, tested
-/// separately. To isolate the latch rule (S2) the reading is placed inside the
-/// hysteresis band, where the C++ takes neither branch and the latch survives.
+/// A latch clears when the reading drops below `emergency_temp - hysteresis`
+/// *and* below 100 C, which is S3, tested separately. To isolate the latch rule
+/// (S2) the reading is placed inside the hysteresis band, where neither
+/// clearance condition holds and the latch survives.
 fn latched_with_band_temperature() -> (SafetyState, Telemetry) {
     let config = cfg();
     let latched = SafetyState {
@@ -421,7 +413,7 @@ fn s2_reset_forgets_everything() {
 }
 
 // ===================================================================== S3 —
-// Recovery. Ported from test_emergency_stop_manager.
+// Recovery.
 
 #[test]
 fn s3_emergency_is_clearable_when_the_reading_is_safe() {
@@ -433,7 +425,7 @@ fn s3_emergency_is_clearable_when_the_reading_is_safe() {
 
 #[test]
 fn s3_exactly_the_safe_temperature_clears() {
-    // EmergencyStopManager.cpp:83 uses `>`, so exactly 100.0 does clear.
+    // The comparison is `>`, so exactly 100.0 does clear.
     assert!(can_clear(EMERGENCY_SAFE_TEMP_C));
 }
 
@@ -490,7 +482,7 @@ fn s3_a_latched_machine_stays_latched_while_still_hot() {
 }
 
 // ===================================================================== S4 —
-// Water tank. Ported from test_hardware_water_tank.
+// Water tank.
 
 #[test]
 fn s4_empty_tank_blocks_the_pump() {
@@ -514,8 +506,8 @@ fn s4_empty_tank_blocks_the_pump() {
 fn s4_empty_tank_does_not_block_the_heater() {
     // The boiler is a separate vessel from the reservoir. Stopping the heater
     // because the water tank is low would leave the user with cold coffee AND a
-    // cold machine, and the C++ only gates the heater on
-    // `keep_heater_on_empty` in the state machine, not here.
+    // cold machine. `keep_heater_on_empty` is the state machine's switch for
+    // that, and it is not this layer's decision.
     let out = reduce(
         &SafetyState::CLEAR,
         &Telemetry::new(Celsius::new(20.0), false, MachineState::PidNormal),
@@ -527,10 +519,9 @@ fn s4_empty_tank_does_not_block_the_heater() {
 
 #[test]
 fn div1_s4_empty_tank_blocks_the_water_valve_too() {
-    // **Divergence from the C++, see `intentional-diffs.md` #3 / 09 §3.** The C++
-    // gates only `enablePump` and `setPumpPressure` on `waterTankEmpty_`
-    // (`HardwareManager.cpp:325-328,398-406`); `openWaterValve` checks only
-    // `emergencyMode_`. The port refuses the valve as well.
+    // **A deliberate widening, recorded in `divergences.md` §3.** The water tank
+    // gates the pump and the pump pressure; the water valve was gated only on
+    // emergency mode. This verdict refuses the valve as well.
     let out = reduce(
         &SafetyState::CLEAR,
         &Telemetry::new(Celsius::new(20.0), false, MachineState::BrewRunning),
@@ -582,9 +573,9 @@ fn s4_pump_is_allowed_again_after_a_refill() {
 
 #[test]
 fn s4_the_tank_reading_needs_no_edge_to_take_effect() {
-    // The C++ kills a running pump inside `setWaterTankEmpty(true)`, so a missed
-    // edge leaves the pump running. Here the verdict is level-triggered: two
-    // consecutive empty readings behave exactly like one.
+    // The verdict is level-triggered: two consecutive empty readings behave
+    // exactly like one. An edge-triggered implementation kills a running pump
+    // once, so a missed edge leaves it running.
     let empty = Telemetry::new(Celsius::new(20.0), false, MachineState::PidNormal);
     let state = SafetyState::CLEAR;
     let first = reduce(&state, &empty, &cfg(), Millis::ZERO);
@@ -613,8 +604,8 @@ fn s5_the_three_brew_flow_states_may_flow_water() {
 
 #[test]
 fn s5_brew_finished_may_not_flow_water() {
-    // `isBrewState(BREW_FINISHED)` is true, which is exactly why the C++ spells
-    // out the exclusion (BrewHandler.h:110).
+    // `is_brew_state(BREW_FINISHED)` is true, which is exactly why the exclusion
+    // is written out explicitly instead of being inferred from the state name.
     assert!(MachineState::BrewFinished.is_brew_state());
     assert!(!water_flow_allowed(MachineState::BrewFinished));
 }
@@ -688,7 +679,7 @@ fn s5_a_water_flow_state_permits_the_water_valve() {
     assert!(verdict_of(&out).may_open_water);
     // The tank is full and the state is a water-flow state, so the *only* thing
     // left to report is the steam whitelist (S5') — which BREW_RUNNING is
-    // deliberately not on. See 09 §2: the steam valve is the same relay.
+    // deliberately not on, because the steam valve is the same relay.
     assert!(matches!(
         verdict_of(&out).reason,
         Some(Reason::NotASteamState {
@@ -699,17 +690,14 @@ fn s5_a_water_flow_state_permits_the_water_valve() {
 
 // ======================================================= S5' — steam whitelist —
 //
-// The C++ has NO steam-valve whitelist: `openSteamValve` checks only
-// `emergencyMode_` (HardwareManager.cpp:397-400) and there is no
-// `steamSafetyShutdownCheck` anywhere in the tree. The port adds one, because
-// the steam valve is the *same physical relay* as the water valve
-// (ValveState.h:8-11) and the port can reach it.
-// See 09 §2 and `intentional-diffs.md` #2.
+// The steam valve has its own whitelist, because it is the *same physical relay*
+// as the water valve: opening it in a state that is not steaming would flow water
+// with the pump off, and no water-level or emergency guard would catch that on
+// its own. Recorded in `divergences.md` §2.
 
 #[test]
 fn div2_the_steam_valve_is_whitelist_gated() {
-    // A water-flow state must NOT leave the steam valve permitted. In the C++
-    // this verdict says `true`.
+    // A water-flow state must NOT leave the steam valve permitted.
     let out = reduce(
         &SafetyState::CLEAR,
         &Telemetry::new(Celsius::new(20.0), true, MachineState::BrewRunning),
@@ -831,9 +819,9 @@ fn config_one_degree_of_headroom_is_enough() {
 
 #[test]
 fn config_the_highest_legal_steam_setpoint_still_validates_with_the_default_threshold() {
-    // STEAM_SETPOINT_MAX is 140 (defaults.h:84) and the default emergency
-    // threshold is 150, so the shipped defaults are 10 C clear of the worst
-    // legal steam setpoint. This is the whole reason the defaults are safe.
+    // STEAM_SETPOINT_MAX is 140 and the default emergency threshold is 150, so
+    // the shipped defaults are 10 C clear of the worst legal steam setpoint. This
+    // is the whole reason the defaults are safe.
     let cfg = SafetyConfig {
         steam_setpoint: Celsius::new(140.0),
         ..SafetyConfig::default()
@@ -841,7 +829,7 @@ fn config_the_highest_legal_steam_setpoint_still_validates_with_the_default_thre
     assert_eq!(validate_config(&cfg), Ok(()));
 }
 
-// ================================ the brew setpoint pair (finding 1.2, P1)
+// ======================= the brew setpoint pair (a legal pair can defeat S1)
 
 // The steam rule above has a twin here, and its absence was a can-damage
 // defect: `POST /api/setpoint` filtered to `0..=150` and persisted the result
@@ -855,8 +843,8 @@ fn config_the_highest_legal_steam_setpoint_still_validates_with_the_default_thre
 fn config_emergency_temp_must_exceed_the_brew_setpoint_plus_hysteresis() {
     let cfg = SafetyConfig {
         emergency_temp: Celsius::new(130.0),
-        // `STEAM_SETPOINT_MIN` (defaults.h:83), so the steam pair is clear at
-        // 100 + 10 and the verdict is unambiguously about the brew one.
+        // `STEAM_SETPOINT_MIN`, so the steam pair is clear at 100 + 10 and the
+        // verdict is unambiguously about the brew one.
         steam_setpoint: Celsius::new(100.0),
         effective_brew_setpoint: Celsius::new(120.0),
         emergency_hysteresis: Celsius::new(10.0),
@@ -911,8 +899,8 @@ fn config_one_degree_of_brew_headroom_is_enough() {
 fn config_the_worst_legal_brew_setpoint_validates_with_the_default_threshold() {
     // The shipped defaults have to survive their own validator, and the reason
     // they are 40 C apart is the same arithmetic as above: `BREW_SETPOINT_MAX`
-    // is 110 (`defaults.h:82`), `brew.temp_offset` adds at most 20
-    // (`defaults.h:84-85`), and `emergency_temp` defaults to 150.
+    // is 110, `brew.temp_offset` adds at most 20, and `emergency_temp` defaults
+    // to 150.
     for (setpoint, offset) in [(95.0, 0.0), (110.0, 0.0), (110.0, 20.0)] {
         let cfg = SafetyConfig {
             effective_brew_setpoint: Celsius::new(setpoint + offset),
@@ -929,10 +917,9 @@ fn config_the_worst_legal_brew_setpoint_validates_with_the_default_threshold() {
 #[test]
 fn config_a_lowered_emergency_threshold_cannot_be_bought_with_a_brew_setpoint() {
     // The two parameters overlap in range (`emergency_temp` 120..=180,
-    // `brew.setpoint` 20..=110, `brew.temp_offset` 0..=20), so a *legal* pair
-    // can defeat S1 without any value being out of bounds. This is the same
-    // shape as `config_emergency_temp_must_exceed_steam_setpoint_plus_hysteresis`,
-    // and the C++ has neither rule: it validates each parameter in isolation.
+    // `brew.setpoint` 20..=110, `brew.temp_offset` 0..=20), so a *legal* pair can
+    // defeat S1 without any value being out of bounds. This is the same shape as
+    // the steam pair's rule, and no per-parameter bound can catch either.
     let cfg = SafetyConfig {
         emergency_temp: Celsius::new(120.0),
         emergency_hysteresis: Celsius::new(1.0),
@@ -984,8 +971,9 @@ fn config_a_brew_setpoint_that_defeats_the_interlock_is_not_storable() {
 #[test]
 fn load_discards_a_stored_config_whose_brew_setpoint_defeats_the_interlock() {
     // The end-to-end consequence. A machine with this blob on disk runs the
-    // compiled-in defaults instead, which is the fail-closed rule from 08 §4.1
-    // and the reason a persisted 150 C setpoint cannot survive a reboot.
+    // compiled-in defaults instead, because `BlobConfigStore::load` re-validates
+    // and falls back. That is the reason a persisted 150 C setpoint cannot
+    // survive a reboot.
     let stored = SafetyConfig {
         emergency_temp: Celsius::new(150.0),
         effective_brew_setpoint: Celsius::new(145.0),
@@ -1026,10 +1014,9 @@ fn config_a_high_trigger_heater_relay_is_accepted() {
 
 // The reported failure, as a test. `brew.mode = Automatic`,
 // `brew.by_weight.enabled = 1`, `brew.by_time.enabled = 0` (the default) and no
-// scale: `BrewRunningState::checkSpecificTransitions` (`BrewStates.cpp:283-299`)
-// then has no arm that can fire, `initTotalTargetBrewTime` (`:53-62`) returns
-// 0.0 so the by-time arm's own `target > 0.0` fails too, and the shot runs until
-// the brew switch or `BREW_PUMP_TIMEOUT_MS` — 300 s of pump and open valve.
+// scale: no transition arm can fire, the by-time target resolves to 0.0 so its
+// own `target > 0.0` fails too, and the shot runs until the brew switch or
+// `BREW_PUMP_TIMEOUT_MS` — 300 s of pump and open valve.
 //
 // Every one of those four parameters is individually **legal**: `brew.mode` is
 // an enum with two values, the two `enabled` flags are independent booleans
@@ -1170,21 +1157,20 @@ fn config_the_compiled_defaults_are_still_safe_with_the_brew_rule() {
     );
 }
 
-// ==================== the temperature sensor type (R3-07 reversed R1-03)
+// ============================== the temperature sensor type (both types)
 
-// Both sensor types are supported, so there is nothing here to validate. The
-// four tests that used to assert a `TSIC_306` refusal are replaced, not deleted:
-// the behaviour they pinned was real and worth pinning — a firmware must not
-// accept a sensor setting it cannot honour — and the thing that has changed is
-// that there is no such setting any more.
+// Both sensor types are supported, so there is nothing here to validate. Four
+// tests used to assert a `TSIC_306` refusal; the behaviour they pinned was real
+// — a firmware must not accept a sensor setting it cannot honour — and what has
+// changed is that there is no such setting any more.
 //
-// What is *not* given up is the underlying complaint. The C++ accepted
-// `TSIC_306` and then read the 1-Wire bus anyway, silently substituting one
-// probe for another. That is now prevented by construction rather than by
-// refusing the configuration: `cc_protocol::sensor` gives each sensor type its
-// `as_probe` into one shared `ProbeReading` vocabulary, the firmware selects the
-// driver from the board, and a probe that does not answer is reported as
-// `ProbeFault::NotConnected` with the configured sensor type in the log line.
+// What is *not* given up is the underlying complaint: a configuration that names
+// one probe must not be served by reading another. That is prevented by
+// construction rather than by refusing the configuration:
+// `cc_protocol::sensor` gives each sensor type its `as_probe` into one shared
+// `ProbeReading` vocabulary, the firmware selects the driver from the board, and
+// a probe that does not answer is reported as `ProbeFault::NotConnected` with the
+// configured sensor type in the log line.
 
 #[test]
 fn both_temperature_sensor_types_are_accepted() {
@@ -1208,18 +1194,16 @@ fn both_temperature_sensor_types_are_accepted() {
 }
 
 #[test]
-fn the_compiled_in_default_is_the_cpps_tsic_306() {
-    // `Config.h:1085-1092`:
+fn the_compiled_in_default_is_tsic_306() {
+    // The parameter definition:
     //
-    //   EnumParamDef<Hardware::TemperatureSensorType> hardwareSensorsTemperatureType{
-    //       "hardware.sensors.temperature.type",
-    //       Hardware::TemperatureSensorType::TSIC_306, ...
+    //   hardware.sensors.temperature.type, default `TSIC_306`
     //
     // An earlier revision defaulted to `DALLAS_DS18B20` *and* refused
     // `TSIC_306`, on the reasoning that a default the validator rejects is a
     // machine that will not run its own defaults. That reasoning was correct
-    // while the driver was missing; the driver exists (R3-07) and the C++'s
-    // value is restored.
+    // while the driver was missing; the driver exists, so `TSIC_306` is the
+    // default again.
     let defaults = SafetyConfig::default();
     assert_eq!(defaults.temperature_sensor, TemperatureSensorType::Tsic306);
     assert_eq!(validate_config(&defaults), Ok(()));
@@ -1490,8 +1474,8 @@ fn the_recovery_sequence_walks_the_whole_lifecycle() {
 fn the_same_sample_delivered_repeatedly_does_not_advance_the_debounce() {
     // **The defect this field exists for.** The control task runs at 100 ms/10 ms
     // and calls `reduce` on every tick with whatever the last conversion produced.
-    // The C++ increments the debounce once per *reading*, on a 400 ms cadence,
-    // so `DEBOUNCE_COUNT = 3` is about 1.2 s of sustained overheat. Counting
+    // The debounce counts *readings*, on the 400 ms sensor cadence, so
+    // `DEBOUNCE_COUNT = 3` is about 1.2 s of sustained overheat. Counting
     // invocations instead made the trip time 30 ms — a single probe spike latched
     // an emergency stop in the middle of a brew.
     let config = cfg_with(145.0, 10.0);
@@ -1515,7 +1499,7 @@ fn the_same_sample_delivered_repeatedly_does_not_advance_the_debounce() {
         "a single over-threshold reading must not latch an emergency stop"
     );
 
-    // Three *distinct* samples do latch, which is the C++'s behaviour.
+    // Three *distinct* samples do latch.
     let mut out = Outcome {
         state: SafetyState::CLEAR,
         verdict: Verdict::ALL_REFUSED,
@@ -1548,15 +1532,12 @@ fn clearing_the_latch_re_counts_the_sample_that_is_still_over_threshold() {
 
 // ============================================================ relay trigger type
 
-/// The hazard is **not** heater-specific, and the port's refusal was.
+/// The hazard is **not** heater-specific.
 ///
-/// `Relay::on()` branches on `triggerType` (`src/hardware/Relay.cpp:13-27`) and
-/// `HardwareManager` wires all three parameters into it
-/// (`HardwareManager.cpp:73,80,87`), so a stored configuration can carry a
-/// low-trigger **pump** or **valve**. Such a relay energises while its pin
-/// floats — before any firmware runs — so water would flow at every boot with
-/// nothing in the loop to stop it. That is the same argument the recovered
-/// oracle used for the heater, and it applies just as much to these two.
+/// A stored configuration can carry a low-trigger **pump** or **valve**, not only
+/// a low-trigger heater. Such a relay energises while its pin floats — before any
+/// firmware runs — so water would flow at every boot with nothing in the loop to
+/// stop it. The heater's argument applies just as much to these two.
 #[test]
 fn a_low_trigger_relay_is_refused_for_every_relay() {
     for (what, cfg) in [

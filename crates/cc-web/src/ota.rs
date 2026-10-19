@@ -1,72 +1,59 @@
-//! The parts of an OTA that are pure functions: the upload envelope, the size
-//! and extension rules, and the status document.
-//!
-//! Owner: **R3-15**.
+//! OTA parts that are pure functions: the upload envelope, the size and extension
+//! rules, the status document.
 //!
 //! # What is here and what stayed behind
 //!
 //! | Here | Why |
 //! | --- | --- |
-//! | [`PartReader`] | A streaming `multipart/form-data` splitter. It is a byte-level state machine over the request body, and it is where the memory argument lives — see below. |
-//! | [`Kind`], [`extension_allowed`] | `validateFileExtension` (`src/ota.cpp:186-193`), verbatim. |
-//! | [`fits`], [`MAX_FIRMWARE_BYTES`] | The size rule. `esp_ota_begin` takes an image size; a 1.6 MB image on a 1,835,008 B slot is 87 % full, and the C++ discovers that by erasing the whole partition first and failing afterwards. |
-//! | [`progress_percent`] | The progress bar's arithmetic, **including the per-kind floor**. It was in `cc-hal-esp32`, where `just test` cannot reach it, and it scaled both kinds against the firmware floor. |
-//! | `Status::status_json` | `handleStatus`'s document (`ota.cpp:726-756`), now carrying real values. |
+//! | [`PartReader`] | A streaming `multipart/form-data` splitter. A byte-level state machine over the request body, and where the memory argument lives — see below. |
+//! | [`Kind`], [`extension_allowed`] | The partition choice and the filename rule. |
+//! | [`fits`], [`MAX_FIRMWARE_BYTES`] | The size rule. `esp_ota_begin` takes an image size, so a 1.6 MB image on an 1,835,008 B slot has to be refused *before* the first erase: the alternative is erasing the whole slot and failing afterwards. |
+//! | [`progress_percent`] | The progress bar's arithmetic, **including the per-kind floor**. It was in `cc-hal-esp32`, where no host test reaches it, and it scaled both kinds against the firmware floor. |
+//! | `Status::status_json` | The status document. |
 //!
 //! | In `cc-hal-esp32` | Why |
 //! | --- | --- |
 //! | `esp_ota_*` / `esp_partition_*` calls, the socket read loop, the restart | FFI and a socket. Neither is reachable from a host, and neither is where the decisions are. |
 //! | **the admission check** | it needs `cc_safety` and the live state; it is `cc_machine::ota::admit` and it is host-tested there. |
 //!
-//! # The memory argument, in one place
+//! # The memory argument
 //!
 //! **A firmware image is 1,675,952 B. The heap is ~320 KB.** The image cannot be
-//! buffered, and the C++ never buffered it either: `processUploadChunk`
-//! (`ota.cpp:196-224`) calls `Update.write(data, len)` on whatever chunk
-//! `AsyncWebServer` handed it and keeps no copy. ESP-IDF's `httpd` is the same
-//! shape — `httpd_req_recv` fills a caller-supplied buffer and returns.
-//!
-//! So the pipeline is:
+//! buffered, and the request arrives in chunks: ESP-IDF's `httpd_req_recv` fills a
+//! caller-supplied buffer and returns, so the pipeline is
 //!
 //! ```text
 //! socket -> [ 4 KiB stack buffer ] -> PartReader -> esp_ota_write
 //! ```
 //!
-//! and the heap high-water mark of an upload is **the size of one chunk**,
+//! The heap high-water mark of an upload is therefore **the size of one chunk**,
 //! independent of the image. [`PartReader`] holds a carry of
-//! `boundary.len() + 4` bytes — under 80 for any legal
-//! boundary — because a multipart delimiter may straddle two reads and the last
-//! few bytes cannot be emitted until it is known not to be one. Everything else
-//! goes straight through.
+//! `boundary.len() + 4` bytes — under 80 for any legal boundary — because a
+//! multipart delimiter may straddle two reads and the last few bytes cannot be
+//! emitted until it is known not to be one. Everything else goes straight through.
 //!
-//! This is the *inbound* half of
-//! [ADR-0002](../../../docs/adr/0002-wifi-logging-ota-memory-architecture.md)
-//! decision 2. That ADR fixed the outbound half — never serialise a large
-//! payload to an intermediate `String` — and recorded the resulting `abort()`
-//! from failed `operator new`. An upload is the same failure in the other
-//! direction: one 1.6 MB allocation on a 320 KB heap is an OOM abort, and unlike
-//! the outbound case there is no ADR-0002 policy to lean on, only the code.
+//! So one 1.6 MB allocation on a 320 KB heap is an OOM abort, and the inbound half
+//! of the rule has only the code holding it: the outbound half is
+//! [ADR-0002](../../../docs/adr/0002-wifi-logging-ota-memory-architecture.md),
+//! which fixed "never serialise a large payload to an intermediate `String`" after a
+//! failed `operator new` aborted the machine.
 //!
 //! # Why the header parser is bounded
 //!
 //! A `multipart/form-data` part's headers arrive *before* the payload, so
 //! [`PartReader`] must find the `filename=` parameter before it can apply
-//! [`extension_allowed`] — and it has done so before it has seen a single byte of
-//! the image. They are therefore accumulated, which means a hostile or broken
-//! client could make that accumulation grow. It is capped at
-//! [`MAX_PART_HEADER_BYTES`] and a part that exceeds it is a hard error, not a
-//! truncated header and not an unbounded `String`.
-
+//! [`extension_allowed`] — before it has seen a single byte of the image. They are
+//! therefore accumulated, and a hostile or broken client could make that
+//! accumulation grow. It is capped at [`MAX_PART_HEADER_BYTES`], and a part that
+//! exceeds it is a hard error, not a truncated header and not an unbounded `String`.
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Write as _;
 
 /// Which partition an upload targets.
 ///
-/// The C++'s `Type::Firmware` / `Type::Filesystem` (`ota.h:56-62`), which
-/// `handleURLUpdate` compares the `type` form field against
-/// (`ota.cpp:643`). Kept as two variants with no third so that a typo in the
-/// `type` field is a compile error rather than a silent third behaviour.
+/// Two variants with no third, so that a typo in the `type` field is a compile
+/// error rather than a silent third behaviour.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     /// The app slot — `esp_ota_*`.
@@ -80,8 +67,8 @@ impl Kind {
     /// The value the UI sends as the `type` form field
     /// (`OTAUpdateSection.tsx:186`: `formData.append(otaUpdateType, file)`).
     ///
-    /// `firmware` and `filesystem`, lower case — which is what the C++ compares
-    /// against, so there is no case folding to reproduce.
+    /// `firmware` and `filesystem`, lower case. The value is compared literally, so
+    /// there is no case folding here.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -90,19 +77,16 @@ impl Kind {
         }
     }
 
-    /// Parse the `type` form field. Anything else is [`Kind::Firmware`], which
-    /// is the C++'s default (`ota.cpp:640`:
-    /// `String updateTypeParam = Type::Firmware;`).
+    /// Parse the `type` form field. Anything else is [`Kind::Firmware`], the
+    /// default.
     ///
     /// # Why an unknown value is not an error
     ///
-    /// The C++ only checks `updateTypeParam == Type::Filesystem` and treats
-    /// everything else as firmware, so an unknown `type` flashes the app slot.
-    /// Erroring instead would be safer but would break a client sending a value
-    /// this firmware has never heard of, and the target partition is decided by
-    /// the *route* (`/api/ota/firmware` vs `/api/ota/filesystem`) — never by
-    /// this field — so a wrong value here cannot write to the wrong partition.
-    /// That is worth stating, because it is the reason the laxness is safe.
+    /// Erroring would be safer-looking but would break a client that sends a value
+    /// this firmware has never heard of, and the target partition is decided by the
+    /// *route* (`/api/ota/firmware` vs `/api/ota/filesystem`) — never by this field —
+    /// so a wrong value here cannot write to the wrong partition. That is worth
+    /// stating, because it is the reason the laxness is safe.
     #[must_use]
     pub fn from_field(value: &str) -> Self {
         if value == Self::Filesystem.as_str() {
@@ -114,39 +98,34 @@ impl Kind {
 
     /// The partition label reported by `/api/ota/status`.
     ///
-    /// The C++ reports `"spiffs"` (`ota.cpp:46`) and so does this, because the
-    /// UI renders it as a label and a partition renamed under it would read as a
-    /// different machine. The Rust partition table calls the partition `littlefs`
-    /// (`rust/partitions_4M.csv`) — the *label* on the wire is the C++'s, and the
-    /// lookup uses the real one. Recorded in `intentional-diffs.md`.
+    /// The UI renders it as a label, and a partition renamed under it would read as
+    /// a different machine. The partition table calls this partition `littlefs`
+    /// (`rust/partitions_4M.csv`), so the label on the wire is not the label used for
+    /// the lookup — see [`Self::PARTITION_LABEL`].
     pub const STATUS_LABEL: &'static str = "spiffs";
 
     /// The partition label the flash code looks up.
     ///
-    /// `littlefs`, from `rust/partitions_4M.csv`. **Not** [`Self::STATUS_LABEL`]:
-    /// `esp_partition_find_first` matches the label literally, and the C++'s
-    /// `Update.begin(..., "spiffs")` found its own table's row — which is named
-    /// `spiffs` in the *root* `partitions_4M.csv` and `littlefs` in the Rust one.
-    /// Using the C++'s string against the Rust table returns null, and the whole
-    /// filesystem endpoint would fail with a lookup error instead of an upload
-    /// error.
+    /// `littlefs`, from `rust/partitions_4M.csv`, and **not** [`Self::STATUS_LABEL`]:
+    /// `esp_partition_find_first` matches the label literally, so flashing to
+    /// `"spiffs"` returns null on this table and the whole filesystem endpoint fails
+    /// with a lookup error instead of an upload error.
     pub const PARTITION_LABEL: &'static str = "littlefs";
 
     /// The smallest payload that will be accepted for this kind.
     ///
-    /// `processUploadChunk` (`ota.cpp:216-218`) uses 512 KiB for firmware and
-    /// 256 KiB for the filesystem purely to scale its *progress percentage*, and
-    /// rejects nothing on size. Here the same two numbers are used for their
-    /// better purpose: an ESP32 app image with no valid app descriptor at offset
-    /// `0x20` is 0xE9, not a bootloader — and a 4 KB "firmware" that passes
-    /// `extension_allowed` and fails in `esp_ota_end` has already cost a full
+    /// The two numbers also scale the progress bar, but their purpose here is
+    /// refusal: an ESP32 app image with no valid app descriptor at offset `0x20` is
+    /// `0xE9`, not a bootloader — and a 4 KB "firmware" that passes
+    /// [`extension_allowed`] and fails in `esp_ota_end` has already cost a full
     /// partition erase. Refusing it before the erase is worth the constant.
+    ///
     /// A **function**, not an associated `const`. Rust has no
-    /// `const X: usize = match self { .. }` — a `const` cannot read `self`, so
-    /// the shape that compiles is ONE value for both variants. Written as a
-    /// `const` this silently became the 512 KiB firmware floor applied to a
-    /// 384 KiB filesystem partition, and every legitimate filesystem image was
-    /// refused. A function is how a per-variant answer is spelled.
+    /// `const X: usize = match self { .. }` — a `const` cannot read `self`, so the
+    /// shape that compiles is ONE value for both variants. Written as a `const` this
+    /// silently became the 512 KiB firmware floor applied to a 384 KiB filesystem
+    /// partition, and every legitimate filesystem image was refused. A function is how
+    /// a per-variant answer is spelled.
     #[must_use]
     pub const fn min_accepted(self) -> usize {
         match self {
@@ -158,10 +137,10 @@ impl Kind {
 
 /// The app slot size, from `rust/partitions_4M.csv`'s `app0` row.
 ///
-/// `0x1C0000` = 1,835,008 B. **Read from the table and transcribed, not computed
-/// at runtime** — the C++'s `Update.begin` would have discovered a mismatch by
-/// erasing 1.8 MB and then failing, and a `const` that disagreed with the table
-/// would be a compile-time lie rather than a runtime surprise.
+/// `0x1C0000` = 1,835,008 B. **Read from the table and transcribed, not computed at
+/// runtime**: a mismatch would otherwise be discovered by erasing 1.8 MB and then
+/// failing, so a `const` that disagreed with the table is a compile-time lie rather
+/// than a runtime surprise.
 pub const MAX_FIRMWARE_BYTES: usize = 0x1C0_000;
 
 /// The `LittleFS` partition size, from the same table's `littlefs` row.
@@ -197,21 +176,19 @@ pub const fn fits(kind: Kind, size: usize) -> bool {
     size >= kind.min_accepted() && size <= capacity(kind)
 }
 
-/// The number the C++ scales a `kind`'s progress percentage against.
+/// The number a `kind`'s progress percentage is scaled against.
 ///
-/// `isFilesystem ? (256 * 1024) : (512 * 1024)` (`ota.cpp:234`) — a **floor**,
-/// not a declared length: a browser's `Content-Length` covers the multipart
-/// envelope, so the real image size is not known while the bytes arrive.
+/// A **floor**, not a declared length: a browser's `Content-Length` covers the
+/// multipart envelope, so the real image size is not known while the bytes arrive.
 ///
-/// The two numbers are **per kind**, which is the whole point. A filesystem
-/// image lives in a 384 KiB partition, so a 512 KiB floor would leave the bar
-/// at ~50 % when the image is complete; the C++ scales each kind against its own
-/// floor and reaches ~90 % on both.
+/// The two numbers are **per kind**, which is the whole point. A filesystem image
+/// lives in a 384 KiB partition, so a 512 KiB floor would leave the bar at ~50 % when
+/// the image is complete; scaling each kind against its own floor reaches ~90 % on
+/// both.
 ///
-/// Distinct from [`Kind::min_accepted`], which is the same two C++ figures put to
-/// a different use: that one *refuses* a payload, and its filesystem figure is
-/// 64 KiB rather than 256 KiB, because it is this port's rule rather than the
-/// C++'s.
+/// Distinct from [`Kind::min_accepted`], which is the same shape of per-kind number
+/// put to a different use: that one *refuses* a payload, and its filesystem figure is
+/// 64 KiB rather than 256 KiB.
 #[must_use]
 pub const fn progress_floor(kind: Kind) -> usize {
     match kind {
@@ -220,12 +197,11 @@ pub const fn progress_floor(kind: Kind) -> usize {
     }
 }
 
-/// The C++'s progress arithmetic: `min(90, uploaded * 90 / max(uploaded, floor))`
-/// (`ota.cpp:235-237`), capped at 90 so the last 10 % is the finalisation.
+/// The progress arithmetic: `min(90, uploaded * 90 / max(uploaded, floor))`.
 ///
-/// Past the floor the bar tracks the real fraction, so a large image reaches
-/// ~90 % and then jumps to 100 on success — which is what the C++ does and what
-/// an operator is used to.
+/// The cap at 90 exists so the last 10 % is the finalisation, which is where the
+/// remaining time actually goes. Past the floor the bar tracks the real fraction, so
+/// a large image reaches ~90 % and then jumps to 100 on success.
 #[must_use]
 pub fn progress_percent(kind: Kind, uploaded: usize) -> u8 {
     if uploaded == 0 {
@@ -242,26 +218,20 @@ pub fn progress_percent(kind: Kind, uploaded: usize) -> u8 {
 
 /// Does this filename's extension pass?
 ///
-/// `validateFileExtension` (`ota.cpp:186-193`) exactly:
+/// Firmware needs `.bin`; the filesystem accepts `.bin` or `.img`. The comparison is
+/// case-insensitive (`to_ascii_lowercase`), and it is made on the *whole* string
+/// rather than on a parsed extension, which is why `evil.bin.exe` passes and
+/// `firmware.bin?x=1` does not.
 ///
-/// ```cpp
-/// String path = filename; path.toLowerCase();
-/// if (isFilesystem) return path.endsWith(".bin") || path.endsWith(".img");
-/// return path.endsWith(".bin");
-/// ```
-///
-/// Case-insensitive via `toLowerCase`, and matched on the *whole* string rather
-/// than on a parsed extension, which is why `evil.bin.exe` passes and
-/// `firmware.bin?x=1` does not. Preserved: this is a guard against an operator
-/// picking the wrong file off their desktop, not a security control, and the
-/// thing it actually protects — writing to the wrong partition — is prevented by
-/// the route, not by the name.
+/// That is deliberate. This is a guard against an operator picking the wrong file
+/// off their desktop, not a security control: what it protects — writing to the
+/// wrong partition — is prevented by the route, not by the name.
 #[must_use]
 #[allow(
     clippy::case_sensitive_file_extension_comparisons,
-    reason = "the rule IS case-insensitive: `lower` above is the C++'s \
-              `toLowerCase()`, and the lint fires on the comparison it cannot \
-              see through the local"
+    reason = "the rule IS case-insensitive: `lower` above is the lower-cased \
+              string, and the lint fires on the comparison it cannot see through \
+              the local"
 )]
 pub fn extension_allowed(filename: &str, kind: Kind) -> bool {
     let lower = filename.to_ascii_lowercase();
@@ -284,7 +254,7 @@ pub enum ReadError {
 }
 
 impl ReadError {
-    /// Operator-facing text, in the C++'s error-string voice.
+    /// Operator-facing text.
     #[must_use]
     pub const fn message(self) -> &'static str {
         match self {
@@ -347,15 +317,10 @@ enum Stage {
 /// # Why one part and no more
 ///
 /// The UI sends exactly one file field
-/// (`formData.append(otaUpdateType, selectedOtaFile)`,
-/// `OTAUpdateSection.tsx:186`), and the C++'s handler is registered as the
-/// upload callback for a single file
-/// (`server.on("/api/ota/firmware", HTTP_POST, onRequest, onUpload)`,
-/// `ota.cpp:848-851`) — `AsyncWebServer` streams every part to the same callback
-/// and does not distinguish them. Two parts here means a client sending something
-/// this firmware never asked for; the second is skipped rather than
-/// concatenated, because concatenating would produce a corrupt image that fails
-/// only at `esp_ota_end`.
+/// (`formData.append(otaUpdateType, selectedOtaFile)`, `OTAUpdateSection.tsx`), and
+/// a request carrying a second file part is a client sending something this firmware
+/// never asked for. The second is skipped rather than concatenated, because
+/// concatenating would produce a corrupt image that fails only at `esp_ota_end`.
 pub struct PartReader {
     /// `--BOUNDARY` — the opening delimiter, which starts the body.
     open: Vec<u8>,
@@ -386,8 +351,8 @@ impl PartReader {
     /// Never, at runtime: the boundary is stored, not rendered into a format
     /// string, so a request with no boundary at all yields a reader whose
     /// [`ReadError::NoPart`] is returned on the first push. That is the honest
-    /// answer — the C++ gets the same request, parses no multipart either, and
-    /// writes the *whole body including the delimiters* into flash.
+    /// answer — a request with no multipart envelope has no file part in it, and
+    /// reporting "no file" beats writing the raw body into flash.
     #[must_use]
     pub fn new(boundary: &str) -> Self {
         let mut open = Vec::with_capacity(boundary.len() + 2);
@@ -410,13 +375,12 @@ impl PartReader {
     /// Extract the `boundary=` parameter from a `Content-Type` header value.
     ///
     /// Returns `None` when the header is absent or is not multipart, which the
-    /// caller answers with a `400` — the C++'s `sendUploadResult(request, "No
-    /// firmware file provided")` arm for a request that carries no file.
+    /// caller answers with a `400` and the "no firmware file provided" message.
     ///
-    /// Handles the quoted form (`boundary="x"`) and the unquoted one, and
-    /// tolerates other parameters after it, because a browser's boundary is
-    /// `----WebKitFormBoundary` followed by 16 random alphanumerics and the
-    /// parameter is not last.
+    /// Handles the quoted form (`boundary="x"`) and the unquoted one, and tolerates
+    /// other parameters after it, because a browser's boundary is
+    /// `----WebKitFormBoundary` followed by 16 random alphanumerics and the parameter
+    /// is not last.
     #[must_use]
     pub fn boundary_of(content_type: Option<&str>) -> Option<&str> {
         let value = content_type?;
@@ -894,7 +858,6 @@ mod tests {
 
     #[test]
     fn the_extension_rule_is_the_cpps() {
-        // `ota.cpp:186-193`.
         assert!(extension_allowed("firmware.bin", Kind::Firmware));
         assert!(extension_allowed("FIRMWARE.BIN", Kind::Firmware));
         assert!(!extension_allowed("firmware.img", Kind::Firmware));
@@ -914,17 +877,14 @@ mod tests {
 
     /// The progress bar is scaled against **each kind's own** floor.
     ///
-    /// `ota.cpp:234`: `isFilesystem ? (256 * 1024) : (512 * 1024)`. This is the
-    /// test that would have caught the port applying the firmware floor to both
-    /// kinds, which left a 256 KiB filesystem upload reporting 45 % where the C++
-    /// reports 90 % — a bar that stalls halfway on a successful update, with
-    /// nothing on screen to say the flash is still running.
+    /// This is the test that catches the port applying the firmware floor to both
+    /// kinds, which left a 256 KiB filesystem upload reporting 45 % where it should
+    /// report 90 % — a bar that stalls halfway on a successful update, with nothing on
+    /// screen to say the flash is still running.
     ///
-    /// The pairs are the whole assertion: the same byte count must land on
-    /// different percentages for the two kinds, and each kind must reach 90 at
-    /// **its own** floor rather than at the C++'s other one. Past the floor the
-    /// bar is saturated at 90, which is the C++'s behaviour and the reason the
-    /// cap exists at all.
+    /// The pairs are the whole assertion: the same byte count must land on different
+    /// percentages for the two kinds, and each kind must reach 90 at **its own** floor.
+    /// Past the floor the bar is saturated at 90, which is why the cap exists at all.
     #[test]
     fn progress_is_scaled_against_each_kinds_own_floor() {
         assert_eq!(progress_floor(Kind::Firmware), 512 * 1024);
@@ -1000,8 +960,8 @@ mod tests {
 
     #[test]
     fn a_placeholder_sized_upload_is_refused_before_the_erase() {
-        // The C++ accepts this and erases a whole 1.8 MB slot discovering it is
-        // not an image.
+        // A 4 KB "firmware" would otherwise be discovered as invalid only after a
+        // full 1.8 MB slot erase.
         assert!(!fits(Kind::Firmware, 0));
         assert!(!fits(Kind::Firmware, 4_096));
         assert!(fits(Kind::Firmware, Kind::Firmware.min_accepted()));
@@ -1014,26 +974,18 @@ mod tests {
 
 /// Where an update is in its lifecycle.
 ///
-/// The six names `z.enum([...])` accepts in
-/// `OtaStatusSchema` (`ui/packages/frontend/src/lib/schemas.ts:59-72`), and the
-/// C++'s `Status` enum (`ota.h:29-36`) — which carries a seventh member,
-/// `Queued`, that the schema rejects.
+/// The six names the UI's `OtaStatusSchema` accepts
+/// (`ui/packages/frontend/src/lib/schemas.ts`).
 ///
-/// # The `queued` problem, stated because it is a real one
+/// # Why there is no `queued`
 ///
-/// The C++ sets `Status::Queued` for the window between "a URL update was
-/// accepted" and "the download starts" (`ota.cpp:816`), and serialises it as an
-/// **integer** (its `Status` has no string conversion), which the UI's
-/// `z.enum` of strings rejects anyway — finding 3.4's note that the C++'s wire
-/// type is already a divergence. So `queued` is **not** represented here: a
-/// queued URL update reports `status: "idle"` with `updateInProgress: true`,
-/// which the UI renders correctly, because what it draws for `queued` is the same
-/// progress bar it draws for `idle` plus an `updateInProgress` check
-/// (`OTAUpdateSection.tsx:145-152`).
-///
-/// Modelling it as a seventh variant would mean a status string the UI's schema
-/// rejects — a document that fails its own consumer's validation, which is worse
-/// than reporting the phase through the flag that already carries it.
+/// A URL update has a window between "accepted" and "the download starts". That
+/// window is reported as `status: "idle"` with `updateInProgress: true`:
+/// `OtaStatusSchema` is a `z.enum` of these six strings, so a seventh name would
+/// produce a document that fails its own consumer's validation — worse than
+/// reporting the phase through the flag that already carries it. The UI asks
+/// `updateInProgress` — not the phase — for "an update is already running"
+/// (`OTAUpdateSection.tsx`), so the flag is the field that has to be right.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Phase {
     /// Nothing is happening.
@@ -1069,9 +1021,8 @@ impl Phase {
 /// The values `GET /api/ota/status` reports.
 ///
 /// A plain value rather than a reader of the HAL's session, so the document is a
-/// function of five numbers and a phase — which is what makes it host-testable
-/// against the UI's schema, the thing that actually broke when the C++'s wire
-/// type and the UI's expectation disagreed.
+/// function of five fields — which is what makes it host-testable against the UI's
+/// schema, the boundary that decides whether the UI can read it at all.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Status {
     /// The lifecycle phase.
@@ -1082,16 +1033,15 @@ pub struct Status {
     pub uploaded: usize,
     /// Payload bytes expected, or 0 when not yet known.
     pub total: usize,
-    /// The last error, if any. The C++ only sets this on a failure
-    /// (`ota.cpp:744-751`) and the UI reads it as `status.error || status.message`.
+    /// The last error, if any. Set only on a failure, and the UI reads it as
+    /// `status.error || status.message`.
     pub error: Option<StatusMessage>,
 }
 
 /// Why a status carries a message, without carrying the text.
 ///
-/// A borrowed `&'static str` from a closed set, so a `Status` stays `Copy`-cheap
-/// and cannot smuggle a heap allocation into the httpd task — which is the
-/// ADR-0002 discipline applied to a type rather than to a function.
+/// A borrowed `&'static str` from a closed set, so a `Status` stays `Copy`-cheap and
+/// cannot smuggle a heap allocation into the httpd task.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StatusMessage {
     /// A reader failed before any byte was written.
@@ -1109,11 +1059,10 @@ pub enum StatusMessage {
 }
 
 impl StatusMessage {
-    /// The operator-facing text, in the C++'s error-string voice.
+    /// The operator-facing text.
     ///
-    /// These are the strings `setUploadResult(500, …)` would have carried
-    /// (`ota.cpp:203,213`), so the UI's toast shows the same words for the same
-    /// class of failure.
+    /// The UI's toast shows this verbatim, so the wording is the operator's whole
+    /// account of what went wrong.
     #[must_use]
     pub const fn message(self) -> &'static str {
         match self {
@@ -1135,13 +1084,10 @@ impl StatusMessage {
 }
 
 impl Status {
-    /// The C++'s `isUpdateInProgress()` (`ota.cpp:830`): anything but idle,
-    /// complete and error.
+    /// Whether an update is under way: anything but idle, complete and error.
     ///
-    /// A separate question from [`Self::is_updating`], and the C++ keeps them
-    /// apart too: `updating` is `Update.isRunning() || isUpdateStarted()` and
-    /// `updateInProgress` is the same test on the *state* only
-    /// (`ota.cpp:737-738`).
+    /// A separate question from [`Self::is_updating`], and the UI asks both: this one
+    /// gates a second update from starting, that one drives the progress display.
     #[must_use]
     pub const fn is_in_progress(&self) -> bool {
         !matches!(self.phase, Phase::Idle | Phase::Complete | Phase::Error)
@@ -1156,15 +1102,13 @@ impl Status {
         )
     }
 
-    /// `GET /api/ota/status`, the C++'s `handleStatus` document
-    /// (`ota.cpp:726-756`).
+    /// `GET /api/ota/status`.
     ///
-    /// Every key the C++ emits is present, at its real value: `updating`,
-    /// `updateInProgress`, `progress`, `status`, `type`, `uploadedSize`,
-    /// `totalSize`, `filesystemPartition` and, on a failure, `error`. The UI's
-    /// `OtaStatusSchema` requires `status`, `progress` and `updateInProgress`, so
-    /// omitting any of them makes `pollOtaStatus` return `null` and the OTA page
-    /// cannot render at all.
+    /// Every key the UI's `OtaStatusSchema` requires is present — `status`,
+    /// `progress`, `updateInProgress` — plus `success`, `updating`, `uploadedSize`,
+    /// `totalSize`, `filesystemPartition` and, on a failure, `error`. Omitting a
+    /// required key makes `pollOtaStatus` return `null` and the OTA page cannot render
+    /// at all.
     #[must_use]
     pub fn status_json(&self) -> String {
         let mut json = String::with_capacity(224);
@@ -1267,8 +1211,9 @@ mod status_tests {
         }
     }
 
-    /// `updating` and `updateInProgress` are different questions and the C++
-    /// answers both (`ota.cpp:737-738`).
+    /// `updating` and `updateInProgress` are different questions, and the UI asks
+    /// both: the first drives the progress display, the second refuses a second
+    /// update.
     #[test]
     fn updating_and_update_in_progress_are_distinct_questions() {
         let uploading = Status {
@@ -1341,9 +1286,10 @@ mod status_tests {
         }
     }
 
-    /// The extension messages are the C++'s, word for word.
+    /// The extension messages are the bytes the UI's toast shows, so they are
+    /// pinned rather than left to a reviewer to notice.
     #[test]
-    fn the_extension_messages_are_the_cpps_strings() {
+    fn the_extension_messages_are_pinned() {
         assert_eq!(
             StatusMessage::BadExtension(Kind::Firmware).message(),
             "Invalid firmware file. Expected .bin extension."
@@ -1356,9 +1302,9 @@ mod status_tests {
 
     /// The document is a `String` of a known, small size.
     ///
-    /// Not a performance assertion: it is the ADR-0002 shape. This body is built
-    /// once per poll on the httpd task, and a status document that grew with the
-    /// error message would be a document whose size the caller does not control.
+    /// Not a performance assertion: this body is built once per poll on the httpd
+    /// task, and a status document that grew with the error message would be a
+    /// document whose size the caller does not control.
     #[test]
     fn the_status_document_stays_small() {
         let status = Status {

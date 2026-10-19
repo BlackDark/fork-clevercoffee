@@ -18,19 +18,16 @@ use log::warn;
 ///
 /// # What `enforced` means, and why it is decided once
 ///
-/// The C++ installs the middleware in `setupMiddleware`
-/// (`WebServerManager.cpp:272-296`), which runs from `WebServerManager::initialize`
-/// — once, at boot. So `system.auth.enabled` protects nothing until the next
-/// reboot in the C++ too, and the same is true here. `needs_reboot` reports it in
-/// the `POST /api/parameters` answer so the operator is told rather than
-/// guessing, which the C++ cannot do.
+/// The decision is made when the server starts, not per request, so a change to
+/// `system.auth.enabled` protects nothing until the next reboot. `needs_reboot`
+/// reports it in the `POST /api/parameters` answer so the operator is told rather
+/// than left guessing.
 ///
-/// The C++'s other half is reproduced exactly: **empty credentials mean no
-/// authentication at all**, not a locked door. `WebServerManager.cpp:290-294`
-/// logs "Web authentication enabled but credentials not set" and serves the API
-/// open. Failing closed instead would mean that enabling auth and then not
-/// finishing locks an operator out of a machine whose only other console is a
-/// UART. The warning is reproduced too, and is deliberately loud.
+/// **Empty credentials mean no authentication at all**, not a locked door: the
+/// server logs "web authentication is enabled but no credentials are set" and
+/// serves the API open. Failing closed instead would mean that enabling auth and
+/// then not finishing locks an operator out of a machine whose only other console
+/// is a UART. The warning is deliberately loud.
 #[derive(Clone)]
 pub struct Auth {
     config: Arc<Config>,
@@ -51,18 +48,16 @@ impl core::fmt::Debug for Auth {
 }
 
 impl Auth {
-    /// Decide, once, whether this server challenges — as the C++'s
-    /// `setupMiddleware` does.
+    /// Decide, once, whether this server challenges.
     #[must_use]
     pub fn from_config(config: &Arc<Config>) -> Self {
         let wanted = config.system.auth.enabled;
         let has_credentials = !config.system.auth.username.is_empty()
             && !config.system.auth.password.expose().is_empty();
         if wanted && !has_credentials {
-            // The C++'s exact condition, and its exact consequence.
             warn!(
                 "http: web authentication is enabled but no credentials are set; \
-                 serving the API unauthenticated, exactly as the C++ does"
+                 serving the API unauthenticated"
             );
         }
         Self {

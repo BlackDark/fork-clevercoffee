@@ -20,7 +20,7 @@
 //!
 //! Number formatting goes through `fixed_str::String<24>` (`cc-display`'s
 //! `fmt.rs`), hand-matched to C's `printf` rounding and checked against an
-//! 80,000-line oracle generated from the real U8G2. That is why the count is
+//! 80,000-line reference generated from real U8g2. That is why the count is
 //! zero: the display crate formats into stack buffers because a display cannot
 //! afford a heap.
 //!

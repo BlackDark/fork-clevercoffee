@@ -17,50 +17,34 @@ use crate::telemetry::Telemetry;
 
 // ============================================================== /api/status
 
-/// `/api/status` — the C++'s `WebServerManager.cpp:327-372`.
+/// `/api/status` — one field per key a client reads.
 ///
-/// Field for field. The C++ adds `weight`/`brewWeight` only when the scale is
-/// enabled; here they are `null` when there is no reading, which is a smaller
-/// change than gating them and a smaller one than reporting a fabricated 0 g.
+/// `weight` and `brewWeight` are `null` when there is no reading, rather than being
+/// omitted when the scale is disabled: a `null` is a smaller change for a client
+/// than a missing key, and a smaller lie than a fabricated `0`.
 ///
-/// `heap_free` is `esp_get_free_heap_size()`, read by the caller: it is an FFI
-/// call and this function is a pure builder. The bytes are the same ones the
-/// handler emitted before the reading was passed in.
+/// `heap_free` is `esp_get_free_heap_size()`, read by the caller: it is an FFI call
+/// and this function is a pure builder.
 ///
 /// # `steamMode` is the latched flag, and `brewing` is a different fact
 ///
-/// The C++ writes `doc["steamMode"] = systemContext_->steamMode()`
-/// (`WebServerManager.cpp:359`), which is `SystemContext::steamMode()` →
-/// `MachineStateContext::isSteamModeActive()` → `steamON_`
-/// (`MachineStateContext.h:395`, `:785`). That flag is **latched**: it is set
-/// `true` in `SteamRunningState::onEntryImpl` (`SteamStates.cpp:16`), cleared in
-/// `SteamRunningState::onExitImpl` (`:21`) and cleared again in
-/// `StandbyState::onEntryImpl` (`SystemStates.cpp:17`). It means "steam mode is
-/// engaged", and it survives for as long as the machine is in the steam state
-/// and not a moment longer.
+/// `steamMode` means "steam mode is engaged", and [`Telemetry::steam_mode`] is
+/// **latched**: `Machine::steam_mode` is set on entering `SteamRunning` and cleared
+/// on leaving it and on entering `Standby` (`cc-machine/src/states.rs`). This route
+/// emits it under that name so it agrees with the `/api/steam` toggle, which answers
+/// from the same fact — a status poll that disagreed with the toggle that set it
+/// would be a worse bug than the one this replaces.
 ///
-/// [`Telemetry::steam_mode`] is that flag: `Machine::steam_mode` is set at
-/// exactly those three points in `cc-machine/src/states.rs:218`, `:263` and
-/// `:365`. So this route emits it under the C++'s name, which is the parity
-/// answer — the UI's `/api/steam` toggle answers `steamMode` from the same fact
-/// (`machine-toggle-result.ts:9`, `useMachineToggles.ts:41`), and a status poll
-/// that disagreed with the toggle that set it would be a worse bug than the one
-/// this replaces.
-///
-/// `brewing` is **kept, and is not the same value**. It is
-/// `state.is_brew_state() && state != BrewFinished` (`main.rs:2983`) — derived
-/// from the current state rather than latched, and the C++ publishes no such
-/// field at all. It was previously emitted *under the name* `steamMode`, which
-/// made a brew-state flag answer to a steam-mode name; nothing consumed it
-/// (`rg` finds no reader of `/api/status` in the UI at all), so both are emitted
-/// now and the addition is recorded in `docs/history/divergences.md`.
+/// `brewing` is **not the same value**. It is derived on every render
+/// (`state.is_brew_state() && state != BrewFinished`), and the two were once emitted
+/// under one name, which made a brew-state flag answer to a steam-mode name. Both
+/// keys are emitted now, and the addition is recorded as §24 of
+/// `docs/history/divergences.md`.
 #[must_use]
 pub fn status_json(t: &Telemetry, heap_free: u32) -> String {
-    // `write!` into the `String` rather than `push_str(&format!(..))`: this runs
-    // on the httpd task for every poll from an open browser tab, and the
-    // `format!` form allocates a temporary `String` per field. ADR-0002 is
-    // about not building a large response out of copies, and the small ones
-    // should not be copying either.
+    // `write!` into the `String` rather than `push_str(&format!(..))`: this runs on
+    // the httpd task for every poll from an open browser tab, and the `format!` form
+    // allocates a temporary `String` per field.
     let mut out = String::with_capacity(512);
     let _ = write!(
         out,
@@ -119,10 +103,7 @@ fn optional_number(name: &str, value: Option<f64>) -> String {
     }
 }
 
-/// `/api/temperatures` — `WebServerManager.cpp:620-630` / `getTempString`,
-/// `:1165-1191`.
-///
-/// Three keys, the C++ names, and the same payload as the `new_temps` SSE
+/// `/api/temperatures` — three keys, the same payload as the `new_temps` SSE
 /// event, because the UI reads one shape from two places.
 #[must_use]
 pub fn temperatures_json(t: &Telemetry) -> String {
@@ -132,7 +113,7 @@ pub fn temperatures_json(t: &Telemetry) -> String {
     )
 }
 
-/// The `weight` SSE event's payload. `getWeightJsonString`, `:1193-1210`.
+/// The `weight` SSE event's payload.
 #[must_use]
 pub fn weight_json(t: &Telemetry) -> String {
     match (t.weight_g, t.brew_weight_g) {
@@ -141,12 +122,11 @@ pub fn weight_json(t: &Telemetry) -> String {
     }
 }
 
-/// `GET /api/health` — `WebServerManager.cpp:411`.
+/// `GET /api/health` — a body, where an empty `200` would not do.
 ///
-/// An empty 200 in the C++. This adds a body, because an empty 200 cannot
-/// distinguish "the machine is alive" from "the handler is registered but the
-/// control task has not published yet", and that distinction is the whole
-/// question a health check is asked.
+/// An empty `200` cannot distinguish "the machine is alive" from "the handler is
+/// registered but the control task has not published yet", and that distinction is
+/// the whole question a health check is asked.
 #[must_use]
 pub fn health_json(t: &Telemetry) -> String {
     format!(
@@ -157,18 +137,15 @@ pub fn health_json(t: &Telemetry) -> String {
 
 // ============================================================== /api/nvs-debug
 
-/// `GET /api/nvs-debug` — `WebServerManager.cpp:648-678`.
+/// `GET /api/nvs-debug` — counts and heap figures, and **no parameter values**.
 ///
-/// The C++'s `metadata` block, with the C++'s key names. **No parameter
-/// values**: the C++ reported counts and heap figures only, and this keeps that.
-/// The configuration's four credentials are in the same blob, and this endpoint
-/// is reachable without authentication (`system.auth` is not enforced by the
-/// C++'s REST API at all), so a payload that listed parameters would be a
+/// The configuration's four credentials live in the same blob, and this endpoint is
+/// reachable without authentication, so a payload that listed parameters would be a
 /// credential disclosure with no local symptom.
 ///
 /// `free_heap` and `min_free_heap` are the two `esp_get_*_free_heap_size()`
-/// readings, passed in by the caller for the same reason
-/// [`status_json`] takes its own.
+/// readings, passed in by the caller for the same reason [`status_json`] takes its
+/// own.
 #[must_use]
 pub fn nvs_debug_json(
     describe: &str,
@@ -214,62 +191,43 @@ fn parse_describe(describe: &str) -> (u32, u32) {
 
 // ============================================== bodies with no telemetry at all
 
-/// The C++'s error body, verbatim. `ApiResponses::errorResponse`.
+/// The JSON error body: `{"error":"…"}`.
+///
+/// `message` is interpolated without escaping, so it must not carry a `"` or a
+/// backslash.
 #[must_use]
 pub fn error_body(message: &str) -> String {
     format!("{{\"error\":\"{message}\"}}")
 }
 
-/// `POST /api/config/upload` — the C++'s answer, verbatim.
+/// `POST /api/config/upload` — `{"success":…,"message":…,"restart":…}`.
 ///
-/// `sendConfigUploadResponse` (`WebServerManager.cpp:50-62`) writes
-/// `{"success":…,"message":…,"restart":…}`.
+/// `restart` is `success`, i.e. **the device does not reboot itself**. The flag
+/// tells the operator's browser to call `POST /api/restart` two seconds later
+/// (`ui/packages/frontend/src/pages/SystemPage.tsx`). Rebooting from inside the
+/// handler would tear the socket down under the response the client is still
+/// reading.
 ///
-/// `restart` is `success`, i.e. **the device does not reboot itself**. The C++
-/// sets the flag and returns; the operator's browser sees it and calls
-/// `POST /api/restart` two seconds later
-/// (`ui/packages/frontend/src/pages/SystemPage.tsx:220,251`). Rebooting from
-/// inside the handler would tear the socket down under the response the client
-/// is still reading.
-///
-/// The C++ adds `Connection: close` (`:60`). It is **not** reproduced, and the
-/// reason is that the hazard it guards against is already handled one layer
-/// down: ESP-IDF's `httpd_req_delete` "finish\[es] off reading any
-/// pending/leftover data", draining and discarding whatever body a handler left
-/// unread (`httpd_parse.c:841-855`). So the oversized upload — the one path that
-/// deliberately stops reading — cannot have its tail parsed as the next request
-/// on the socket. Setting the header through `httpd_resp_set_hdr` would only
-/// append a second `Connection` header to a response ESP-IDF manages itself.
+/// No `Connection: close` is set. The hazard that header guards against is already
+/// handled one layer down: ESP-IDF's `httpd_req_delete` "finish\[es] off reading
+/// any pending/leftover data", draining and discarding whatever body a handler left
+/// unread. So the oversized upload — the one path that deliberately stops reading —
+/// cannot have its tail parsed as the next request on the socket. Setting the header
+/// through `httpd_resp_set_hdr` would only append a second `Connection` header to a
+/// response ESP-IDF manages itself.
 #[must_use]
 pub fn upload_response(success: bool, message: &str) -> String {
     format!("{{\"success\":{success},\"message\":\"{message}\",\"restart\":{success}}}")
 }
 
-// **REMOVED — the real renderer is [`crate::ota::Status::status_json`].
-//
-// This returned a fixed document that always said "nothing is updating, and
-// nothing ever will", which is how a build without OTA kept its OTA tab
-// rendering. Now that OTA exists, a second status renderer would be a second
-// source of truth about one session, and the two would disagree the moment an
-// upload ran.
-//
-// The shape did not change: the same keys at the same idle values, and `status`
-// still a string rather than the C++'s integer, because the UI's
-// `OtaStatusSchema` is `z.enum([...])` of strings and the integer would fail
-// validation. The one key dropped is `reason: "R3-15"`, which named the task
-// that owned the absence — and the absence is no longer there. See
-// [`crate::ota::Phase`] for the six phase names and why the C++'s seventh,
-// `Queued`, is deliberately not among them.
+// ============================================= endpoints not in this build
 
-// ======================================= endpoints R3 has not ported
-
-/// The endpoints R3 has not ported, and what they say.
+/// The answer a route that this build does not implement gives.
 ///
-/// Not a stub list for its own sake: each of these is a real route the C++
-/// registers, a real tab in the React UI, and a real support question. A route
-/// that 404s is indistinguishable from a firmware that lost the feature, whereas
-/// a route that answers "not in this build, here is what it would do" is a
-/// diagnosable answer.
+/// Not a stub for its own sake: each of these is a real route, a real tab in the
+/// React UI, and a real support question. A route that `404`s is indistinguishable
+/// from a firmware that lost the feature, whereas a route that answers "not in this
+/// build, here is what it would do" is a diagnosable answer.
 #[must_use]
 pub fn unavailable_json(feature: &str, task: &str) -> String {
     format!("{{\"error\":\"{feature} is not available in this build\",\"reason\":\"{task}\"}}")
@@ -277,64 +235,45 @@ pub fn unavailable_json(feature: &str, task: &str) -> String {
 
 // ======================================================== /api/parameters body
 
-/// The `/api/parameters` body: every registered parameter, C++ shape.
+/// The `/api/parameters` body: an array of every registered parameter.
 ///
-/// `Config::getAllParameters(array, "all")` (`WebServerManager.cpp:818`), which
-/// is a loop of `param->toJson(paramObj)` (`:401-404`).
+/// # Six fields per parameter, and why not ten
 ///
-/// # The C++'s ten fields, and the six this firmware emits
-///
-/// `BaseParamDef::toJsonBase` (`Config.h:99-109`) writes `name`, `label`,
-/// `section`, `order`, `helpText` and `type`; `ParamDef::toJson`
-/// (`:215-238`) adds `value`, `default`, and — for the arithmetic kinds only —
-/// `min` and `max`. That is ten.
-///
-/// This emits `name`, `type`, `value`, `default`, `min`, `max`: six. **The four
-/// missing are `label`, `section`, `order` and `helpText`.**
+/// This emits `name`, `type`, `value`, `default`, `min`, `max`. Four fields a
+/// configuration editor would like are missing: `label`, `section`, `order` and
+/// `helpText`.
 ///
 /// `label`, `section` and `order` are missing because there is no data for them.
-/// The C++'s `displayName_`, `section_` and `order_` are per-parameter literals
-/// in `Config.h` that the Rust schema never recorded, and inventing them would
-/// put text in front of an operator's UI that the C++ does not have. That is a
-/// `cc-config` data gap, recorded here rather than papered over. The UI's editor
-/// works without them — it labels by `name`.
+/// They are per-parameter presentation literals that the schema never recorded,
+/// and inventing them would put text in front of an operator that nothing in this
+/// repository asserts. That is a `cc-config` data gap, recorded here rather than
+/// papered over. The UI's editor works without them — it labels by `name`.
 ///
-/// `helpText` is a fourth case and it is **not** a data gap any more.
-/// `cc_config::schema::ParamSpec::help` carries all 98 strings, transcribed from
-/// the same `Config.h` constructor argument the C++ reads (finding 3.4 of
-/// [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md)),
-/// and `GET /api/parameter-help` serves them — see [`crate::help`]. This body
-/// still does not carry the field, and that is a **size** decision rather than a
-/// data one: the 98 strings are ~9 KB, this body is built as one `String` in one
-/// allocation, and `ADR-0002` §2 exists because that allocation is already
-/// measured against a ~19 KB figure on a part with 320 KB of RAM. Adding 50% to
-/// a body whose consumer the UI already renders without it is the wrong trade;
-/// a client that wants the text asks `/api/parameter-help` for it, which is what
-/// the C++'s own UI does.
+/// `helpText` is a fourth case and it is **not** a data gap:
+/// [`cc_config::schema::ParamSpec::help`] carries every string, and
+/// `GET /api/parameter-help` serves them — see [`crate::help`]. This body omits the
+/// field for **size**: the strings are ~9 KB, and this body is already a `String`
+/// of measured tens of KB, built in one allocation on a part with 320 KB of RAM.
+/// Adding 50% to a body whose consumer renders without it is the wrong trade; a
+/// client that wants the text asks `/api/parameter-help` for it, which is what the
+/// UI does.
 ///
-/// # The value is the stored one, and what "live" means today
+/// # The value is the stored one, re-rendered by the control task
 ///
-/// `value` is the C++'s `currentValue_` (`Config.h:226-238`) — what the machine
-/// is configured with, not the compiled-in default. The compiled-in default is
-/// reported separately as `default`, which is the C++'s `defaultValue_`. A
-/// firmware that reported the default in both places would show a
-/// saved-and-reloaded operator's settings as if they had been lost.
+/// `value` is what the machine is configured with; `default` is the compiled-in
+/// default, reported separately. A firmware that reported the default in both
+/// places would show a saved-and-reloaded operator's settings as if they had been
+/// lost.
 ///
-/// **It is the `Config` as of boot, and that is currently the same thing.** The
-/// only runtime writer of the store is the Wi-Fi provisioning path
-/// (`network::apply_staged`), and it is followed by a reboot, so between boots
-/// nothing changes the configuration the web layer holds. The day a
-/// `POST /api/config` or a `POST /api/parameters` writer exists — neither is
-/// registered yet — this has to read the control task's copy rather than the one
-/// captured at boot, or `value` will silently go stale. The `Arc<Config>` is
-/// what makes that a one-line change; until then it would be a lie to call this
-/// live.
+/// Both callers render the same document: the control task calls this once a second
+/// and again immediately after a parameter write, publishing the result for
+/// `GET /api/parameters`, and the GET handler calls it only as a fallback before the
+/// first publish. So `value` is live to within one `PARAMETERS_PUBLISH_MS`, and a
+/// save is reflected before its `200` is written.
 #[must_use]
 pub fn parameters_json(config: &Config) -> String {
-    // Sized from the C++'s measured ~19 KB (`ADR-0002` §2) plus the `value`
-    // field this adds, so the buffer is not reallocated mid-build: a
-    // reallocation here is a second copy of a 20 KB buffer, which is precisely
-    // the shape ADR-0002 is about.
+    // Sized so the buffer is not reallocated mid-build: a reallocation here is a
+    // second copy of a 15 KB buffer, on 320 KB of RAM.
     let mut out = String::with_capacity(SCHEMA.len() * 160);
     let values = cc_config::values_for(config);
     let _ = write!(out, "[");
@@ -369,17 +308,15 @@ pub fn parameters_json(config: &Config) -> String {
 /// A live value as JSON.
 ///
 /// The same type distinctions as [`param_value_json`], and for the same reason:
-/// the C++'s `toJson` distinguishes `bool` from `int` from `double` from
-/// `const char*`, and a `"94.5"` where the editor expects a number makes it
-/// refuse the input.
+/// a `"94.5"` where the editor expects a number makes it refuse the input.
 fn live_value_json(value: cc_config::LiveValue<'_>) -> String {
     match value {
         cc_config::LiveValue::Bool(b) => String::from(if b { "true" } else { "false" }),
         cc_config::LiveValue::Int(i) => i.to_string(),
         cc_config::LiveValue::Float(f) => f.to_string(),
         cc_config::LiveValue::Text(t) => format!("\"{t}\""),
-        // An enum is an integer on the wire, the same as `ParamValue::Enum`,
-        // and `Config.h:105` writes the discriminant as an `int`.
+        // An enum is its integer discriminant on the wire, the same as
+        // `ParamValue::Enum`.
         cc_config::LiveValue::Enum(i) => i.to_string(),
     }
 }
@@ -390,10 +327,9 @@ fn opt_number(value: Option<f64>) -> String {
 
 /// A schema default as JSON.
 ///
-/// The C++'s `toJson` (`:851-866`) distinguishes `bool` from `int` from
-/// `double` from `const char*` when it serialises, and so does this — which is
-/// why a `Text` default is quoted and a `Bool` is not. Getting that wrong makes
-/// the React editor's number input receive `"94.5"` and refuse it.
+/// A `Text` default is quoted and a `Bool` is not: the editor reads these into
+/// typed inputs, and getting the distinction wrong makes a number input receive
+/// `"94.5"` and refuse it.
 fn param_value_json(value: ParamValue<'_>) -> String {
     match value {
         ParamValue::Bool(b) => String::from(if b { "true" } else { "false" }),
@@ -411,10 +347,8 @@ fn param_value_json(value: ParamValue<'_>) -> String {
 /// **This function is the difference between a working UI and a blank page.** A
 /// browser refuses to execute a script whose `Content-Type` is not a JavaScript
 /// media type, and it refuses a stylesheet that is not CSS — with a `200` in the
-/// network tab either way. `application/javascript` is used rather than the
-/// newer `text/javascript` because that is what the C++'s `getContentType`
-/// returns (`WebServerManager.cpp`, the `.js` arm) and because it is in every
-/// browser's accept list.
+/// network tab either way. `application/javascript` is used rather than the newer
+/// `text/javascript` because it is in every browser's accept list.
 #[must_use]
 pub fn mime_for(path: &str) -> &'static str {
     match path.rsplit_once('.').map_or("", |(_, extension)| extension) {

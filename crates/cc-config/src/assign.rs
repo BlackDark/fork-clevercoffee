@@ -1,81 +1,52 @@
-//! One parameter, written from a string — the C++'s `ConfigParamDef::fromString`.
+//! One parameter, written from a string: `POST /api/parameters`'s writer, and the
+//! writer the inbound MQTT path uses.
 //!
-//! Owner: **R3-14**. `POST /api/parameters`'s writer, and the writer R3-13's
-//! inbound MQTT will use.
+//! # What it does
 //!
-//! # What this replaces
+//! Three steps, in three functions, because they cannot be separated safely:
 //!
-//! Three pieces of `include/clevercoffee/Config.h`, all reached from
-//! `WebServerManager.cpp:841-844`:
+//! * [`parse`] — string to typed value, checking that the value is of the
+//!   parameter's kind, inside its bounds, a real variant of its enumeration, and
+//!   within the store's text bound.
+//! * [`set`] — typed value into the `Config` field.
+//! * [`apply`] — the handler's loop over every pair in one request.
 //!
-//! ```cpp
-//! ConfigParamDef* paramDef = Config::getInstance().findConfigParameter(varName);
-//! if (paramDef) { bool updateSuccess = paramDef->fromString(value); }
-//! ```
+//! [`SCHEMA`](crate::schema::SCHEMA) is the type table, so there is no virtual
+//! dispatch and no per-type conversion rule that can drift from the declaration.
+//! Nothing else in the workspace may write a parameter: a second writer is a
+//! second set of type rules, and the two drift.
 //!
-//! * `ParamDef<T>::fromString` (`:242-262`) — the string → typed value
-//!   conversion, per type.
-//! * `ParamDef<T>::set` (`:156-180`) — the range check, the assignment, and the
-//!   **immediate NVS write**.
-//! * `ParamDef<T>::isValid` (`:190-200`) — `>=`/`<=` on the numeric kinds, and
-//!   unconditionally `true` for `bool` and `String`.
+//! Which `Config` field a key names lives with the declaration, on
+//! [`crate::schema::ParamSpec`], so this module holds only the string half. See
+//! [`set`].
 //!
-//! # Why the three are one function here
+//! # Two deliberate differences from coercion-on-parse
 //!
-//! The C++ spreads "what does this value mean", "is it allowed" and "put it in
-//! the struct" across a virtual call, a range check and an assignment. This port
-//! has no virtual dispatch — [`SCHEMA`](crate::schema::SCHEMA) is the type — so
-//! the same three steps are [`parse`] (string → typed, checked),
-//! [`set`] (typed → the struct field) and [`apply`] (the handler's loop over
-//! every pair). Nothing else in the workspace may write a parameter: a second
-//! writer is a second set of type rules, and the two drift.
+//! **1. A value that does not parse is a rejection, not a zero.** A permissive
+//! scalar parser turns anything it does not recognise into a default: a bool that
+//! is true only for the exact string `"true"`, an integer that reads `"12abc"` as
+//! 12 and `"abc"` as 0. Such a writer answers
+//! `200 {"success":true}` for `POST /api/parameters?pid.regular.kp=hello` whenever
+//! 0 is in range, so an operator who fat-fingers a PID gain is told it worked.
+//! Here `hello` is [`AssignError::Rejected`] carrying
+//! [`RejectReason::WrongType`], and the answer is `400` — the same status an
+//! out-of-range value and an unknown key get.
 //!
-//! The *field* half of that — which `Config` field a key names — used to be a
-//! third statement of the parameter set, here in a 74-line `put!` dispatch.
-//! It now lives with the declaration, on [`crate::schema::ParamSpec`], so this
-//! module holds only the string half. See [`set`].
+//! **2. An enumeration is written by discriminant only.** A writer that also
+//! matched an option's **label** ("High", "Momentary") would need a label table,
+//! and [`crate::schema::ParamSpec`] has none: an unknown enumeration value is
+//! [`RejectReason::UnknownEnumDiscriminant`], and `?brew.mode=1` is the write.
+//! Every enumeration here is a `u8`-wide discriminant, so the integer form is also
+//! what `/api/parameters` reports as the current `value`.
 //!
-//! # Two deliberate differences from the C++
+//! # Where the persistence went
 //!
-//! **1. A value that does not parse is a rejection, not a zero.** The C++'s
-//! `fromString` cannot fail on a scalar:
-//!
-//! ```cpp
-//! newValue = value.equalsIgnoreCase("true") || value == "1";  // bool: anything else is false
-//! newValue = value.toInt();                                    // int:  "12abc" is 12, "abc" is 0
-//! newValue = value.toDouble();                                 // double: likewise
-//! ```
-//!
-//! so `POST /api/parameters?pid.regular.kp=hello` writes **0** and answers
-//! `200 {"success":true}` if 0 is in range, and `400` if it is not. An operator
-//! who fat-fingers a PID gain is told it worked. Here `hello` is
-//! `AssignError::Rejected(RejectReason::WrongType)` and the answer is `400`,
-//! which is the same status the C++ gives for the out-of-range case and for an
-//! unknown key. The *shape* of the response is the C++'s; the arithmetic behind
-//! it is not a footgun.
-//!
-//! **2. An enumeration is written by discriminant only.** The C++'s
-//! `EnumParamDef::fromString` (`:437-455`) falls back to matching the option's
-//! **label** ("High", "Momentary"). [`ParamSpec`] carries no label table — the
-//! React editor renders enums from `type: 5` and an integer, and
-//! `json::enum_discriminants_known` validates against the Rust enum — so
-//! `"brew.mode=Momentary"` is
-//! `UnknownEnumDiscriminant` here and `?brew.mode=1` is the write. Every
-//! enumeration this firmware has is a `u8`-wide discriminant, so the integer
-//! form is also what `/api/parameters` reports as the current `value`.
-//!
-//! # The C++'s persistence, and where it moved
-//!
-//! `set` writes NVS **inside the setter**, once per parameter, and returns
-//! `false` if that write failed — so a NVS failure is reported to the operator
-//! as a parameter failure even though the in-memory value had already changed.
-//! Here [`set`] only touches the struct, and the single
-//! [`crate::BlobConfigStore::save`] write happens once for the whole request,
-//! in the task that owns the store.
-//! One blob, one write, one CRC — which is the reason this port does not have
-//! 98 keys to write one at a time ([`crate::store`]). A store failure is
-//! therefore a property of the request, not of one parameter, and it is
-//! reported as such by the caller.
+//! [`set`] only touches the struct. The single
+//! [`crate::BlobConfigStore::save`] write happens once for the whole request, in
+//! the task that owns the store — one blob, one write — which is the reason there
+//! are not 98 keys to write one at a time ([`crate::store`]). A store failure is
+//! therefore a property of the request, not of one parameter, and the caller
+//! reports it as such.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -86,14 +57,12 @@ use crate::schema::{self, ParamKind, ParamSpec};
 
 /// Why a parameter was not written.
 ///
-/// The two cases the C++ distinguishes are "no such parameter" and "the value
-/// did not survive validation" (`WebServerManager.cpp:843-859`), and it answers
-/// the same `400` for both. They are kept apart here because the second carries
-/// a reason worth logging and the first never does.
+/// The two cases are "no such parameter" and "the value did not survive
+/// validation", and both get the same `400`. They are kept apart here because the
+/// second carries a reason worth logging and the first never does.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AssignError {
-    /// `findConfigParameter` returned `nullptr` (`Config.h:1550`): the schema
-    /// does not register this key.
+    /// No key in the schema names this parameter.
     UnknownKey,
     /// The value was not acceptable for this parameter.
     Rejected(RejectReason),
@@ -113,10 +82,8 @@ impl core::fmt::Display for AssignError {
 
 /// Convert one parameter's string value into the typed value to store.
 ///
-/// Port of `ParamDef<T>::fromString` (`Config.h:242-262`) followed by
-/// `isValid` (`:190-200`). The two are one step here because the C++'s
-/// `fromString` ends by calling `set`, which validates — splitting them would
-/// leave a caller able to skip the check.
+/// The kind check and the range check are one step, because a caller that could
+/// skip either would be able to write an unchecked value into a `Config`.
 ///
 /// `raw` is borrowed into the result for the text kinds, which is why this takes
 /// a `&str` and not a `String`.
@@ -132,9 +99,9 @@ pub fn parse<'a>(key: &str, raw: &'a str) -> Result<LiveValue<'a>, AssignError> 
     let rejected = AssignError::Rejected;
 
     match spec.kind {
-        // `value.equalsIgnoreCase("true") || value == "1"`
-        // (`Config.h:246`) accepts exactly two spellings of each. The C++ treats
-        // every other string as `false` — see the module's first difference.
+        // Two spellings of each value, compared case-insensitively. Every other
+        // string is rejected rather than read as `false` — see the module's first
+        // difference.
         ParamKind::Bool => Ok(LiveValue::Bool(match raw {
             "1" => true,
             "0" => false,
@@ -142,8 +109,8 @@ pub fn parse<'a>(key: &str, raw: &'a str) -> Result<LiveValue<'a>, AssignError> 
             other if other.eq_ignore_ascii_case("false") => false,
             _ => return Err(rejected(RejectReason::WrongType)),
         })),
-        // `value.toInt()` is lenient; `str::parse` is not. The whole field must
-        // be the number, which is what a browser's number input sends.
+        // The whole field must be the number: a lenient conversion would read
+        // `12abc` as 12, and a browser's number input never sends that.
         ParamKind::Int => {
             let value = raw
                 .parse::<i32>()
@@ -156,29 +123,27 @@ pub fn parse<'a>(key: &str, raw: &'a str) -> Result<LiveValue<'a>, AssignError> 
                 .parse::<f64>()
                 .map_err(|_| rejected(RejectReason::WrongType))?;
             // `f64::parse` accepts `NaN` and `inf`, and every comparison against
-            // `NaN` is false — so `check_range` would wave it through and a
-            // `NaN` PID gain would reach `cc-machine`'s integrator. The C++
-            // cannot store one (`String::toDouble` on a machine without
-            // `NAN` support yields 0), and the range check is documented as the
-            // only validation, so the finiteness test belongs here rather than
-            // in the bounds.
+            // `NaN` is false — so `check_range` would wave such a value through and
+            // a `NaN` PID gain would reach the integrator. The finiteness test
+            // belongs here rather than in the bounds, because the bounds are the
+            // documented validation and "not a number" is not a range.
             if !value.is_finite() {
                 return Err(rejected(RejectReason::WrongType));
             }
             crate::json::check_range(spec, value).map_err(rejected)?;
             Ok(LiveValue::Float(value))
         }
-        // `newValue = value` with no validation at all (`Config.h:253-255`):
-        // a string is always valid, so the only rule is the store's own length.
+        // A string is always a valid string, so the only rule is the store's own
+        // length.
         ParamKind::Text => {
             if raw.len() > MAX_TEXT_LEN {
                 return Err(rejected(RejectReason::TooLong));
             }
             Ok(LiveValue::Text(raw))
         }
-        // `intValue = value.toInt()` then `isValid(enumValue)`
-        // (`Config.h:439-444`), minus the label fallback — see the module's
-        // second difference.
+        // The discriminant has to name a variant: an integer, then the schema's
+        // variant check. There is no label fallback — see the module's second
+        // difference.
         ParamKind::Enum => {
             let value = raw
                 .parse::<i32>()
@@ -195,29 +160,15 @@ pub fn parse<'a>(key: &str, raw: &'a str) -> Result<LiveValue<'a>, AssignError> 
 
 /// Write one already-validated value into a [`Config`].
 ///
-/// The write half of [`crate::json::live_value`], and it is now the *same*
-/// half: the pair of accessors that read a key out of a [`Config`] is stored
-/// on the same [`ParamSpec`] that declares the key, so a key that
-/// [`SCHEMA`](crate::schema::SCHEMA) registers is readable by construction and
-/// this function is a lookup. `false` means the key is not in the table or the
-/// value is not of the field's type; after [`parse`] has accepted a value,
-/// only the first is reachable.
+/// The write half of [`crate::json::live_value`], from the same table: the
+/// accessors that read and write a key live on the [`ParamSpec`] that declares the
+/// key, so a key [`SCHEMA`](crate::schema::SCHEMA) registers is readable and
+/// writable by construction and this function is a lookup. `false` means the key is
+/// not in the table or the value is not of the field's type; after [`parse`] has
+/// accepted a value, only the first is reachable.
 ///
-/// # Note on what replaced the four macros
-///
-/// This used to be a 74-line `put!`/`put_secret!`/`put_enum!` dispatch whose
-/// rationale was that each entry of the table is one line — `"pid.enabled" =>
-/// pid.enabled` — so a key that exists in
-/// [`SCHEMA`](crate::schema::SCHEMA) and not here would show up as a missing
-/// line rather than a missing block. That rationale is obsolete: the
-/// accessors *are* the schema entry now, so a key cannot be in one table and
-/// not the other. What the macros bought that a lookup does not is gone with
-/// them; what they cost — a second statement of the key-to-field mapping, and a
-/// key that silently validated but did not write — is gone too.
-///
-/// The lookup is a linear scan of 98 keys, which is a few microseconds on a
-/// path that runs once per parameter write. The C++'s `findConfigParameter`
-/// (`Config.h:1550`) is also a linear scan (`git show main:src/Config.cpp:427-436`).
+/// The lookup is a linear scan of 98 keys, on a path that runs once per parameter
+/// write.
 #[must_use]
 pub fn set(config: &mut Config, key: &str, value: &LiveValue<'_>) -> bool {
     match schema::find(key) {
@@ -228,10 +179,9 @@ pub fn set(config: &mut Config, key: &str, value: &LiveValue<'_>) -> bool {
 
 /// What one [`apply`] call did.
 ///
-/// The two counters are the C++'s `hasUpdates` and `hasErrors`
-/// (`WebServerManager.cpp:826-827`), and `failed` is kept whole rather than
-/// reduced to a bool because the log line that follows a `400` has to say
-/// *which* parameter was wrong.
+/// `failed` is kept whole rather than reduced to a bool because the log line that
+/// follows a `400` has to say *which* parameter was wrong: a bare failure flag
+/// answers `400` with nothing to act on.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Applied {
     /// How many parameters were written.
@@ -241,7 +191,7 @@ pub struct Applied {
 }
 
 impl Applied {
-    /// Whether any parameter was rejected — the C++'s `hasErrors`.
+    /// Whether any parameter was rejected.
     #[must_use]
     pub fn has_errors(&self) -> bool {
         !self.failed.is_empty()
@@ -250,21 +200,18 @@ impl Applied {
 
 /// Write every pair, independently, and report what happened.
 ///
-/// The C++'s handler loop (`WebServerManager.cpp:829-865`), with its two
-/// properties preserved deliberately:
+/// Two properties, both deliberate:
 ///
-/// * **One bad parameter does not roll back the others.** The C++ applies each
-///   pair as it walks them and only collects `hasErrors`; a request that sets
-///   four parameters and misspells the fifth leaves four written. That is what
-///   an operator who fixes a form and resubmits expects, and it is the opposite
-///   of [`crate::json::json_import`], which is all-or-nothing because it is
+/// * **One bad parameter does not roll back the others.** A request that sets
+///   four parameters and misspells the fifth leaves four written. That is what an
+///   operator who fixes one field and resubmits expects, and it is the opposite of
+///   [`crate::json::json_import`], which is all-or-nothing because it is
 ///   validating a whole document rather than a list of instructions.
-/// * **A repeated key is applied twice**, last one winning, because the C++
-///   iterates `request->params()` and does not deduplicate.
+/// * **A repeated key is applied twice**, last one winning: the pairs are applied
+///   in request order with no deduplication.
 ///
-/// An empty or valueless field never reaches here: the C++ skips those before
-/// the loop (`p->name().length() > 0 && p->value().length() > 0`, `:830`), which
-/// is why a text parameter cannot be set to the empty string over HTTP.
+/// An empty or valueless field never reaches the loop, which is why a text
+/// parameter cannot be set to the empty string over HTTP.
 pub fn apply(config: &mut Config, pairs: &[crate::form::Field]) -> Applied {
     let mut out = Applied::default();
     for (key, raw) in pairs {
@@ -399,10 +346,9 @@ mod tests {
         );
     }
 
-    /// A value that does not parse is a rejection here and a silent zero in the
-    /// C++ (`Config.h:249-252`). Pinned because it is the module's first
-    /// documented difference and it is the one that would otherwise be "fixed"
-    /// back into a `toInt()`-alike by a later reader who has not read it.
+    /// A value that does not parse is a rejection, not a zero. Pinned because it is
+    /// the module's first documented difference, and it is the one a later reader
+    /// could "fix" back into a lenient conversion without noticing.
     #[test]
     fn a_value_that_does_not_parse_is_rejected_rather_than_becoming_zero() {
         for raw in ["", "abc", "12abc", "4.5", " 7", "7 "] {
@@ -421,10 +367,9 @@ mod tests {
         }
     }
 
-    /// The C++'s `equalsIgnoreCase("true") || value == "1"` (`Config.h:246`),
-    /// and nothing else.
+    /// A bool accepts `true`/`false` in any case and `1`/`0`, and nothing else.
     #[test]
-    fn a_bool_accepts_exactly_the_cpp_two_spellings() {
+    fn a_bool_accepts_two_spellings_and_nothing_else() {
         for (raw, expected) in [
             ("1", true),
             ("0", false),
@@ -440,7 +385,7 @@ mod tests {
                 "pid.enabled={raw:?}"
             );
         }
-        // The C++ would answer `false` for every one of these and store it.
+        // Every one of these is rejected rather than coerced to `false`.
         for raw in ["", "yes", "no", "on", "2", " true"] {
             assert_eq!(
                 parse("pid.enabled", raw),
@@ -450,16 +395,16 @@ mod tests {
         }
     }
 
-    /// An enumeration is written by discriminant; the C++'s label fallback is
-    /// not reproduced (the module's second difference).
+    /// An enumeration is written by discriminant; there is no label fallback (the
+    /// module's second difference).
     #[test]
     fn an_enum_is_written_by_discriminant_only() {
         assert_eq!(parse("brew.mode", "1"), Ok(LiveValue::Enum(1)));
         let mut config = Config::default();
         assert!(set(&mut config, "brew.mode", &LiveValue::Enum(1)));
         assert_eq!(live_value(&config, "brew.mode"), Some(LiveValue::Enum(1)));
-        // A discriminant no variant has, and a label — the C++'s fallback, which
-        // is the one part of `EnumParamDef::fromString` this port drops.
+        // A discriminant no variant has, and a label: both are rejected, and the
+        // label reaches the same type check an unrecognised string would.
         assert_eq!(
             parse("brew.mode", "99"),
             Err(AssignError::Rejected(RejectReason::UnknownEnumDiscriminant))
@@ -484,8 +429,7 @@ mod tests {
         }
     }
 
-    /// The C++'s loop (`WebServerManager.cpp:829-865`): each pair is applied on
-    /// its own, and one failure does not undo the others.
+    /// Each pair is applied on its own, so one failure does not undo the others.
     #[test]
     fn one_bad_parameter_does_not_roll_back_the_good_ones() {
         let mut config = Config::default();
@@ -507,8 +451,8 @@ mod tests {
         assert!(config.pid.enabled);
     }
 
-    /// A repeated key is applied twice and the last one wins, because the C++
-    /// walks `request->params()` without deduplicating.
+    /// A repeated key is applied twice and the last one wins: the pairs are walked
+    /// in order with no deduplication.
     #[test]
     fn a_repeated_key_takes_the_last_value() {
         let mut config = Config::default();
@@ -523,10 +467,9 @@ mod tests {
         assert_eq!(config.mqtt.port, 8883);
     }
 
-    /// The C++ skips a field with no name or no value (`:830`), so an empty
-    /// value is "not mentioned" rather than "set to nothing" — and a request
-    /// that mentions nothing updates nothing, which is the C++'s third response
-    /// (`{"success":true,"message":"No parameters updated"}`, `:877`).
+    /// A field with no name or no value is skipped, so an empty value is "not
+    /// mentioned" rather than "set to nothing" — and a request that mentions
+    /// nothing updates nothing, which is a `200` with "no parameters updated".
     #[test]
     fn an_empty_or_valueless_field_is_skipped_not_rejected() {
         let mut config = Config::default();
@@ -560,7 +503,7 @@ mod tests {
     }
 
     /// A text parameter longer than the store can hold is rejected rather than
-    /// written, which is the C++'s `String` bound in all but spelling.
+    /// written.
     #[test]
     fn an_over_long_text_is_rejected() {
         let long = "x".repeat(MAX_TEXT_LEN + 1);
@@ -631,8 +574,7 @@ mod tests {
     /// field rather than proving the field already held that value.
     ///
     /// The enumeration probe is `default ^ 1` — the neighbouring variant. Every
-    /// `IntEnum` in `cc-domain` has both discriminant 0 and 1
-    /// (`hardware.rs:37-128`, `system.rs:35-80`, `process.rs:35-41`), and
+    /// `IntEnum` in `cc-domain` has both discriminant 0 and 1, and
     /// `the_probe_names_a_variant_for_every_enumeration` is the test that keeps
     /// that true if a two-variant enum is ever added.
     fn probe_for(spec: &ParamSpec) -> LiveValue<'static> {

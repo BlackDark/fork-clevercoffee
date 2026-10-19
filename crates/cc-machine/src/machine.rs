@@ -1,26 +1,25 @@
 //! The machine's memory: everything the states need and the reducer owns.
 //!
-//! # Why one struct and not the C++'s seventeen objects
+//! # Why one struct and not seventeen objects
 //!
-//! The C++ spreads the equivalent state across `MachineStateContext` (five
-//! booleans and eleven request flags, `MachineStateContext.h:783-808`),
-//! `ProcessController` (brew timer, PID mode, output), `StandbyCoordinator` (a
-//! three-field countdown), `MaintenanceCoordinator` (one int) and each state
-//! object's own private members (`errorStartTime_`, which the C++ gets for free
-//! because a transition constructs a **fresh instance** — `StateFactory.cpp:24`).
+//! The behaviour needs eleven request flags, four switch levels, a brew timer, a PID mode, an
+//! output, a three-field standby countdown, a shot counter and a per-error start time. Split
+//! across as many owner objects, the cross-field invariants -- the heater gate reads `state`,
+//! the configuration and `pid.brew_disabled` *together* -- would sit behind as many accessors.
 //!
-//! That last point is the one that matters for a reducer. There is no instance
-//! to be fresh, so "a new `errorStartTime_` on every entry" has to be modelled
-//! explicitly. [`Machine::error_since`](crate::machine::Machine::error_since)
-//! does that, and
+//! The per-error start time is the case that shows why a reducer needs the struct. A state
+//! object in a class hierarchy gets a fresh start time for free, because a transition
+//! constructs a **new instance**. There is no instance to be fresh here, so "a new start time
+//! on every entry" has to be modelled explicitly:
+//! [`Machine::error_since`](crate::machine::Machine::error_since) is that field, and
 //! `states::on_entry` is the only thing that writes it.
 //!
 //! # Immutability
 //!
-//! [`reduce`](crate::reduce) takes `&Machine` and returns a new one. Nothing
-//! here has interior mutability, so "the reducer does not mutate its input" is
-//! a property of the signature rather than a property a test has to verify —
-//! and `tests/purity.rs` verifies it anyway, by clone-and-compare.
+//! [`reduce`](crate::reduce) takes `&Machine` and returns a new one. Nothing here has interior
+//! mutability, so "the reducer does not mutate its input" is a property of the signature
+//! rather than a property a test has to verify -- and `tests/purity.rs` verifies it anyway, by
+//! clone-and-compare.
 
 use cc_domain::state::MachineState;
 use cc_domain::units::{Celsius, Millis};
@@ -29,94 +28,70 @@ use crate::event::Sensors;
 
 /// The eleven action request flags.
 ///
-/// `MachineStateContext.h:801-802`, verbatim:
-///
-/// ```cpp
-/// bool requestBrewStart_ = false;
-/// bool requestBrewStop_ = false;
-/// bool requestSteamStart_ = false;
-/// bool requestSteamStop_ = false;
-/// bool requestManualFlushStart_ = false;
-/// bool requestManualFlushStop_ = false;
-/// bool requestEnterBackflush_ = false;
-/// bool requestBackflushCycleStart_ = false;
-/// bool requestBackflushStop_ = false;
-/// bool requestStandby_ = false;
-/// bool requestNormalOperation_ = false;
-/// ```
-///
-/// They are a *group* on purpose. ADR-0003's "Flag lifecycle" section is about
-/// the group as a unit — "on state entry, drain all action flags that cannot be
-/// acted upon" — and the C++'s two drain helpers
-/// (`clearAllActionRequests`, `clearStaleStopRequests`) both enumerate the whole
-/// list. One struct, two methods, and the compiler catches a new flag that
-/// forgets to be drained.
-// Eleven booleans because the C++ has eleven booleans
-// (`MachineStateContext.h:801-802`) and the two *group* operations ADR-0003
-// cares about — drain everything, drain only the stops — are about the group.
-// Modelling eleven independent states instead would be inventing structure the
-// firmware does not have; the meaningful combinations are the ones
-// `clear_all` and `clear_stale_stops` name.
+/// They are a *group* on purpose: the drain operations run over the whole set -- "on state
+/// entry, drain all action flags that cannot be acted upon" -- and both `clear_all` and
+/// `clear_stale_stops` enumerate the list. One struct, two methods, and the compiler catches a
+/// flag that forgets to be drained.
+// Eleven booleans, because the two *group* operations that matter -- drain everything, drain
+// only the stops -- are about the group. Modelling eleven independent states instead would
+// invent structure the firmware does not have.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Requests {
-    /// `requestBrewStart_`.
+    /// Start a brew.
     pub brew_start: bool,
-    /// `requestBrewStop_`.
+    /// Stop the running brew.
     pub brew_stop: bool,
-    /// `requestSteamStart_`.
+    /// Start steam.
     pub steam_start: bool,
-    /// `requestSteamStop_`.
+    /// Stop steam.
     pub steam_stop: bool,
-    /// `requestManualFlushStart_`.
+    /// Start a manual flush.
     pub manual_flush_start: bool,
-    /// `requestManualFlushStop_`.
+    /// Stop the manual flush.
     pub manual_flush_stop: bool,
-    /// `requestEnterBackflush_`.
+    /// Enter backflush mode.
     pub backflush_enter: bool,
-    /// `requestBackflushCycleStart_`.
+    /// Start the next backflush cycle.
     pub backflush_cycle_start: bool,
-    /// `requestBackflushStop_`.
+    /// Stop the backflush cycle.
     pub backflush_stop: bool,
-    /// `requestStandby_`.
+    /// Enter standby.
     pub standby: bool,
-    /// `requestNormalOperation_`.
+    /// Leave standby.
     pub normal_operation: bool,
 }
 
 /// One of the eleven request flags, as a value.
 ///
-/// `Requests` is a struct of eleven `bool`s because the *drain* operations
-/// (`clear_all`, `clear_stale_stops`) are about the group. Setting one flag
-/// individually is a different concern and needs a different shape: the C++'s
-/// eleven setters do not all reset the standby timer, and which ones do is a
-/// property of the individual flag, not of the group
-/// (`MachineStateContext.cpp:217-267` for the seven that do,
-/// `:483,509,536,587` for the four that do not). So the setters take a `Request`
-/// and this enum is the table.
+/// `Requests` is a struct of eleven `bool`s because the *drain* operations (`clear_all`,
+/// `clear_stale_stops`) are about the group. Setting one flag individually is a different
+/// concern and needs a different shape: not every flag re-arms the standby countdown, and
+/// which ones do is a property of the individual flag rather than of the group. So the setters
+/// take a `Request`, and [`Request::resets_standby_timer`] is the table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Request {
-    /// `requestBrewStart_`.
+    /// Start a brew.
     BrewStart,
-    /// `requestBrewStop_`.
+    /// Stop the running brew.
     BrewStop,
-    /// `requestSteamStart_`.
+    /// Start steam.
     SteamStart,
-    /// `requestSteamStop_`.
+    /// Stop steam.
     SteamStop,
-    /// `requestManualFlushStart_`.
+    /// Start a manual flush.
     ManualFlushStart,
-    /// `requestManualFlushStop_`.
+    /// Stop the manual flush.
     ManualFlushStop,
-    /// `requestEnterBackflush_`.
+    /// Enter backflush mode. The mode-on half of `POST /api/backflush`'s toggle.
     BackflushEnter,
-    /// `requestBackflushCycleStart_`.
+    /// Start the next backflush cycle.
     BackflushCycleStart,
-    /// `requestBackflushStop_`.
+    /// Stop the backflush cycle.
     BackflushStop,
-    /// `requestStandby_`.
+    /// Enter standby.
     Standby,
-    /// `requestNormalOperation_`.
+    /// Leave standby.
     NormalOperation,
 }
 
@@ -138,28 +113,23 @@ impl Request {
 
     /// Whether setting this flag to `true` also re-arms the standby countdown.
     ///
-    /// # The C++ table, setter by setter
+    /// | yes | no |
+    /// | --- | --- |
+    /// | [`Request::BackflushEnter`] | [`Request::BrewStop`] |
+    /// | [`Request::BackflushCycleStart`] | [`Request::SteamStop`] |
+    /// | [`Request::BackflushStop`] | [`Request::ManualFlushStop`] |
+    /// | [`Request::BrewStart`] | [`Request::ManualFlushStart`] |
+    /// | [`Request::SteamStart`] | [`Request::Standby`] |
+    /// | [`Request::NormalOperation`] | |
     ///
-    /// | flag | resets? | line |
-    /// | --- | --- | --- |
-    /// | [`Request::BackflushEnter`] | yes | `MachineStateContext.cpp:217-222` |
-    /// | [`Request::BackflushCycleStart`] | yes | `:224-229` |
-    /// | [`Request::BackflushStop`] | yes | `:231-236` |
-    /// | [`Request::BrewStart`] | yes | `:238-243` |
-    /// | [`Request::SteamStart`] | yes | `:245-250` |
-    /// | [`Request::NormalOperation`] | yes | `:254-260` |
-    /// | [`Request::BrewStop`] | **no** | `:483` |
-    /// | [`Request::SteamStop`] | **no** | `:509` |
-    /// | [`Request::ManualFlushStop`] | **no** | `:536` |
-    /// | [`Request::Standby`] | **no** | `:587` |
-    /// | [`Request::ManualFlushStart`] | **no** | `:523` |
+    /// A start is an operator asking the machine to do something, so it counts as activity; a
+    /// stop is usually the machine finishing by itself, so it does not. [`Request::Standby`]
+    /// does not either -- asking the machine to sleep is not activity, and it would defeat the
+    /// sleep if it were.
     ///
-    /// The last one is a fourth "no" that the C++ does not document: the
-    /// manual-flush start setter at `MachineStateContext.h:523` is a bare
-    /// `requestManualFlushStart_ = requested;` with no standby reset, unlike the
-    /// other four start setters. Manual flush is only reachable from backflush
-    /// mode, where the backflush setters have already reset the timer, so it has
-    /// never mattered.
+    /// [`Request::ManualFlushStart`] is the odd one out: it does not re-arm the countdown even
+    /// though it starts something. That is harmless, because a manual flush is only reachable
+    /// from backflush mode, where the backflush requests have already re-armed it.
     #[must_use]
     pub const fn resets_standby_timer(self) -> bool {
         match self {
@@ -229,58 +199,35 @@ impl Requests {
         normal_operation: false,
     };
 
-    /// `clearAllActionRequests()` — every flag, no exceptions
-    /// (`MachineStateContext.h:615-627`).
+    /// Drain every flag except `standby`.
     ///
-    /// # Preserved deliberately, see `09-cpp-findings.md` §11 / ADR-0003
+    /// # The drain, and its cost
     ///
-    /// Used on entry to `PID_DISABLED` and in its `update` while PID stays off.
-    /// This is S11's cure, and it has a cost: a request that arrived *while* the
-    /// machine was already in `PID_DISABLED` is thrown away rather than honoured
-    /// on the next enable. The C++ accepts that trade
-    /// (`PidStates.cpp:118-127`); the reducer reproduces it exactly.
+    /// Used on entry to `PID_DISABLED` and in its update while the PID stays off. It is S11's
+    /// cure, and it has a cost: a request that arrived *while* the machine was already in
+    /// `PID_DISABLED` is thrown away rather than honoured on the next enable. That trade is
+    /// deliberate -- a stale action request must not fire the moment the PID comes back -- and
+    /// it is why `standby` is the one flag spared.
     ///
-    /// ⚠ **Divergence 2026-09-30, approved: `standby` is NOT cleared.**
+    /// **`standby` is not an action request.** It is the only flag here that asks the machine
+    /// to *go somewhere* rather than to start doing something, and the state it names re-arms
+    /// nothing on entry. Draining it would make `POST /api/sleep` unreachable from
+    /// `PID_DISABLED`: this drain runs before the transition check, so the request would be
+    /// destroyed before anything read it.
     ///
-    /// The C++ clears `requestStandby_` here too
-    /// (`MachineStateContext.h:626`), and that is what makes 09 §25 unreachable.
-    /// `PidDisabledState::update` runs *before* `checkTransitions`, so it wipes
-    /// the very request the transition is about to look for:
-    ///
-    /// ```text
-    /// POST /api/sleep -> 202, control: command Sleep, requested = false,
-    ///                   state stays PID_DISABLED, forever
-    /// ```
-    ///
-    /// Two defects compose here. `PidDisabledState::checkSpecificTransitions`
-    /// never checks `isStandbyRequested()` either (`PidStates.cpp:135-148`), so
-    /// even if the flag survived, nothing would read it. `PidNormalState` — the
-    /// state one line away — does check it, which is what makes this an oversight
-    /// rather than a design.
-    ///
-    /// **Why `standby` specifically is spared.** The purpose of this drain is
-    /// S11: stale *action* requests must not fire the moment the PID is
-    /// re-enabled, or a brew would start itself. `requestStandby_` is not an
-    /// action request — it is the only flag here that asks the machine to *go
-    /// somewhere* rather than start doing something, and the state it names
-    /// (`STANDBY`) re-arms nothing on entry: `PidDisabledState::onEntry` runs
-    /// before this drain in the very next tick, so the flag is consumed by the
-    /// transition that honours it. Leaving it set costs nothing and is what
-    /// makes the state reachable on request at all.
-    ///
-    /// The other ten flags are cleared exactly as the C++ clears them.
+    /// The other ten flags are cleared unconditionally.
     pub fn clear_all(&mut self) {
         let standby = self.standby;
         *self = Self::CLEAR;
         self.standby = standby;
     }
 
-    /// `clearStaleStopRequests()` — the four stop flags only, start flags kept
-    /// as wake triggers (`MachineStateContext.h:634-639`).
+    /// Drain the four stop flags only, keeping the start flags.
     ///
-    /// ADR-0003: "**Never** drain wake-up signals: `STANDBY` preserves
-    /// `brewStartRequested` and `steamStartRequested` as intentional wake
-    /// triggers."
+    /// A start flag is an intentional wake signal: `brew_start` arriving while the machine is
+    /// asleep has to survive until the machine is awake to act on it, and a `STANDBY` transition
+    /// must not swallow it. A stop flag names a machine that is running, so a stale one is
+    /// always wrong.
     pub fn clear_stale_stops(&mut self) {
         self.brew_stop = false;
         self.steam_stop = false;
@@ -307,17 +254,10 @@ impl Requests {
 
 /// The current level and long-press flag of each switch.
 ///
-/// The C++ keeps these inside each handler (`BrewHandler::lastSwitchReading_`,
-/// `SteamHandler::lastSwitchReading_`, `PowerHandler::lastPowerSwitchPressed_`)
-/// and reads the *live* level through `Switch::isPressed()`. The reducer has no
-/// handler objects, so the levels are machine state and the "live read" becomes
-/// a lookup. That is also what lets `PidNormalState::update` and
-/// `SteamRunningState::update` see the water switch, as they do in C++
-/// (`PidStates.cpp:33-43`, `SteamStates.cpp:36-46`).
-// Four switch levels plus two latched long-press flags. The levels are not a
-// state machine: any of the sixteen combinations is reachable, and the C++
-// holds them the same way (`BrewHandler::lastSwitchReading_`,
-// `PowerHandler::lastPowerSwitchPressed_`).
+/// The levels are machine state rather than a lookup into a polling object, which is what lets
+/// the PID state and the steam state read the water switch while they update.
+// Four switch levels plus two latched long-press flags. The levels are not a state machine:
+// any of the sixteen combinations is reachable.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SwitchLevels {
@@ -329,18 +269,16 @@ pub struct SwitchLevels {
     pub power: bool,
     /// `hardware.switches.hot_water`.
     pub hot_water: bool,
-    /// `Switch::longPressDetected()` for the brew switch, sampled on the edge.
+    /// Whether the brew switch reported a long press, sampled on the edge.
     ///
-    /// Only `BrewHandler` consults it (`BrewHandler.h:199`), and only in
-    /// `BACKFLUSH_IDLE`, to choose between "start a backflush cycle" and "start
-    /// a manual flush". It is a property of the *press*, not of the level, so it
-    /// is latched on the rising edge and never cleared by a release.
+    /// Consulted only in `BACKFLUSH_IDLE`, to choose between "start a backflush cycle" and
+    /// "start a manual flush". It is a property of the *press*, not of the level, so it is
+    /// latched on the rising edge and never cleared by a release.
     pub brew_long_press: bool,
-    /// `Switch::longPressDetected()` for the power switch, same latching.
+    /// Whether the power switch reported a long press, same latching.
     ///
-    /// `PowerHandler::checkForLongPressReboot` (`PowerHandler.h:144`) needs it to
-    /// decide on a reboot, and it needs it *after* the press edge is gone —
-    /// hence [`crate::handlers::long_press_reboot`] runs on every tick.
+    /// A reboot decision needs it *after* the press edge is gone, which is why
+    /// [`crate::handlers::long_press_reboot`] runs on every tick rather than on the edge.
     pub power_long_press: bool,
 }
 
@@ -377,45 +315,42 @@ impl SwitchLevels {
     }
 }
 
-/// The brew timer the display and `BREW_RUNNING`'s own stop condition read.
+/// The brew timer: what the display shows and what `BREW_RUNNING` uses to stop by time.
 ///
-/// `ProcessController::currBrewTime_` and `totalTargetBrewTime_`
-/// (`ProcessController.cpp:301-312`). The C++ writes `currBrewTime_` from four
-/// different states, each with a different base, so the base is a function of
-/// the state and the elapsed time is added to it.
+/// The timer is written from four different states, each with a different base, so the base is
+/// a function of the state and the elapsed time is added to it.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct BrewProgress {
-    /// `setCurrBrewTime(ms)` — total elapsed brew time including pre-infusion.
+    /// Total elapsed brew time, including pre-infusion.
     pub elapsed_ms: f64,
-    /// `setTotalTargetBrewTime(ms)`; `0.0` means the shot does not end by time.
+    /// The target brew time; `0.0` means the shot does not end by time.
     pub target_ms: f64,
 }
 
 /// The two PID flags, which are not the same flag.
 ///
-/// Getting this distinction wrong is the bug ADR-0003 item 4 and
-/// `test_state_flow_integration`'s `EmergencyRecovery_RestoresPidFromConfig`
-/// were written for, so it gets its own struct with its own documentation
-/// rather than two bare `bool`s in [`Machine`].
+/// Getting this distinction wrong is what `test_state_flow_integration`'s
+/// `EmergencyRecovery_RestoresPidFromConfig` exists for, so it gets its own struct with its own
+/// documentation rather than two bare `bool`s in [`Machine`].
 ///
-/// | | C++ | Set by | Read by |
-/// | --- | --- | --- | --- |
-/// | runtime | `SystemContext::isProcessPidEnabled()` | `setPidRuntimeState` (`MachineStateContext.cpp:275`) | the global guard in `BaseState.h:167`, `PidNormalState`, `PidDisabledState` |
-/// | mode | `ProcessController::isPIDEnabled()`, i.e. `pidMode() == AUTOMATIC` | `setPIDEnabled` (`ProcessController.cpp:261`) | `shouldPIDBeEnabled` (`ProcessController.cpp:246`) — the heater gate |
+/// | field | set by | read by |
+/// | --- | --- | --- |
+/// | `runtime_enabled` | entry and exit of standby, `PID_DISABLED` and emergency stop | the global guard, the PID states |
+/// | `mode_enabled` | process control, every iteration | the heater gate |
 ///
-/// The C++ keeps the second in a *different object* from the state machine, which
-/// is how they drift: emergency stop forces `runtime` off, and only
-/// `EmergencyStopState::onExitImpl` puts it back.
+/// They are separate because they answer different questions. Emergency stop forces the
+/// runtime flag off and its exit restores it from the configuration; the mode flag is
+/// recomputed from the state and the sensors on every iteration, so the two can legitimately
+/// disagree within one iteration.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pid {
-    /// `SystemContext::isProcessPidEnabled()`. The state machine's view.
+    /// The state machine's view: may the PID run at all?
     pub runtime_enabled: bool,
-    /// `ProcessController::isPIDEnabled()`. The heater's gate.
+    /// The heater gate: has process control permitted the heater?
     pub mode_enabled: bool,
-    /// `SystemContext::isProcessBrewPidDisabled()` — the brew-PID delay window
-    /// (`ProcessController.cpp:410-424`).
+    /// Whether the `brew.pid_delay` window is holding the PID off.
     pub brew_disabled: bool,
-    /// `ProcessController::pidOutput_`.
+    /// The last PID output, in milliseconds of on-time per 1000 ms window.
     pub output: f32,
 }
 
@@ -431,15 +366,15 @@ impl Pid {
 
 /// Backflush mode and cycle counter.
 ///
-/// `MachineStateContext::backflushOn_` and `currBackflushCycles_`
-/// (`MachineStateContext.h:787-788`). The counter starts at **1**, not 0, and
-/// `resolveCycleAdvance(1, 5)` starts the next cycle — so the loop runs cycles
-/// 1..=5 and `BackflushFinished` is reached after the fifth flush.
+/// The counter starts at **1**, not 0, and a cycle advance from
+/// [`resolve_cycle_advance`](crate::backflush::resolve_cycle_advance)`(1, 5)` starts the next
+/// cycle -- so the loop runs cycles 1 through 5 and the finished state is reached after the
+/// fifth flush.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Backflush {
-    /// `backflushOn_`.
+    /// Whether backflush mode is on.
     pub on: bool,
-    /// `currBackflushCycles_`.
+    /// The current cycle, counting from 1.
     pub cycle: i32,
 }
 
@@ -452,76 +387,65 @@ impl Default for Backflush {
     }
 }
 
-/// The standby countdown, ported from `StandbyCoordinator`.
+/// The standby countdown: how long until standby, and how long the panel stays lit after it.
 ///
-/// # One intentional difference
+/// # Why "started" is an `Option`
 ///
-/// The C++ uses `standbyModeStartTimeMillis_ != 0` as "the timer was started"
-/// test (`StandbyCoordinator.h:120-121`) and stores `millis()` in it. At
-/// `millis() == 0` — the first millisecond after boot, and every millisecond in
-/// a test harness — the test is false, so standby can never fire. [`Option`]
-/// makes "started" unambiguous and fixes that. This is the one place the port
-/// does *not* preserve a C++ artefact, and it can only make standby work
-/// *earlier*, never later, so it is not a safety regression.
+/// A sentinel start time of `0` is indistinguishable from the clock reading `0`, which is the
+/// first millisecond after boot and every millisecond in a test harness -- so standby could
+/// never fire in either. [`Option`] makes "started" unambiguous, and the difference can only
+/// make standby work *earlier*, never later, so it is not a safety regression.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StandbyTimer {
-    /// `standbyModeStartTimeMillis_ != 0`.
+    /// When the countdown was last armed, or `None` if it never was.
     pub started_at: Option<Millis>,
-    /// `standbyModeRemainingTimeMillis_`.
+    /// How long until standby, as last recomputed.
     pub remaining_ms: u32,
-    /// `standbyModeRemainingTimeDisplayOffMillis_` — how much longer the panel
-    /// stays lit after the machine has entered standby.
+    /// How much longer the panel stays lit after standby begins.
     pub display_off_remaining_ms: u32,
-    /// `lastStandbyTimeMillis_` — the once-a-second update gate.
+    /// The once-a-second update gate.
     pub last_update: Option<Millis>,
 }
 
 impl StandbyTimer {
-    /// `standbyCoordinator().reset()` (`StandbyCoordinator.h:86-93`).
+    /// Arm the countdown, and the display countdown with it, from the same instant.
     ///
-    /// Resets only when standby is enabled — the C++'s own guard
-    /// (`StandbyCoordinator.h:88`, `resetStandbyTimerIfNeeded`): the method
-    /// reads the timeout out of `Config` itself, so disabling standby is a no-op
-    /// rather than an immediate-standby.
+    /// A zero `timeout_ms` is a no-op rather than an immediate standby, and it is how "standby
+    /// is disabled" reaches this type:
+    /// [`Context::standby_timeout_ms`](crate::Context::standby_timeout_ms) is `0` when
+    /// `standby.enabled` is unset, so the disabled case is the caller's to express rather than
+    /// a hidden configuration lookup here.
     ///
-    /// `timeout_ms` is [`Context::standby_timeout_ms`](crate::Context::standby_timeout_ms)
-    /// when enabled and `0` when not, so the "disabled" case is expressed by
-    /// the caller rather than hidden in a `Config` lookup this type cannot do.
+    /// Arming both countdowns from one instant is what makes the two deadlines `standby.time`
+    /// and `standby.time + STANDBY_DISPLAY_OFF_MS`.
     pub fn reset(&mut self, now: Millis, timeout_ms: u32) {
         if timeout_ms == 0 {
             return;
         }
         self.remaining_ms = timeout_ms;
-        // `standbyModeRemainingTimeDisplayOffMillis_ = getDisplayOffTimeoutMillis()`
-        // (`StandbyCoordinator.h:91`) — the same reset arms the display
-        // countdown, and it is armed from the *same* start time, so the two
-        // deadlines are `standby.time` and `standby.time + 10 minutes`.
         self.display_off_remaining_ms = crate::timing::STANDBY_DISPLAY_OFF_MS;
         self.started_at = Some(now);
         self.last_update = Some(now);
     }
 
-    /// `standbyCoordinator().setRemainingTimeMillis(0)`
-    /// (`PowerHandler::powerOff`, `PowerHandler.h:172`) — "standby now".
+    /// "Standby now": expire the standby countdown and nothing else.
     ///
-    /// The C++ sets only `standbyModeRemainingTimeMillis_`. The display
-    /// countdown is left alone, so a power-button sleep blanks the panel ten
-    /// minutes later rather than immediately — reproduced, because a person who
-    /// asks the machine to sleep expects the screen to go out.
+    /// The display countdown keeps its remaining time, so the panel stays lit for the rest of
+    /// it instead of going dark at once: an operator who asks the machine to sleep expects the
+    /// screen to go out in its own time.
     pub const fn expire_now(&mut self) {
         self.remaining_ms = 0;
     }
 
-    /// `shouldTurnOffDisplay()` (`StandbyCoordinator.h:135-140`): the standby
-    /// countdown has run out **and** the display countdown has, **and** the
-    /// timer was started.
+    /// Whether the panel should go dark: the standby countdown has run out **and** the display
+    /// countdown has, **and** the timer was started.
     #[must_use]
     pub const fn should_turn_off_display(&self) -> bool {
         self.remaining_ms == 0 && self.display_off_remaining_ms == 0 && self.started_at.is_some()
     }
 
-    /// `shouldEnterStandby()` (`StandbyCoordinator.h:115-122`): enabled **and**
-    /// the countdown has run out **and** the timer was started.
+    /// Whether to enter standby: enabled **and** the countdown has run out **and** the timer
+    /// was started.
     #[must_use]
     pub const fn should_enter(&self, enabled: bool) -> bool {
         enabled && self.remaining_ms == 0 && self.started_at.is_some()
@@ -529,34 +453,28 @@ impl StandbyTimer {
 }
 
 /// The whole machine, as a value.
-// Four booleans among twenty-two fields. Each names the C++ field it replaces;
-// the alternative — nesting them into sub-structs — would obscure exactly the
-// cross-field invariants the guards read (`is_emergency_stop` reads `safety`
-// *and* is documented as a separate flag in C++; `should_pid_be_enabled` reads
-// `state`, config, and `pid.brew_disabled` together).
+// Four booleans among twenty-two fields. Nesting them into sub-structs would obscure exactly
+// the cross-field invariants the guards read: the emergency check reads `safety`, and the
+// heater gate reads `state`, the configuration and `pid.brew_disabled` together.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Machine {
-    /// `StateMachine::currentState_`.
+    /// The current state.
     pub state: MachineState,
-    /// `StateMachine::initialized_` (`StateMachine.cpp:23`).
+    /// Whether the machine has been initialised.
     ///
-    /// `StateMachine::update()` returns immediately when this is false
-    /// (`StateMachine.cpp:72-75`). The reducer reproduces that: an
-    /// uninitialised machine consumes every event and produces no effects.
+    /// The reducer ignores every event until this is true: an uninitialised machine must not
+    /// act on a request that arrived before it had a state to act in.
     pub initialized: bool,
-    /// The last clock reading the shell supplied via
-    /// [`Event::Tick`](crate::Event::Tick).
+    /// The last clock reading the shell supplied via [`Event::Tick`](crate::Event::Tick).
     ///
     /// # Why it is not a clock
     ///
-    /// `millis()` is read in eleven places in the C++'s state classes
-    /// (`SensorErrorState.cpp:16,25,38`, `EepromErrorState.cpp:99,117`, and the
-    /// entry times). A reducer that called it would be untestable and would not
-    /// be a pure function. So the reading arrives in the event and every timed
-    /// decision is a comparison against it.
+    /// The clock is read in a dozen places in the state logic, and a reading taken inside the
+    /// reducer would make every timed decision untestable and the function impure. So the
+    /// reading arrives in the event, and every timed decision is a comparison against it.
     pub now: Millis,
-    /// `MachineStateContext::stateEntryTime_` (`MachineStateContext.h:808`).
+    /// When the current state was entered.
     pub entry_at: Millis,
     /// The latest [`Event::SensorUpdated`](crate::Event::SensorUpdated) sample.
     pub sensors: Sensors,
@@ -570,9 +488,13 @@ pub struct Machine {
     pub safety: cc_safety::SafetyState,
     /// The last `cc-safety` verdict, used to gate the actuator effects.
     pub verdict: cc_safety::Verdict,
-    /// `MachineStateContext::steamON_` (`MachineStateContext.h:785`).
+    /// Whether steam mode is active.
     pub steam_mode: bool,
-    /// `MachineStateContext::steamFirstON_` (`MachineStateContext.h:786`).
+    /// Whether this steam run is the first since the machine was last in standby.
+    ///
+    /// Set on entry to `STEAM_RUNNING` and cleared on its exit and on entry to `STANDBY`, so it
+    /// names a run that starts from a cold boiler rather than from a boiler the operator has
+    /// already steamed with.
     pub steam_first_on: bool,
     /// Backflush mode and cycle counter.
     pub backflush: Backflush,
@@ -580,58 +502,48 @@ pub struct Machine {
     pub brew: BrewProgress,
     /// The standby countdown.
     pub standby: StandbyTimer,
-    /// `SensorErrorState::errorStartTime_` / `EepromErrorState::errorStartTime_`.
+    /// When the current error state was entered.
     ///
-    /// The C++ gets a fresh value for free because a transition builds a new
-    /// state object (`StateFactory.cpp:24`). Here, [`crate::states::on_entry`]
-    /// is the only writer, and the value is cleared on exit so a stale one can
-    /// never be read.
+    /// A state object in a class hierarchy gets a fresh start time for free, because a
+    /// transition constructs a new instance. Here [`crate::states::on_entry`] is the only
+    /// writer, and the value is cleared on exit so a stale one can never be read.
     pub error_since: Option<Millis>,
-    /// `MaintenanceCoordinator::shotsSinceBackflush_`.
+    /// Shots since the last backflush.
     ///
-    /// **The reducer is the only writer**, and that is a decision rather than an
-    /// accident. The C++ reaches the counter from two directions —
-    /// `recordBrewIfQualified` on entry to `BREW_FINISHED`
-    /// (`BrewStates.cpp:306-312`) and `resetSinceBackflush` on entry to
-    /// `BACKFLUSH_FINISHED` (`BackflushStates.cpp:142-146`) — and both of those
-    /// are state *entries*, which is where this crate's `states::on_entry` runs.
-    /// So the qualification rule is applied here, at the point the C++ applies
-    /// it, and [`Effect::RecordBrew`](crate::effect::Effect::RecordBrew) carries
-    /// the answer rather than the inputs.
+    /// **The reducer is the only writer**, and that is a decision rather than an accident. The
+    /// counter is touched from two directions -- a qualified brew finishing, and a backflush
+    /// starting -- and both are state *entries*, which is where [`crate::states::on_entry`]
+    /// runs. So the qualification rule is applied here, where the value lives, and
+    /// [`Effect::RecordBrew`](crate::effect::Effect::RecordBrew) carries the answer rather than
+    /// the inputs.
     ///
-    /// The alternative — an applier that owns the rule — is what this port did
-    /// first, and the rule was never applied by anyone: the counter stayed at 0
-    /// and `/api/status` reported `shotsSinceBackflush: 0` for the life of the
-    /// firmware. A rule that has to be *wired up* can be forgotten; one that runs
-    /// where its value lives cannot.
+    /// The alternative -- an applier that owns the rule -- is what the firmware did first, and
+    /// the rule was never applied by anyone: the counter stayed at 0 and `/api/status` reported
+    /// `shotsSinceBackflush: 0` for the life of the firmware. A rule that has to be *wired up*
+    /// can be forgotten; one that runs where its value lives cannot.
     pub shots_since_backflush: i32,
-    /// `setHotWaterActivity` — "a hot-water switch edge happened". Resets the
-    /// standby timer (`MachineStateContext.cpp:262-267`).
+    /// Whether hot-water activity has been marked since the countdown was last re-armed.
     pub hot_water_activity: bool,
-    /// `PowerHandler::systemInitializedTime_` — when the power handler first
-    /// ran, and from which presses are ignored for
-    /// [`timing::POWER_SWITCH_SETTLE_MS`](crate::timing::POWER_SWITCH_SETTLE_MS)
-    /// (`PowerHandler.h:117`).
+    /// When the machine started running, from which presses are ignored for
+    /// [`timing::POWER_SWITCH_SETTLE_MS`](crate::timing::POWER_SWITCH_SETTLE_MS).
     pub boot_at: Option<Millis>,
-    /// `PowerHandler::longPressStartTime_`, and the `trackingLongPress_` flag it
-    /// is armed by. `None` means "not tracking", which is both `isRunning_` and
-    /// `trackingLongPress_ == false` in the C++.
+    /// When the current long press began, if one is being tracked. `None` means the switch
+    /// is not being held.
     pub power_press_started_at: Option<Millis>,
-    /// `BrewHandler::brewStartTime_`. Recorded but **never compared** — see
-    /// [`timing::PUMP_TIMEOUTS_NEVER_ARM`](crate::timing::PUMP_TIMEOUTS_NEVER_ARM).
+    /// When the brew pump was last started, against which
+    /// [`timing::BREW_PUMP_TIMEOUT_MS`](crate::timing::BREW_PUMP_TIMEOUT_MS) is checked.
     pub brew_pump_started_at: Option<Millis>,
-    /// `HotWaterHandler::pumpTimer_.startTime_`. Same: recorded, never used.
+    /// When the hot-water pump was last started, against which
+    /// [`timing::HOT_WATER_PUMP_TIMEOUT_MS`](crate::timing::HOT_WATER_PUMP_TIMEOUT_MS) is
+    /// checked.
     pub hot_water_pump_started_at: Option<Millis>,
 }
 
 impl Machine {
     /// A machine that has not been initialised: `INIT`, no effects, no clock.
     ///
-    /// This is `StateMachine`'s constructor state
-    /// (`StateMachine.cpp:21-24`) — `currentState_` is `nullptr` and
-    /// `update()` would refuse to run. The reducer has no null state, so it
-    /// uses `INIT` plus the [`initialized`](Self::initialized) flag and makes
-    /// every event a no-op until
+    /// The reducer has no null state, so "there is no machine yet" is `INIT` plus the
+    /// [`initialized`](Self::initialized) flag, and every event is a no-op until
     /// [`boot`](crate::boot).
     #[must_use]
     pub const fn cold() -> Self {
@@ -679,56 +591,55 @@ impl Machine {
         }
     }
 
-    /// `context.getStateElapsedTimeMs()` (`MachineStateContext.cpp:447-450`).
+    /// Milliseconds since the current state was entered.
     #[must_use]
     pub const fn state_elapsed_ms(&self) -> u32 {
         self.now.since(self.entry_at).raw()
     }
 
-    /// `context.hasStateTimeoutElapsed(ms)` (`MachineStateContext.cpp:452-454`)
-    /// — `>=`, not `>`.
+    /// Whether the current state has been active for at least `timeout_ms` -- `>=`, not `>`.
     #[must_use]
     pub const fn state_timeout_elapsed(&self, timeout_ms: u32) -> bool {
         self.state_elapsed_ms() >= timeout_ms
     }
 
-    /// `context.isEmergencyStop()` (`MachineStateContext.h:380-382`).
+    /// Whether the S1-S5 latch is set.
     #[must_use]
     pub const fn is_emergency_stop(&self) -> bool {
         self.safety.latched
     }
 
-    /// `context.isPidRuntimeEnabled()` (`MachineStateContext.cpp:176-178`).
+    /// Whether the PID may run, from the state machine's point of view.
     #[must_use]
     pub const fn is_pid_runtime_enabled(&self) -> bool {
         self.pid.runtime_enabled
     }
 
-    /// `context.isWaterTankFull()` (`MachineStateContext.cpp:114-116`).
+    /// Whether the water tank is full.
     #[must_use]
     pub const fn is_water_tank_full(&self) -> bool {
         self.sensors.water_tank_full
     }
 
-    /// `context.hasSensorError()` (`MachineStateContext.cpp:139-141`).
+    /// Whether any enabled sensor has reported a fault.
     #[must_use]
     pub const fn has_sensor_error(&self) -> bool {
         self.sensors.has_sensor_error()
     }
 
-    /// `context.isBackflushModeActive()` (`MachineStateContext.h:422-424`).
+    /// Whether backflush mode is on.
     #[must_use]
     pub const fn is_backflush_mode_active(&self) -> bool {
         self.backflush.on
     }
 
-    /// `context.getCurrentBrewWeight()` (`MachineStateContext.cpp:129-133`).
+    /// The current brew weight, in grams.
     #[must_use]
     pub const fn brew_weight(&self) -> f32 {
         self.sensors.brew_weight
     }
 
-    /// `context.getCurrentTemperature()` (`MachineStateContext.cpp:106-108`).
+    /// The latest temperature reading.
     #[must_use]
     pub const fn temperature(&self) -> Celsius {
         self.sensors.temperature
@@ -752,26 +663,18 @@ mod tests {
 
     #[test]
     fn a_cold_machine_starts_with_backflush_cycle_one() {
-        // `MachineStateContext.h:788`: `int currBackflushCycles_ = 1;`. Starting
-        // at 0 would make `resolveCycleAdvance(0, 5)` run cycles 0..=4 — five
-        // cycles, but the counter reported to the display would be wrong.
+        // Starting at 0 would make a five-cycle backflush run 0..=4: still five cycles, but
+        // the counter reported to the display would be off by one throughout.
         assert_eq!(Machine::cold().backflush.cycle, 1);
         assert!(!Machine::cold().backflush.on);
     }
 
     /// Ten of the eleven flags drain; `standby` survives.
     ///
-    /// ⚠ Divergence from the C++, approved 2026-09-30. `clearAllActionRequests`
-    /// clears `requestStandby_` too (`MachineStateContext.h:626`), which is one
-    /// half of why 09 §25 is unreachable — the other half is that
-    /// `PidDisabledState::checkSpecificTransitions` never reads the flag either.
-    /// `update` runs before `checkTransitions`, so the drain destroys the request
-    /// before the state machine could act on it.
-    ///
-    /// `standby` is the one flag spared, and deliberately: it is the only one that
-    /// asks the machine to *go somewhere* rather than start doing something, and
-    /// the drain exists so a stale *action* cannot fire the moment the PID is
-    /// re-enabled (S11). See [`Requests::clear_all`].
+    /// The drain runs before the transition check, so clearing `standby` here would destroy a
+    /// sleep request before anything could read it. It is the one flag that asks the machine to
+    /// *go somewhere* rather than to start doing something, which is why the drain spares it.
+    /// See [`Requests::clear_all`].
     #[test]
     fn clear_all_drains_the_action_flags_and_spares_standby() {
         let mut r = Requests {
@@ -790,7 +693,7 @@ mod tests {
         assert!(r.any());
         r.clear_all();
 
-        // The ten action requests go, exactly as the C++ clears them.
+        // The ten action flags go.
         assert!(!r.brew_start);
         assert!(!r.brew_stop);
         assert!(!r.steam_start);
@@ -806,8 +709,7 @@ mod tests {
         // only leave on a timer.
         assert!(
             r.standby,
-            "divergence: requestStandby_ is spared, or POST /api/sleep is \
-             ignored while the PID is off (09 §25)"
+            "standby is spared, or POST /api/sleep is ignored while the PID is off"
         );
         assert!(r.any(), "a set standby request is still a set request");
     }
@@ -876,7 +778,7 @@ mod tests {
 
     #[test]
     fn state_timeout_uses_greater_or_equal() {
-        // `MachineStateContext.cpp:454`: `return getStateElapsedTimeMs() >= timeoutMs;`
+        // `>=`, so a state that has been active for exactly the timeout has timed out.
         let mut m = Machine::cold();
         m.now = Millis::new(3_000);
         m.entry_at = Millis::new(0);
@@ -886,8 +788,8 @@ mod tests {
 
     #[test]
     fn state_elapsed_wraps_across_the_u32_rollover() {
-        // The C++ computes `now - entryTime` on a 32-bit `unsigned long` and
-        // relies on the wrap. `Millis::since` does the same.
+        // The subtraction wraps at `u32::MAX`: a state entered 100 ms before the rollover has
+        // been active 100 ms, not four billion.
         let mut m = Machine::cold();
         m.entry_at = Millis::new(u32::MAX - 99);
         m.now = Millis::new(0);
@@ -908,9 +810,8 @@ mod tests {
 
     #[test]
     fn standby_reset_is_a_no_op_when_disabled() {
-        // `StandbyCoordinator::reset()` starts with
-        // `if (!standbyEnabled.get()) return;`, so a disabled standby is not
-        // started by a reset.
+        // A zero timeout means standby is disabled, and a disabled standby is not started by
+        // a reset -- otherwise a disabled timeout would read as an immediate standby.
         let mut t = StandbyTimer::default();
         t.reset(Millis::new(1_000), 0);
         assert_eq!(t, StandbyTimer::default());
@@ -932,8 +833,8 @@ mod tests {
 
     #[test]
     fn resetting_also_rearms_the_display_countdown() {
-        // `StandbyCoordinator.h:91` arms both countdowns from the same reset,
-        // which is what makes the panel survive standby for ten minutes.
+        // The same reset arms both countdowns, which is what keeps the panel lit for ten
+        // minutes after standby begins.
         let mut t = StandbyTimer::default();
         t.reset(Millis::new(0), 60_000);
         assert_eq!(

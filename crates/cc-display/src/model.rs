@@ -1,20 +1,19 @@
 //! The input a template reads, and the config it reads.
 //!
-//! The C++ templates read two things: `SystemContext` (a service locator over
-//! the machine state, sensors, coordinators and the process state) and the
-//! `Config` singleton. Neither exists on the host, and neither should be
-//! reconstructed here — the display needs a *snapshot*, not the machine.
+//! A template reads two things: the machine's current observables and the
+//! display's configuration. Neither a service locator nor a global configuration
+//! exists on the host, and neither should be reconstructed here — the display
+//! needs a *snapshot*, not the machine.
 //!
 //! So this is [`DisplayInput`]: a plain value holding exactly the fields the
 //! display code reads, plus [`Config`], a plain value holding exactly the
-//! parameters the display code reads. The device builds them from the real
-//! `SystemContext`/`Config` in `cc-firmware`; the host tests build them
-//! directly, which is what makes every screen golden-testable.
+//! parameters the display code reads. The device builds them in `cc-firmware`
+//! from the machine's own types; the host tests build them directly, which is
+//! what makes every screen golden-testable.
 //!
-//! Nothing here is a port of `SystemContext`. The mapping lives in
-//! `cc-firmware`'s `build_display_input()`, so a field added to the machine and
-//! forgotten here is a compile error at the call site rather than a silently
-//! stale screen.
+//! The mapping lives in `cc-firmware`'s `build_display_input()`, so a field added
+//! to the machine and forgotten here is a compile error at the call site rather
+//! than a silently stale screen.
 
 use cc_domain::state::MachineState;
 
@@ -71,7 +70,7 @@ pub enum OtaKind {
     Filesystem,
 }
 
-/// The OTA screen's input (`DisplayOtaScreen.cpp`).
+/// The OTA screen's input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OtaInput {
     /// Whether the OTA screen should be shown at all.
@@ -98,12 +97,11 @@ impl Default for OtaInput {
     }
 }
 
-/// The brew-timer display FSM (`DisplayBrewTimerState.h`).
+/// The brew-timer display FSM.
 ///
-/// The C++ keeps this in `UICoordinator` and mutates it inside
-/// `shouldDisplayBrewTimer()`, which is a *side effect in a predicate* — the
-/// function both reads and advances the state. Ported as an explicit value so a
-/// test can step it, and so the render path is a pure function of it.
+/// An explicit value rather than state hidden in a predicate, so a test can step
+/// it and the render path is a pure function of it. A predicate that both reports
+/// the state and advances it cannot be tested without a machine.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BrewTimerState {
     /// No brew is running; the screen shows the idle layout.
@@ -117,20 +115,19 @@ pub enum BrewTimerState {
 
 /// Everything a template reads to draw one frame.
 ///
-/// Grouped the way the C++ reads it, so a reviewer can check the port against
-/// the original call by call. The C++ reaches for these through
-/// `systemContext_->processTemperature()` and friends; here they are fields.
+/// Flat fields rather than grouped sub-structs, because each one is a separate
+/// fact about the machine at one instant and the render code reads them
+/// individually.
 #[derive(Clone, Copy, Debug, PartialEq)]
-// A snapshot, not a behaviour: the 11 bools are independent facts about the
-// machine at one instant, and grouping them into sub-structs would be a design
-// that the C++ `SystemContext` does not have. The lint is about the risk of a
-// confusing *constructor*; this type is only ever built by field name.
+// A snapshot, not a behaviour: the flags are independent facts about the machine
+// at one instant, and the lint is about the risk of a confusing *constructor*;
+// this type is only ever built by field name.
 #[allow(
     clippy::struct_excessive_bools,
-    reason = "a flat mirror of SystemContext's display reads; see the type's doc comment"
+    reason = "a flat snapshot of the machine's display reads; see the type's doc comment"
 )]
 pub struct DisplayInput {
-    // ---- process state (SystemContext::processState)
+    // ---- process state
     /// The measured temperature, degrees Celsius.
     pub temperature: f64,
     /// The target temperature, degrees Celsius.
@@ -167,8 +164,7 @@ pub struct DisplayInput {
     pub state: MachineState,
 
     // ---- animation
-    /// The ISR counter. `isBlinkPhaseOn()` is `isr_counter < 500`, so a value
-    /// under 500 is the "on" half of the blink.
+    /// The ISR counter. A value under 500 is the "on" half of the blink.
     pub isr_counter: u32,
 
     // ---- network
@@ -248,69 +244,68 @@ impl Default for DisplayInput {
 
 /// The configuration parameters the display reads.
 ///
-/// Every field here corresponds to a `Config::getInstance()....get()` in
-/// `display/`, so the set is closed and auditable. The defaults are the C++
-/// `ParamDef` defaults, so an unconfigured host render shows the same screen a
-/// freshly-flashed device does.
+/// Exactly the parameters the display reads, so the set is closed and auditable.
+/// The defaults are the schema's, so an unconfigured host render shows the same
+/// screen a freshly-flashed device does.
 #[derive(Clone, Copy, Debug, PartialEq)]
-// A flat mirror of the `Config` parameters the display reads. Grouping the 15
-// feature flags into sub-structs would be a design the C++ `Config` does not
-// have, and would mean the device's mapping code translates rather than copies.
+// A flat copy of the parameters the display reads. Grouping the feature flags
+// into sub-structs would make the device's mapping code translate rather than
+// copy, which is where a field would get missed.
 #[allow(
     clippy::struct_excessive_bools,
-    reason = "a flat mirror of Config's feature flags; see the type's doc comment"
+    reason = "a flat copy of the display's feature flags; see the type's doc comment"
 )]
 pub struct Config {
-    /// `hardwareSwitchesBrewEnabled`
+    /// Whether the brew switch is fitted and enabled.
     pub brew_switch_enabled: bool,
-    /// `hardwareSensorsScaleEnabled`
+    /// Whether the scale is fitted and enabled.
     pub scale_enabled: bool,
-    /// `hardwareSensorsScaleType`
+    /// Which scale the machine has.
     pub scale_type: ScaleType,
-    /// `hardwareSensorsPressureEnabled`
+    /// Whether the pressure sensor is fitted and enabled.
     pub pressure_enabled: bool,
-    /// `hardwareOledEnabled`
+    /// Whether the OLED is fitted and enabled.
     pub oled_enabled: bool,
-    /// `displayTemplate`
+    /// Whether the selected template draws in the portrait space.
     pub upright_template: bool,
-    /// `displayInverted`
+    /// Whether the panel is mounted upside down.
     pub inverted: bool,
-    /// `displayLanguage`
+    /// The interface language.
     pub language: Language,
-    /// `displayHeatingLogo` — 0 disables the fullscreen heating logo.
+    /// 0 disables the fullscreen heating logo.
     pub heating_logo: u8,
-    /// `displayPidOffLogo` — 1 enables the PID-off / standby logo screens.
+    /// 1 enables the PID-off / standby logo screens.
     pub pid_off_logo: u8,
-    /// `displayFullscreenBrewTimer`
+    /// Whether the fullscreen brew timer is enabled.
     pub fullscreen_brew_timer: bool,
-    /// `displayFullscreenManualFlushTimer`
+    /// Whether the fullscreen manual-flush timer is enabled.
     pub fullscreen_manual_flush_timer: bool,
-    /// `displayFullscreenHotWaterTimer`
+    /// Whether the fullscreen hot-water timer is enabled.
     pub fullscreen_hot_water_timer: bool,
-    /// `displayPostBrewTimerDuration`, seconds.
+    /// How long the post-brew timer shows, in seconds.
     pub post_brew_timer_duration_s: f64,
-    /// `displayBlinkingDelta`, degrees.
+    /// The setpoint tolerance that blinks the readout, in degrees.
     pub blinking_delta: f64,
-    /// `maintenanceBackflushReminderEnabled`
+    /// Whether the backflush reminder is enabled.
     pub backflush_reminder_enabled: bool,
-    /// `brewMode`
+    /// The brew mode the machine is in.
     pub brew_mode: BrewMode,
-    /// `brewByTimeEnabled`
+    /// Whether the by-time target is in use.
     pub brew_by_time_enabled: bool,
-    /// `brewByWeightEnabled`
+    /// Whether the by-weight target is in use.
     pub brew_by_weight_enabled: bool,
-    /// `brewByWeightTargetWeight`, grams.
+    /// The by-weight target, in grams.
     pub brew_by_weight_target: f64,
-    /// `mqttEnabled`
+    /// Whether MQTT is enabled.
     pub mqtt_enabled: bool,
-    /// `backflushCycles`
+    /// How many backflush cycles run.
     pub backflush_cycles: u8,
 }
 
 impl Default for Config {
-    /// The C++ `ParamDef` defaults, so an unconfigured render matches a
-    /// freshly flashed device. `displayTemplate` defaults to Standard, so
-    /// `upright_template` is false; `displayInverted` defaults to false.
+    /// The schema's defaults, so an unconfigured render matches a freshly flashed
+    /// device. The upright template and the inverted display are both off by
+    /// default.
     fn default() -> Self {
         Self {
             brew_switch_enabled: true,
@@ -322,23 +317,12 @@ impl Default for Config {
             inverted: false,
             language: Language::English,
             heating_logo: 1,
-            // `true` — `displayPidOffLogo` (`Config.h:1231`). These five were
-            // wrong, and the type's doc comment claims they are the C++'s
-            // `ParamDef` defaults:
-            //
-            // | field | was | C++ |
-            // | --- | --- | --- |
-            // | `pid_off_logo` | 0 | `true` (`Config.h:1231`) |
-            // | `fullscreen_brew_timer` | true | `false` (`Config.h:1193`) |
-            // | `fullscreen_manual_flush_timer` | true | `false` (`Config.h:1200`) |
-            // | `fullscreen_hot_water_timer` | true | `false` (`Config.h:1207`) |
-            // | `post_brew_timer_duration_s` | 10.0 | `3.0` (`defaults.h:50`) |
-            //
-            // It matters because this `Default` is what every **host test**
-            // renders, and `screen_matrix.rs`'s "no features" config inherits it:
-            // an "everything off" case was coming up with all three fullscreen
-            // timers on, which is how a default-on parity bug hid inside the
-            // checker that was supposed to find it.
+            // These five are the schema's defaults, and they matter because this
+            // `Default` is what every **host test** renders, including
+            // `screen_matrix.rs`'s "no features" config: when they were wrong, the
+            // "everything off" case came up with all three fullscreen timers on,
+            // which is how a default-on parity bug hid inside the checker that was
+            // supposed to find it.
             pid_off_logo: 1,
             fullscreen_brew_timer: false,
             fullscreen_manual_flush_timer: false,
@@ -357,14 +341,9 @@ impl Default for Config {
 }
 
 impl Config {
-    /// The rotation `OledDriver::prepareDisplay` computes.
-    ///
-    /// `src/ui/OledDriver.cpp:66-79`:
-    /// ```cpp
-    /// int rotation = 0;
-    /// if (displayInverted) rotation += 2;
-    /// if (displayTemplate == UPRIGHT) rotation++;
-    /// ```
+    /// The rotation the panel needs: +2 for an inverted display, +1 for the
+    /// upright template, so both add and the result is taken modulo the four
+    /// quarter turns.
     #[must_use]
     pub fn rotation(&self) -> crate::display::Rotation {
         let mut rotation = 0;

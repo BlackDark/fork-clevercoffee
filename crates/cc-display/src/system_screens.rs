@@ -1,11 +1,9 @@
-//! Port of `include/clevercoffee/display/DisplaySystemScreens.h`.
-//!
-//! The shared screens every template (except those whose policy opts out) can
-//! be preempted by. The C++ is one long `if` chain, in this order:
+//! The shared screens every template (except those whose policy opts out) can be
+//! preempted by. One long `if` chain, in this order:
 //!
 //! 1. the fullscreen heating logo, if the policy allows it;
-//! 2. the PID-disabled screen, if `displayPidOffLogo == 1`;
-//! 3. the standby screen, if `displayPidOffLogo == 1`;
+//! 2. the PID-disabled screen, if `pid_off_logo == 1`;
+//! 3. the standby screen, if `pid_off_logo == 1`;
 //! 4. the steam screen;
 //! 5. the water-tank-empty screen;
 //! 6. the backflush screen;
@@ -16,11 +14,11 @@
 //! Two details in that chain are load-bearing and easy to lose:
 //!
 //! * **The heating logo checks the policy and the PID state, the PID-off logo
-//!   checks only the config.** So a machine in `PID_NORMAL` with
-//!   `displayPidOffLogo == 1` shows neither: the heating logo is state-gated to
-//!   `PID_NORMAL` and the PID-off logo to `PID_DISABLED`. The chain is
+//!   checks only the config.** So a machine in `PidNormal` with
+//!   `pid_off_logo == 1` shows neither: the heating logo is state-gated to
+//!   `PidNormal` and the PID-off logo to `PidDisabled`. The chain is
 //!   state-partitioned, and a reordering shows two screens or none.
-//! * **The emergency screen's `isrCounter() < 500` guard.** For the first 500 ms
+//! * **The emergency screen's `isr_counter < 500` guard.** For the first 500 ms
 //!   after the ISR starts it additionally draws `PID STOPPED` at the top. So the
 //!   emergency screen has two renderings, and a golden captured at the wrong
 //!   `isr_counter` is not a regression.
@@ -38,18 +36,17 @@ use crate::model::{Config, DisplayInput};
 use crate::templates::{SystemScreenId, TemplateId, TemplatePolicy};
 use crate::widgets;
 
-/// `drawSystemScreen` — returns `None` when no shared screen applies.
+/// Returns `None` when no shared screen applies.
 ///
-/// The body is one long `if` chain in the C++, and it stays one chain here
-/// rather than becoming a `match`: the chain is *ordered*, and two of the arms
-/// test the same config flag against different states, so a `match` on the state
-/// would have to invent a "no screen" and a "several arms apply" case to stay
-/// faithful. The 100-line lint is waived with that reason rather than by
+/// One long `if` chain rather than a `match`: the chain is *ordered*, and two of
+/// the arms test the same config flag against different states, so a `match` on
+/// the state would have to invent a "no screen" and a "several arms apply" case to
+/// stay faithful. The length lint is waived with that reason rather than by
 /// splitting the function, because a split would hide the order.
 #[must_use]
 #[allow(
     clippy::too_many_lines,
-    reason = "the ordered if-chain IS the C++ control flow; see the doc comment"
+    reason = "the ordered if-chain IS the control flow; see the doc comment"
 )]
 pub fn draw(
     d: &mut Display,
@@ -101,10 +98,10 @@ pub fn draw(
         return Some(SystemScreenId::Standby);
     }
 
-    // 4. The steam screen. Note `drawXBMP(-1, 12, ...)`: the logo is drawn one
+    // 4. The steam screen. Note `draw_xbmp(-1, 12, ...)`: the logo is drawn one
     //    pixel off the left edge, so its rightmost column is clipped. That is
-    //    the C++ and it is reproduced, because "fixing" it would move a column
-    //    and desynchronise the oracle.
+    //    deliberate and reproduced, because "fixing" it would move a column and
+    //    desynchronise the comparison.
     if is_steam_state(state) {
         d.clear_buffer();
         d.draw_xbmp(-1, 12, 40, 40, &bm::STEAM_LOGO);
@@ -186,8 +183,8 @@ pub fn draw(
         return Some(SystemScreenId::EmergencyStop);
     }
 
-    // 8. Sensor error. `DisplaySystemScreens.h:166-176`. profont10: the pitch is
-    //    10 px and profont11 overlaps the next row.
+    // 8. Sensor error. profont10: the pitch is 10 px and profont11 overlaps the
+    //    next row.
     if state == MachineState::SensorError {
         let temp = format_fixed(input.temperature, 1);
         d.clear_buffer();
@@ -220,8 +217,7 @@ pub fn draw(
         return Some(SystemScreenId::SensorError);
     }
 
-    // 9. EEPROM error. One line is 154 px in profont10
-    //    (`DisplaySystemScreens.h:184`).
+    // 9. EEPROM error. One line is 154 px in profont10, so the message wraps.
     if state == MachineState::EepromError {
         d.clear_buffer();
         d.set_font(font::profont10());

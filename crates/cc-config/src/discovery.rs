@@ -1,7 +1,5 @@
 //! Home Assistant MQTT discovery payloads.
 //!
-//! Owner: **R3-13** (task D).
-//!
 //! # Why these live in `cc-config`
 //!
 //! A discovery payload is a JSON document whose *topics* are the
@@ -16,20 +14,18 @@
 //! ignores a malformed one and the machine looks like it has no entities — and
 //! "silently ignored" is not something a device test can catch.
 //!
-//! # What is ported, and what is not
+//! # What is published
 //!
-//! `MQTTManager::sendHASSIODiscoveryMsg` (`MQTTManager.cpp:828-926`) publishes
-//! 16 entities unconditionally and 13 more behind configuration flags. All four
-//! payload *shapes* are ported — sensor, binary sensor, number, switch, plus the
-//! button shape (`generateButtonDevice`, `:684-724`) — and the entity list is
-//! reproduced with the flags evaluated against the configuration.
+//! Sixteen entities unconditionally and thirteen more behind configuration flags,
+//! in five payload shapes: sensor, binary sensor, number, switch and button. Which
+//! of the conditional entities appear is decided by the configuration — whether a
+//! scale, a pressure sensor or a water tank is present, and which switch modes the
+//! machine uses. [`crate::discovery::all`] is the whole list.
 //!
-//! What is **not** reproduced is the C++'s per-entity `min`/`max`/`step`
-//! numbers. Those are read from `defaults.h` (`BREW_SETPOINT_MIN`,
-//! `PID_KP_REGULAR_MIN`, …) through ~20 macros, and `cc-config`'s schema carries
-//! the same bounds as a `ParamSpec`. So they are read from
-//! [`crate::schema::SCHEMA`] by dotted key rather than hard-coded, which is both
-//! shorter and impossible to get out of step with the parameter it describes.
+//! The per-entity `min`/`max`/`step` numbers are **not** hard-coded. The same
+//! bounds are already on [`crate::schema::SCHEMA`], so they are read from it by
+//! dotted key: shorter, and impossible to get out of step with the parameter they
+//! describe.
 
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -70,22 +66,17 @@ impl Component {
 
 /// The device block every payload carries.
 ///
-/// `populateDeviceMap` / `attachDeviceAndAvailability`
-/// (`MQTTManager.cpp:589-601`) and the hand-rolled copies of it in each
-/// `generate*Device`:
-///
 /// ```json
 /// "device": { "identifiers": "<hostname>",
 ///              "manufacturer": "CleverCoffee",
 ///              "name": "<hostname>" }
 /// ```
 ///
-/// `identifiers` is a bare hostname rather than a list. The C++ does the same
-/// (`deviceMapDoc["identifiers"] = hostname_;`, `:662`) and Home Assistant
-/// accepts a string there. Reproduced because changing it would make the machine
-/// a *different device* to any Home Assistant that had already adopted it — the
-/// unique id and the device identifier are the join key, and an install that
-/// has to delete and re-add the integration is a support call.
+/// `identifiers` is a bare hostname rather than a list, because Home Assistant
+/// accepts a string there. It is not changed to a list: the unique id and the
+/// device identifier are the join key for an install that has already adopted this
+/// machine, and an install that has to delete and re-add the integration is a
+/// support call.
 #[must_use]
 fn device_block(hostname: &str) -> Value {
     json!({
@@ -97,7 +88,6 @@ fn device_block(hostname: &str) -> Value {
 
 /// The availability fields, identical in every payload.
 ///
-/// `MQTTManager.cpp:597-600`.
 fn availability(hostname: &str, prefix: &str, status_topic: &str) -> Value {
     json!({
         "payload_available": "online",
@@ -108,7 +98,8 @@ fn availability(hostname: &str, prefix: &str, status_topic: &str) -> Value {
 
 /// The unique id prefix, `clevercoffee-<hostname>`.
 ///
-/// `MQTTManager.cpp:658` and every `generate*Device` after it.
+/// Part of the entity's join key in Home Assistant, so it is fixed rather than
+/// derived from anything that could change.
 #[must_use]
 pub fn unique_id_prefix(hostname: &str) -> String {
     format!("clevercoffee-{hostname}")
@@ -169,13 +160,12 @@ impl Builder<'_> {
         }
     }
 
-    /// A `sensor` entity. `MQTTManager::generateSensorDevice`, `:725-753`.
+    /// A `sensor` entity.
     ///
-    /// `unit` and `device_class` are `Option` because the C++ passes empty
-    /// strings for some entities and *omits* `device_class` only for binary
-    /// sensors (`:770-772`); an empty `device_class` in a sensor payload makes
-    /// Home Assistant show the entity without an icon, which is the intent for
-    /// `machineState`, so an empty string is preserved as "no class".
+    /// `unit` and `device_class` are empty strings for the entities that have
+    /// none, and an empty `device_class` is *omitted* from the payload: an empty
+    /// string there makes Home Assistant show the entity without an icon, and for
+    /// some entities that is the intent.
     #[must_use]
     pub fn sensor(&self, name: &str, display: &str, unit: &str, device_class: &str) -> Discovery {
         let mut body = json!({
@@ -195,12 +185,10 @@ impl Builder<'_> {
         self.message(Component::Sensor, name, &body)
     }
 
-    /// A `binary_sensor` entity. `MQTTManager::generateBinarySensorDevice`,
-    /// `:756-797`.
+    /// A `binary_sensor` entity.
     ///
-    /// The payload is `ON`/`OFF` because the C++ publishes exactly that
-    /// (`MQTTManager.cpp:534`), so `payload_on`/`payload_off` default to it here
-    /// rather than being a parameter.
+    /// The payload is `ON`/`OFF`, fixed rather than a parameter, because that is
+    /// what the publisher of these topics emits.
     #[must_use]
     pub fn binary_sensor(&self, name: &str, display: &str, device_class: &str) -> Discovery {
         let mut body = json!({
@@ -219,13 +207,11 @@ impl Builder<'_> {
         self.message(Component::BinarySensor, name, &body)
     }
 
-    /// A `number` entity. `MQTTManager::generateNumberDevice`, `:762-808`.
+    /// A `number` entity.
     ///
     /// `min`, `max` and `step` come from the configuration schema by dotted key,
     /// so they cannot drift from the parameter they describe. `ui_mode` is
-    /// Home Assistant's `mode` field (`slider` or `box`); the C++ passes it
-    /// through and this port defaults to `slider`, which is what every one of
-    /// the C++'s own call sites ends up with.
+    /// Home Assistant's `mode` field (`slider` or `box`).
     #[must_use]
     pub fn number(
         &self,
@@ -256,7 +242,10 @@ impl Builder<'_> {
         self.message(Component::Number, name, &body)
     }
 
-    /// A `switch` entity. `MQTTManager::generateSwitchDevice`, `:600-656`.
+    /// A `switch` entity.
+    ///
+    /// The payload is `1`/`0`, not `ON`/`OFF`: these are the machine's own
+    /// parameter topics, and a parameter is written as a number.
     #[must_use]
     pub fn switch(&self, name: &str, display: &str) -> Discovery {
         let mut body = json!({
@@ -273,7 +262,7 @@ impl Builder<'_> {
         self.message(Component::Switch, name, &body)
     }
 
-    /// A `button` entity. `MQTTManager::generateButtonDevice`, `:684-724`.
+    /// A `button` entity.
     #[must_use]
     pub fn button(&self, name: &str, display: &str, payload_press: &str) -> Discovery {
         let mut body = json!({
@@ -292,9 +281,7 @@ impl Builder<'_> {
 
 /// Copy the availability fields into `body`.
 ///
-/// `attachDeviceAndAvailability` assigns them one at a time
-/// (`MQTTManager.cpp:597-600`); `Object::insert` on an `ArduinoJson` object is a
-/// merge, so the result is the same.
+/// A field-by-field merge, so it cannot drop a key `body` already carries.
 fn merge(body: &mut Value, availability: &Value) {
     if let (Some(target), Some(source)) = (body.as_object_mut(), availability.as_object()) {
         for (key, value) in source {
@@ -305,18 +292,17 @@ fn merge(body: &mut Value, availability: &Value) {
 
 /// The `(min, max)` a `number` entity should publish, from the schema.
 ///
-/// Read from [`SCHEMA`] rather than hard-coded, so a range change in
-/// `cc_config`'s schema reaches Home Assistant without a second edit here. A key
-/// that is not in the schema yields `0.0 / 100.0` and a number entity with a
-/// useless range — which is a visible bug rather than a silent one, and is what
-/// a missing schema entry should look like.
+/// Read from [`SCHEMA`] rather than hard-coded, so a range change in the schema
+/// reaches Home Assistant without a second edit here. A key that is not in the
+/// schema yields `0.0 / 100.0` and a number entity with a useless range — which is
+/// a visible bug rather than a silent one, and is what a missing schema entry
+/// should look like.
 ///
-/// **The `step` is a separate argument and deliberately so.** The C++ passes a
-/// step per call site (`0.1` for every temperature and PID gain, `1` for
-/// `backflush.cycles`) and `cc_config`'s schema has no step column. Deriving it
-/// from the range's width is wrong — `brew.setpoint` is 80..=100, twenty wide,
-/// and the C++ still steps it by 0.1 — so it is passed explicitly and the call
-/// sites are the single place that has to match the C++.
+/// **The `step` is a separate argument and deliberately so.** The schema has no
+/// step column, and deriving one from the range's width is wrong:
+/// `brew.setpoint` is 20 wide and is still stepped by 0.1. So the step is passed
+/// explicitly, and the call sites in [`all`] are the single place that declares
+/// it.
 #[must_use]
 pub fn bounds(param: &str) -> (Value, Value) {
     let Some(spec) = SCHEMA.iter().find(|spec| spec.key == param) else {
@@ -329,32 +315,26 @@ pub fn bounds(param: &str) -> (Value, Value) {
     (min, max)
 }
 
-/// The step the C++ uses for a `0.1`-granular entity. `MQTTManager.cpp:855-871`.
+/// The step for a `0.1`-granular entity: every temperature and PID gain.
 pub const STEP_TENTH: f64 = 0.1;
 
-/// The step the C++ uses for an integer entity. `MQTTManager.cpp:891`.
+/// The step for a count, such as `backflush.cycles`.
 pub const STEP_ONE: f64 = 1.0;
 
-/// The whole discovery set for `config`, in the C++'s publication order.
+/// The whole discovery set for `config`, in publication order.
 ///
-/// `MQTTManager::sendHASSIODiscoveryMsg` (`MQTTManager.cpp:848-926`).
-///
-/// Built with `alloc`, so it is a `Vec` of 16–29 `Discovery` values of a few
-/// hundred bytes each. The C++ builds them one at a time and publishes each
-/// before building the next; here they are all built and then published under
-/// the same 10 ms budget as the telemetry, so a large set is truncated the same
-/// way and the next 300 s pass picks up where this one stopped. The retention
-/// flag is on every one of them, without which Home Assistant would re-adopt
-/// the entities on every broker restart.
-// The C++ published these one at a time from inside a loop; this is the same
-// set as one table, which is the whole point of building it here rather than on
-// the device. Splitting it would hide the correspondence.
+/// Built with `alloc`, so it is a `Vec` of 16–29 [`Discovery`] values of a few
+/// hundred bytes each. They are all built and then published under the same 10 ms
+/// budget as the telemetry, so a large set is truncated the same way and the next
+/// 300 s pass picks up where this one stopped. The retention flag is on every one
+/// of them, without which Home Assistant would re-adopt the entities on every
+/// broker restart.
 #[allow(
     clippy::too_many_lines,
     reason = "this IS the discovery table: 16 unconditional entities plus the \
-              conditionals, in the C++'s publication order. Splitting it would \
-              hide the one property worth checking by eye, which is that this \
-              list is the C++'s list."
+              conditionals, in publication order. Splitting it would hide the one \
+              property worth checking by eye, which is that no entity is listed \
+              twice and none is missing."
 )]
 #[must_use]
 pub fn all(config: &Config) -> alloc::vec::Vec<Discovery> {
@@ -364,7 +344,7 @@ pub fn all(config: &Config) -> alloc::vec::Vec<Discovery> {
         discovery_prefix: &config.mqtt.hassio.prefix,
     };
 
-    // The 16 unconditional entities of MQTTManager.cpp:848-871.
+    // The 16 unconditional entities.
     let mut out: alloc::vec::Vec<Discovery> = alloc::vec![
         b.sensor("machineState", "Machine State", "", "enum"),
         b.sensor("temperature", "Boiler Temperature", "°C", "temperature"),
@@ -419,7 +399,7 @@ pub fn all(config: &Config) -> alloc::vec::Vec<Discovery> {
         b.switch("usePonM", "Use PonM"),
     ];
 
-    // Conditional on the brew switch — MQTTManager.cpp:875-899.
+    // Present only while the brew switch entity is enabled.
     if config.hardware.switches.brew.enabled {
         out.push(b.sensor("currBrewTime", "Current Brew Time ", "s", "duration"));
         out.push(b.number(
@@ -481,7 +461,7 @@ pub fn all(config: &Config) -> alloc::vec::Vec<Discovery> {
         out.push(b.switch("backflushOn", "Backflush"));
     }
 
-    // Conditional on the scale — MQTTManager.cpp:902-908.
+    // Present only while a scale is enabled.
     if config.hardware.sensors.scale.enabled {
         out.push(b.sensor("currReadingWeight", "Weight", "g", "weight"));
         out.push(b.sensor("currBrewWeight", "current Brew Weight", "g", "weight"));
@@ -497,12 +477,12 @@ pub fn all(config: &Config) -> alloc::vec::Vec<Discovery> {
         ));
     }
 
-    // Conditional on the pressure sensor — MQTTManager.cpp:911.
+    // Present only while the pressure sensor is enabled.
     if config.hardware.sensors.pressure.enabled {
         out.push(b.sensor("pressure", "Pressure", "bar", "pressure"));
     }
 
-    // Conditional on the water tank — MQTTManager.cpp:914.
+    // Present only while the water tank sensor is enabled.
     if config.hardware.sensors.watertank.enabled {
         out.push(b.binary_sensor("waterTankFull", "Water Tank Full", "moisture"));
     }
@@ -536,7 +516,7 @@ mod tests {
     }
 
     #[test]
-    fn the_state_and_command_topics_have_no_separator_the_cpp_does_not_have() {
+    fn the_state_and_command_topics_have_no_separator() {
         let b = builder();
         assert_eq!(
             b.state_topic("temperature"),
@@ -550,9 +530,9 @@ mod tests {
 
     #[test]
     fn every_payload_carries_the_device_and_availability_blocks() {
-        // MQTTManager.cpp:589-601. Without the availability topic Home Assistant
-        // marks the entity unavailable the moment the broker restarts, because
-        // nothing republishes the status.
+        // Without the availability topic Home Assistant marks the entity
+        // unavailable the moment the broker restarts, because nothing republishes
+        // the status.
         let b = builder();
         for message in [
             b.sensor("temperature", "Boiler Temperature", "°C", "temperature"),
@@ -590,12 +570,9 @@ mod tests {
 
     #[test]
     fn a_sensor_omits_an_empty_unit_and_class() {
-        // The C++ passes "" for both on `machineState` and the payload is then
-        // serialised without them — `serializeJson` on an ArduinoJson value set
-        // to an empty String would emit `"unit_of_measurement":""`, which Home
-        // Assistant renders as an entity with a blank unit. Omitting is what
-        // `MQTTManager.cpp:748-750` does for `device_class` on a binary sensor
-        // and is the behaviour wanted for both here.
+        // An empty string is omitted, not serialised: `"unit_of_measurement":""`
+        // is an entity Home Assistant renders with a blank unit. `machineState`
+        // has no unit and keeps its class, so both branches are exercised here.
         let message = builder().sensor("machineState", "Machine State", "", "enum");
         let parsed: Value = serde_json::from_str(&message.payload).expect("valid JSON");
         assert!(parsed.get("unit_of_measurement").is_none());
@@ -604,8 +581,8 @@ mod tests {
 
     #[test]
     fn a_binary_sensor_payload_is_on_off() {
-        // MQTTManager.cpp:534 publishes "ON"/"OFF" for binary sensors, so the
-        // discovery payload must say so or every entity reads as false.
+        // A binary sensor's topic publishes "ON"/"OFF", so the discovery payload
+        // must say so or every entity reads as false.
         let message = builder().binary_sensor("waterTankFull", "Water Tank Full", "moisture");
         let parsed: Value = serde_json::from_str(&message.payload).expect("valid JSON");
         assert_eq!(parsed["payload_on"], "ON");
@@ -614,8 +591,8 @@ mod tests {
 
     #[test]
     fn a_switch_payload_is_one_and_zero() {
-        // The C++'s parameter topics carry "1"/"0" (MQTTManager.cpp:455), not
-        // ON/OFF, so the switch entities must not claim ON/OFF.
+        // A parameter topic carries "1"/"0", not ON/OFF, so the switch entities
+        // must not claim ON/OFF.
         let parsed: Value = serde_json::from_str(&builder().switch("pidON", "Use PID").payload)
             .expect("valid JSON");
         assert_eq!(parsed["payload_on"], "1");
@@ -633,9 +610,8 @@ mod tests {
 
     #[test]
     fn a_wide_range_still_steps_by_a_tenth() {
-        // `brew.setpoint` is twenty wide and the C++ steps it by 0.1
-        // (MQTTManager.cpp:855), which is why the step is an argument and not
-        // derived from the width.
+        // `brew.setpoint` is twenty wide and is still stepped by 0.1, which is why
+        // the step is an argument and not derived from the width.
         let parsed: Value = serde_json::from_str(
             &builder()
                 .number(
@@ -654,7 +630,7 @@ mod tests {
 
     #[test]
     fn an_integer_entity_steps_by_one() {
-        // `backflush.cycles`, MQTTManager.cpp:891.
+        // `backflush.cycles` is a count.
         let parsed: Value = serde_json::from_str(
             &builder()
                 .number(
@@ -680,8 +656,8 @@ mod tests {
 
     #[test]
     fn the_default_configuration_publishes_the_sixteen_unconditional_entities() {
-        // MQTTManager.cpp:848-871 is 16, and the conditional groups are all
-        // disabled by default except the water tank (which defaults on).
+        // Sixteen, and the conditional groups are all disabled by default except
+        // the water tank (which defaults on).
         let config = Config::default();
         let messages = all(&config);
         let unconditional = messages
@@ -707,12 +683,10 @@ mod tests {
                 .contains(&m.topic.rsplit('/').nth(2).unwrap_or(""))
             })
             .count();
-        // 25, and **not** the C++'s 16 (`MQTTManager.cpp:848-871`). The nine
-        // extra entities are the switch-conditional ones, which the C++ omits
-        // because all four `hardware.switches.*.enabled` flags default to
-        // `false` (`Config.h:985,1004,1023,1042`) and this firmware defaults
-        // them to `true` — the divergence recorded in intentional-diffs.md. The
-        // water-tank binary sensor is still conditional (`:914`) and
+        // 25, not 16. The nine extra entities are the switch-conditional ones,
+        // because all four `hardware.switches.*.enabled` flags default to `true`
+        // here — the divergence recorded as §14 of `docs/history/divergences.md`.
+        // The water-tank binary sensor is still conditional and
         // `hardware.sensors.watertank.enabled` is still `false`, so that entity
         // is still absent.
         assert_eq!(unconditional, 25);
@@ -755,10 +729,10 @@ mod tests {
 
     #[test]
     fn every_discovery_payload_is_valid_json_and_fits_the_mqtt_buffer() {
-        // MQTTManager.cpp:96 raises the buffer to 1024 *for these payloads*. If
-        // one exceeded it, the C++'s publishLargeMessage would have split it
-        // across `beginPublish`/`print`/`endPublish` and the test that would
-        // catch that is here instead.
+        // The MQTT buffers are 1024 B, and they were sized for these payloads. One
+        // larger than the buffer cannot be published at all, so the failure is a
+        // discovery message that never arrives — and Home Assistant keeps whatever
+        // entity it had, silently. Asserted here rather than discovered on a broker.
         for message in all(&Config::default()) {
             let parsed: Result<Value, _> = serde_json::from_str(&message.payload);
             assert!(parsed.is_ok(), "{} is not valid JSON", message.topic);
@@ -772,7 +746,7 @@ mod tests {
     }
 
     #[test]
-    fn the_unique_id_prefix_is_the_csqs() {
+    fn the_unique_id_prefix_is_the_expected_one() {
         assert_eq!(unique_id_prefix("kitchen"), "clevercoffee-kitchen");
     }
 }

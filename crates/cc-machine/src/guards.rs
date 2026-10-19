@@ -1,39 +1,30 @@
-//! The global transition guards, in the C++'s order.
+//! The global transition guards, in a fixed order.
 //!
-//! Port of `BaseState<StateId, DerivedState>::checkTransitions`
-//! (`include/clevercoffee/state/BaseState.h:136-175`):
+//! Four conditions are checked before a state considers its own transitions:
 //!
-//! ```cpp
-//! if (context.isEmergencyStop())  return EMERGENCY_STOP;
-//! if (context.hasSensorError())   return SENSOR_ERROR;
-//! if constexpr (StateId != WATER_TANK_EMPTY && StateId != STANDBY) {
-//!     if (!context.isWaterTankFull()) return WATER_TANK_EMPTY;
-//! }
-//! if constexpr (StateId != PID_DISABLED && StateId != PID_NORMAL && ... ) {
-//!     if (!context.isPidRuntimeEnabled()) return PID_DISABLED;
-//! }
-//! return checkSpecificTransitions(context);
+//! ```text
+//! emergency stop  -> EMERGENCY_STOP   (no exclusions)
+//! sensor error    -> SENSOR_ERROR     (no exclusions)
+//! tank not full   -> WATER_TANK_EMPTY (except WATER_TANK_EMPTY and STANDBY)
+//! PID not wanted  -> PID_DISABLED     (except the eight states listed below)
 //! ```
 //!
-//! # Two things the `if constexpr` becomes here
+//! # The exclusion lists are `match`es with no wildcard arm
 //!
-//! The C++ compiles the exclusion lists away, so "this state is excluded" is a
-//! property of the *type*. Here it is a property of the *value*, expressed by
-//! two `match`es with no wildcard arm — the same mechanism ADR-0004 adopts for
-//! `cc_safety::water_flow_allowed`. Adding a 19th state therefore fails to
-//! compile in four places (this file, `cc_safety::water_flow_allowed`,
-//! [`states::on_entry`](crate::states::on_entry),
-//! [`states::on_exit`](crate::states::on_exit)) instead of silently inheriting
-//! whichever behaviour the new variant happened to fall into.
+//! "This state is excluded" is a property of the *value* here, expressed by two `match`es
+//! with no `_` arm -- the same mechanism [`cc_safety::water_flow_allowed`] uses. Adding a
+//! 19th state therefore fails to compile in four places (this file,
+//! [`cc_safety::water_flow_allowed`], [`states::on_entry`](crate::states::on_entry),
+//! [`states::on_exit`](crate::states::on_exit)) instead of silently inheriting whichever
+//! behaviour the new variant happened to fall into.
 //!
 //! # The order is load-bearing
 //!
-//! Emergency beats sensor error beats tank-empty beats PID-disabled. Each of
-//! those can be true at the same time — a dry tank *and* a hot boiler *and* a
-//! dead probe — and the order decides which state the operator sees. The C++
-//! order is reproduced exactly and pinned by
-//! `guards::emergency_beats_sensor_error`, `guards::sensor_error_beats_tank_empty`
-//! and `guards::tank_empty_beats_pid_disabled` in `tests/exhaustive_state_event.rs`.
+//! Emergency beats sensor error beats tank-empty beats PID-disabled. More than one can be
+//! true at once -- a dry tank *and* a hot boiler *and* a dead probe -- and the order decides
+//! which state the operator sees. It is pinned by
+//! `guards::emergency_beats_sensor_error`, `guards::sensor_error_beats_tank_empty` and
+//! `guards::tank_empty_beats_pid_disabled` in `tests/exhaustive_state_event.rs`.
 
 use cc_domain::state::MachineState;
 
@@ -47,15 +38,13 @@ use crate::machine::Machine;
 /// that only checked the destination would let them be swapped.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Guard {
-    /// `context.isEmergencyStop()` → `EMERGENCY_STOP`
-    /// (`BaseState.h:139-142`). **No exclusions.**
+    /// An emergency stop was requested: `EMERGENCY_STOP`, from any state.
     EmergencyStop,
-    /// `context.hasSensorError()` → `SENSOR_ERROR` (`BaseState.h:145-148`).
-    /// **No exclusions.**
+    /// A sensor has failed: `SENSOR_ERROR`, from any state.
     SensorError,
-    /// `!context.isWaterTankFull()` → `WATER_TANK_EMPTY` (`BaseState.h:153-158`).
+    /// The tank is empty: `WATER_TANK_EMPTY`.
     WaterTankEmpty,
-    /// `!context.isPidRuntimeEnabled()` → `PID_DISABLED` (`BaseState.h:163-171`).
+    /// The PID is not wanted at runtime: `PID_DISABLED`.
     PidRuntimeDisabled,
     /// No global guard fired; [`states::check_specific`](crate::states::check_specific)
     /// decides.
@@ -64,15 +53,13 @@ pub enum Guard {
 
 /// The destination of a global guard, or `None` if none fired.
 ///
-/// # Guard 1: emergency stop has **no** exclusion
+/// # The emergency guard has **no** exclusion
 ///
-/// `BaseState.h:139-142` has no `if constexpr`, so it fires even in
-/// `EMERGENCY_STOP` itself. The result is a *self*-transition, which
-/// `StateMachine::executeTransition` discards
-/// (`StateMachine.cpp:107-111`, "Skipping self-transition"), so the observable
-/// effect is "stay put, and `update()` has already re-run the emergency
-/// shutdown". This function returns `EmergencyStop` and the reducer performs the
-/// self-transition check, which is where the C++ puts it.
+/// It fires even in `EMERGENCY_STOP` itself, so that state's guard is a *self*-transition,
+/// which the reducer discards. The observable effect is "stay put, and the tick has already
+/// re-run the emergency shutdown": returning to the same state re-applies its entry, which
+/// is what keeps the relays down while the stop is latched. This function reports the guard;
+/// discarding the self-transition is the reducer's job.
 #[must_use]
 pub const fn global_guard(machine: &Machine) -> Guard {
     if machine.is_emergency_stop() {
@@ -81,9 +68,8 @@ pub const fn global_guard(machine: &Machine) -> Guard {
     if machine.has_sensor_error() {
         return Guard::SensorError;
     }
-    // `BaseState.h:153`: excluded in WATER_TANK_EMPTY (so its own refill and
-    // standby logic can run) and in STANDBY (heater already off; an empty tank
-    // must not wake the machine).
+    // Excluded in WATER_TANK_EMPTY, so its own refill and standby logic can run, and in
+    // STANDBY, where the heater is already off and an empty tank must not wake the machine.
     if !excluded_from_tank_check(machine.state) && !machine.is_water_tank_full() {
         return Guard::WaterTankEmpty;
     }
@@ -105,36 +91,33 @@ pub const fn guard_destination(guard: Guard) -> Option<MachineState> {
     }
 }
 
-/// `if constexpr (StateId != WATER_TANK_EMPTY && StateId != STANDBY)`
-/// (`BaseState.h:153`).
+/// Whether the tank-empty guard skips this state.
 ///
-/// The C++ comment gives both reasons: `WATER_TANK_EMPTY` must "reach its
-/// specific transitions to honor standby request/timeout while the tank stays
-/// empty", and `STANDBY` must not be dragged out of power saving by a dry tank.
+/// `WATER_TANK_EMPTY` is excluded so it reaches its own transitions, which honour a standby
+/// request or timeout while the tank stays empty. `STANDBY` is excluded so a dry tank cannot
+/// drag the machine out of power saving -- the heater is already off there, so there is
+/// nothing to protect against.
 #[must_use]
 pub const fn excluded_from_tank_check(state: MachineState) -> bool {
     matches!(state, MachineState::WaterTankEmpty | MachineState::Standby)
 }
 
-/// `if constexpr (StateId != PID_DISABLED && StateId != PID_NORMAL &&
-/// StateId != STANDBY && StateId != INIT && StateId != EMERGENCY_STOP &&
-/// StateId != SENSOR_ERROR && StateId != WATER_TANK_EMPTY &&
-/// StateId != EEPROM_ERROR)` (`BaseState.h:163-166`).
+/// Whether the PID-disabled guard skips this state.
 ///
-/// Eight exclusions, and the C++ comment explains only some of them:
+/// Eight exclusions, for three reasons:
 ///
-/// * `PID_DISABLED` — already there.
-/// * `PID_NORMAL` — "handles it explicitly": `PidNormalState::checkSpecificTransitions`
-///   opens with its own `if (!isPidRuntimeEnabled())` (`PidStates.cpp:48-51`).
-/// * `STANDBY` — "PID intentionally off". **This is why standby is a latched
-///   state and not a timeout**: the runtime flag is off for as long as the
-///   machine is in standby, so including it here would make the guard a no-op
-///   cycle.
-/// * `INIT` — `InitState::checkSpecificTransitions` routes on exactly this
-///   condition (`InitState.cpp:24-31`).
-/// * `EMERGENCY_STOP`, `SENSOR_ERROR`, `WATER_TANK_EMPTY`, `EEPROM_ERROR` — the
-///   error states, which must be able to recover to a PID state rather than
-///   being bounced out of recovery by the guard.
+/// * `PID_DISABLED` is the destination, so the guard would be a self-transition.
+/// * `PID_NORMAL` and `INIT` handle this condition themselves, in
+///   [`states::check_specific`](crate::states::check_specific), because each routes on it
+///   differently: `PID_NORMAL` leaves for `PID_DISABLED`, and `INIT` keeps its own
+///   start-up sequence in charge.
+/// * `STANDBY` means "PID intentionally off". **This is why standby is a latched state and
+///   not a timeout**: the runtime flag is off for as long as the machine is in standby, so
+///   without the exclusion the guard would fire every tick.
+///
+/// `EMERGENCY_STOP`, `SENSOR_ERROR`, `WATER_TANK_EMPTY` and `EEPROM_ERROR` are the error
+/// states, which must be able to recover to a PID state rather than being bounced out of
+/// recovery by the guard.
 #[must_use]
 pub const fn excluded_from_pid_check(state: MachineState) -> bool {
     matches!(
@@ -150,27 +133,23 @@ pub const fn excluded_from_pid_check(state: MachineState) -> bool {
     )
 }
 
-/// `ProcessController::shouldPIDBeEnabled` (`ProcessController.cpp:246-255`).
+/// Whether the heater's PID may run in this state.
 ///
-/// A second, *independent* PID gate: this one is about the heater, not about
-/// the state machine. The state machine can be in `PID_NORMAL` with the runtime
-/// flag on while this says no, and then the heater is off.
+/// A second, *independent* gate from the state machine's: this one is about the heater, not
+/// about which state the machine is in. The machine can sit in `PID_NORMAL` with the runtime
+/// flag on while this says no, and then the heater stays off.
 ///
-/// ```cpp
-/// const bool tankEmptyBlocksHeater =
-///     machineState == WATER_TANK_EMPTY && !keepHeaterOnEmpty;
-/// return !(machineState == PID_DISABLED || tankEmptyBlocksHeater ||
-///          machineState == SENSOR_ERROR || machineState == EMERGENCY_STOP ||
-///          machineState == EEPROM_ERROR || machineState == STANDBY ||
-///          isBackflushState(machineState) || isProcessBrewPidDisabled());
-/// ```
+/// The PID is off in `PID_DISABLED`, `SENSOR_ERROR`, `EMERGENCY_STOP`, `EEPROM_ERROR` and
+/// `STANDBY`; through every backflush state, because a backflush is a cold-water operation;
+/// whenever the brew switch asks for it ([`brew_pid_disabled`](Self)); and in
+/// `WATER_TANK_EMPTY` unless `hardware.sensors.watertank.keep_heater_on_empty` is set, which
+/// is the one case where an empty tank is allowed to heat.
 ///
 /// # The backflush exclusion is worth reading twice
 ///
-/// The PID is off for the whole backflush. That is deliberate — the backflush
-/// is a cold-water operation and the heater must not run against it — and it is
-/// also why the *water* valve still has a whitelist that includes
-/// `BACKFLUSH_FILLING` and `BACKFLUSH_FLUSHING` while the heater does not.
+/// It is why the *water* valve's whitelist includes `BACKFLUSH_FILLING` and
+/// `BACKFLUSH_FLUSHING` while the heater is excluded from both: the same states legitimately
+/// need water flowing and must not have heat.
 #[must_use]
 pub fn should_pid_be_enabled(
     state: MachineState,
@@ -211,7 +190,7 @@ mod tests {
 
     #[test]
     fn the_tank_check_excludes_exactly_two_states() {
-        // `BaseState.h:153`. Ten states in, two out.
+        // Ten states in, two out.
         assert!(excluded_from_tank_check(MachineState::WaterTankEmpty));
         assert!(excluded_from_tank_check(MachineState::Standby));
         let excluded = cc_domain::state::ALL
@@ -223,15 +202,13 @@ mod tests {
 
     #[test]
     fn the_pid_check_excludes_exactly_eight_states() {
-        // `BaseState.h:163-166`.
         let mut excluded: Vec<MachineState> = cc_domain::state::ALL
             .iter()
             .copied()
             .filter(|s| excluded_from_pid_check(*s))
             .collect();
-        // Compare as sets: `cc_domain::state::ALL` is in discriminant order and
-        // the expectation is written in the C++'s declaration order
-        // (`BaseState.h:163-166`), which is not.
+        // Compare as sets: `cc_domain::state::ALL` is in discriminant order and the
+        // expectation below is not.
         excluded.sort_by_key(|s| s.id());
         let mut expected = [
             MachineState::PidDisabled,
@@ -292,8 +269,8 @@ mod tests {
 
     #[test]
     fn emergency_has_no_exclusion_at_all() {
-        // `BaseState.h:139-142` has no `if constexpr`, so the guard fires even
-        // in EMERGENCY_STOP. The self-transition is discarded downstream.
+        // The emergency guard has no exclusion, so it fires even in EMERGENCY_STOP. The
+        // self-transition is discarded downstream.
         let m = Machine {
             safety: cc_safety::SafetyState {
                 last_sample_seq: None,
@@ -320,8 +297,9 @@ mod tests {
 
     #[test]
     fn keep_heater_on_empty_overrides_the_tank_rule() {
-        // `ProcessController.cpp:247-248`. This is the flag the WATER_TANK_EMPTY
-        // state doc-comment warns about (`ErrorStates.cpp:83-85`).
+        // With the override off, an empty tank stops the heater; with it on, the machine
+        // heats anyway, which is the flag `WATER_TANK_EMPTY`'s own documentation warns
+        // about.
         assert!(!should_pid_be_enabled(
             MachineState::WaterTankEmpty,
             false,

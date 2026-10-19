@@ -1,9 +1,8 @@
-//! The six templates' `renderNormalDisplay`.
+//! The six templates' normal layouts.
 //!
-//! Each is a faithful transcription of its C++ counterpart. The two that are
-//! not obvious at a glance — Upright, because its coordinates live in the
-//! rotated space, and Modern, because every field has a reserved width — carry
-//! the most comment.
+//! Each draws one screen layout in full. The two that are not obvious at a glance
+//! — Upright, because its coordinates live in the rotated space, and Modern,
+//! because every field has a reserved width — carry the most comment.
 
 use crate::bitmaps_data as bm;
 use crate::display::Display;
@@ -15,8 +14,6 @@ use crate::model::{BrewMode, Config, DisplayInput};
 use crate::templates::{modern_layout as ml, TemplateId};
 use crate::widgets::{self, BrewRow, PidCoords, TemperatureCoords};
 
-/// `StandardTemplate::renderNormalDisplay`.
-///
 /// The default layout, and the one with the most in it. Note the order: the
 /// thermometer outline is drawn *before* the temperature bar, so the bar paints
 /// over it, and the bar is gated on the blink phase so the whole bar blinks at
@@ -41,7 +38,8 @@ pub fn standard(d: &mut Display, input: &DisplayInput, config: &Config) {
     widgets::display_progress_bar(d, truncate_to_i32(input.pid_output / 10.0), 30, 60, 98);
 }
 
-/// `MinimalTemplate::renderNormalDisplay`.
+/// The minimal layout: the status bar, the temperature block, the brew row and a
+/// full-width progress bar. No thermometer outline and no PID row.
 pub fn minimal(d: &mut Display, input: &DisplayInput, config: &Config) {
     let l = crate::lang::for_language(config.language);
     d.clear_buffer();
@@ -52,11 +50,11 @@ pub fn minimal(d: &mut Display, input: &DisplayInput, config: &Config) {
     widgets::display_progress_bar(d, truncate_to_i32(input.pid_output / 10.0), 0, 58, 128);
 }
 
-/// `TemperatureOnlyTemplate::renderNormalDisplay`.
+/// The temperature-only layout: the large temperature, a centred `Target` line and
+/// the progress bar.
 ///
-/// The `Target  %.1f °C` line is the only place in the display layer that uses
-/// `setCursor` + `print` of a `snprintf` result together, and the only one with a
-/// two-space gap in its label. Transcribed as written.
+/// The `Target` line is the only label in the layer assembled from pieces and then
+/// measured for centring, and the only one with a two-space gap after the label.
 pub fn temperature_only(d: &mut Display, input: &DisplayInput, _config: &Config) {
     d.clear_buffer();
 
@@ -76,9 +74,9 @@ pub fn temperature_only(d: &mut Display, input: &DisplayInput, _config: &Config)
     widgets::display_progress_bar(d, truncate_to_i32(input.pid_output / 10.0), 0, 58, 128);
 }
 
-/// `ScaleTemplate::renderNormalDisplay`.
+/// The scale layout: the Standard rows plus a weight row and a pressure row.
 ///
-/// Standard plus two conditional rows. Note the different y values from the
+/// Note the different y values from the
 /// Standard template: the temperature block at y=16, the brew at y=26, the
 /// weight and the pressure — a nine-pixel pitch, see `SCALE_ROW_TEMP` —
 /// against Standard's 16/36/47.
@@ -95,9 +93,9 @@ pub fn scale(d: &mut Display, input: &DisplayInput, config: &Config) {
 
     if config.scale_enabled {
         if crate::templates::should_display_brew_timer(input.brew_timer) {
-            // `-1` is the C++'s "no target" sentinel for a `float` parameter.
-            // The config value is a `f64`; narrowing to `f32` is what the C++'s
-            // implicit `double -> float` conversion at the call site did.
+            // `-1` is the "no target" sentinel the weight widget reads. The config
+            // value is an `f64`; it is narrowed to the `f32` the widget takes at
+            // this one call site, where the sentinel convention applies.
             let target = if config.brew_mode == BrewMode::Automatic && config.brew_by_weight_enabled
             {
                 narrow_f32(config.brew_by_weight_target)
@@ -135,9 +133,9 @@ pub fn scale(d: &mut Display, input: &DisplayInput, config: &Config) {
     widgets::display_progress_bar(d, truncate_to_i32(input.pid_output / 10.0), 0, 60, 128);
 }
 
-/// `UprightTemplate::renderNormalDisplay`.
+/// The upright layout.
 ///
-/// **This renders in the R1/R3 portrait space, where the panel is 64 wide and
+/// **This renders in the portrait space, where the panel is 64 wide and
 /// 128 tall.** Every coordinate below is in that space, and the rotation
 /// transform in [`Display`] puts it into the physical 128x64 buffer. The y values
 /// — 124, 110, 100 — are above 64 and are *correct*: in portrait space y runs to
@@ -159,11 +157,9 @@ pub fn upright(d: &mut Display, input: &DisplayInput, config: &Config) {
     upright_status_bar(d, input, config, l);
 }
 
-/// `UprightTemplate::displayHeatBar`.
-///
 /// A 64x4 frame at y=124 — the very bottom of the portrait space — with two
-/// one-pixel lines inside it whose length is `pidOutput / 16.13`. That divisor is
-/// not `100`: it is `(1000 - pidOutput) / 100 * 1.613`-shaped nonsense that
+/// one-pixel lines inside it whose length is `pid_output / 16.13`. That divisor
+/// is not `100`: it is `(1000 - pid_output) / 100 * 1.613`-shaped nonsense that
 /// happens to make a 1000-unit output fill the bar. Reproduced verbatim, with a
 /// test, because "correcting" it to 100 would visibly shorten the bar.
 fn upright_heat_bar(d: &mut Display, input: &DisplayInput) {
@@ -173,8 +169,6 @@ fn upright_heat_bar(d: &mut Display, input: &DisplayInput) {
     d.draw_line(1, 126, reach, 126);
 }
 
-/// `UprightTemplate::displayMainStatus`.
-///
 /// The big `fub20` status word, and a y position that depends on which sensors
 /// are fitted — two rows have to fit below it. The branch is
 /// `both ? 65 : (either ? 60 : 55)`, transcribed.
@@ -206,8 +200,6 @@ fn upright_main_status(d: &mut Display, input: &DisplayInput, config: &Config) {
     }
 }
 
-/// `UprightTemplate::displaySensorInfo`.
-///
 /// The weight row and the pressure row, whose y depends on whether a scale is
 /// fitted so they do not collide. The weight shows the *brew* weight while a
 /// brew timer is showing and the plain weight otherwise.
@@ -241,8 +233,6 @@ fn upright_sensor_info(d: &mut Display, input: &DisplayInput, config: &Config, l
     }
 }
 
-/// `UprightTemplate::displayStatusBar`.
-///
 /// The rule spans `0 .. OLED_WIDTH / 2` — half the *physical* width, 64 px,
 /// which is the *full* width of the portrait space. Correct, and easy to mistake
 /// for a bug: `OLED_WIDTH` is the constant 128, not the logical width.
@@ -269,7 +259,7 @@ fn upright_status_bar(d: &mut Display, input: &DisplayInput, config: &Config, l:
     widgets::display_maintenance_status_bar(d, config, input, 54, 0);
 }
 
-/// `ModernTemplate::renderNormalDisplay`.
+/// The Modern layout.
 ///
 /// The dispatch is on three flags, in this order: manual flush, post-brew,
 /// brewing, else idle. Note the flush check comes first and uses the *machine
@@ -290,7 +280,6 @@ pub fn modern(d: &mut Display, input: &DisplayInput, config: &Config) {
     }
 }
 
-/// `ModernTemplate::drawIdleScreen`.
 fn modern_idle(d: &mut Display, input: &DisplayInput, config: &Config, l: &Lang) {
     d.clear_buffer();
     widgets::display_statusbar(d, config, input, l, false);
@@ -299,9 +288,7 @@ fn modern_idle(d: &mut Display, input: &DisplayInput, config: &Config, l: &Lang)
     modern_setpoint_bar(d, input);
 }
 
-/// `ModernTemplateLayout::drawLargeTemperature`.
-///
-/// The rule-3 exemplar: the digits go in a box as wide as `getStrWidth("100.0")`
+/// The rule-3 exemplar: the digits go in a box as wide as `str_width("100.0")`
 /// and are **right-aligned** inside it, and the `°C` unit is positioned relative
 /// to that box — so a one-digit temperature does not move the unit, and a
 /// three-digit one does not push it right.
@@ -340,10 +327,8 @@ fn modern_large_temperature(d: &mut Display, input: &DisplayInput) {
     );
 }
 
-/// `ModernTemplateLayout::drawTemperatureToSetpointBar`.
-///
 /// The bottom row: a `72 x 4` bar with a fill, a "ready" tick, and the setpoint
-/// label. The label is **right-aligned in a box as wide as `getStrWidth("100°C")`**
+/// label. The label is **right-aligned in a box as wide as `str_width("100°C")`**
 /// — the same rule-3 mechanism as the temperature above.
 fn modern_setpoint_bar(d: &mut Display, input: &DisplayInput) {
     let f10 = font::profont10();
@@ -413,8 +398,6 @@ fn modern_setpoint_bar(d: &mut Display, input: &DisplayInput) {
     );
 }
 
-/// `ModernTemplate::drawIdleStatusRow`.
-///
 /// The 16x16 HEATING/READY icon plus its label, centred as a unit, and blanked
 /// during the off half of the blink when the temperature is at setpoint.
 fn modern_idle_status_row(d: &mut Display, input: &DisplayInput, config: &Config) {
@@ -462,14 +445,14 @@ fn modern_idle_status_row(d: &mut Display, input: &DisplayInput, config: &Config
     );
 }
 
-/// `ModernTemplateLayout::drawHeatingIcon` — a flame.
+/// The heating icon: a flame drawn inside the 16x16 idle-icon cell.
 fn modern_heating_icon(d: &mut Display, x: i32, y: i32) {
     d.draw_triangle(x + 8, y, x + 3, y + 12, x + 13, y + 12);
     d.draw_box(x + 5, y + 12, 6, 3);
     d.draw_pixel(x + 8, y + 4);
 }
 
-/// `ModernTemplateLayout::drawReadyIcon` — a cup.
+/// The ready icon: a cup.
 fn modern_ready_icon(d: &mut Display, x: i32, y: i32) {
     d.draw_frame(x + 3, y + 2, 9, 8);
     d.draw_line(x + 12, y + 3, x + 15, y + 3);
@@ -477,7 +460,6 @@ fn modern_ready_icon(d: &mut Display, x: i32, y: i32) {
     d.draw_line(x + 4, y + 14, x + 11, y + 14);
 }
 
-/// `ModernTemplate::drawBrewScreen`.
 fn modern_brew(
     d: &mut Display,
     input: &DisplayInput,
@@ -494,8 +476,6 @@ fn modern_brew(
     modern_brew_footer(d, input, config);
 }
 
-/// `ModernTemplate::drawPhaseIndicator`.
-///
 /// Three labels at fixed x, separated by `>`, with the active one inverted.
 /// The `>` is drawn at `xs[i] - 8`, i.e. 8 px to the left of the next label, and
 /// only for `i > 0`.
@@ -522,8 +502,6 @@ fn modern_phase_indicator(d: &mut Display, phase: ml::BrewPhase, flushing: bool)
     d.draw_line(0, 12, 128, 12);
 }
 
-/// `ModernTemplate::drawBrewMainReadout`.
-///
 /// Three fixed-width fields — `999 s`, `" - "`, `100.0°C` — whose *combined*
 /// block is centred once, and each of which is right-aligned inside its own box.
 /// This is the rule-3 mechanism at its clearest: the block never moves, and the
@@ -559,8 +537,6 @@ fn modern_brew_main_readout(d: &mut Display, input: &DisplayInput) {
     );
 }
 
-/// `ModernTemplate::drawBrewProgressBar`.
-///
 /// An 88 px bar — wider than the idle bar's 72, because it also has to make room
 /// for its label — with the target label right-aligned in a box as wide as the
 /// wider of the two target probes. With no target the label is omitted and the
@@ -668,8 +644,6 @@ fn modern_brew_progress_bar(d: &mut Display, input: &DisplayInput, config: &Conf
     }
 }
 
-/// `ModernTemplate::drawBrewFooter`.
-///
 /// Weight and pressure on one line, at a fixed x and pitch. The x advances by
 /// the *rendered* width of what was just drawn, so with neither sensor enabled
 /// the line is empty.
@@ -706,11 +680,9 @@ fn modern_brew_footer(d: &mut Display, input: &DisplayInput, config: &Config) {
     }
 }
 
-/// `ModernTemplate::drawPostBrewScreen`.
-///
 /// The 40x40 cup at y=2, then the brew time as `SS.s` right-aligned in a
 /// `999.9`-wide box, centred as a block with its `" s"` unit. The block is
-/// centred once — `startX` — and the digits are right-aligned inside it, so
+/// centred once, and the digits are right-aligned inside it, so
 /// `9.8 s` and `99.8 s` produce the same block position and the same unit x.
 fn modern_post_brew(d: &mut Display, input: &DisplayInput) {
     d.clear_buffer();
@@ -742,8 +714,6 @@ fn modern_post_brew(d: &mut Display, input: &DisplayInput) {
     d.draw_str(start_x + digits_w, time_y, " s");
 }
 
-/// `displayBrewInfo` for the five non-Modern templates.
-///
 /// Drawn at `(base_x, base_y)` with the label from `l`; the row itself is chosen
 /// by [`widgets::brew_row`]. `upright` selects the field layout, not the row.
 fn draw_brew_info(
@@ -785,8 +755,8 @@ fn draw_brew_info(
 
 /// Narrow a `f64` config value to the `f32` the weight widget takes.
 ///
-/// The C++ passes a `double` config value into a `float` parameter, which
-/// narrows implicitly. The weight is at most a few hundred grams, so the
+/// The widget takes a `float`, so the value narrows somewhere; doing it here makes
+/// that one explicit place. The weight is at most a few hundred grams, so the
 /// narrowing is exact for every value the device can hold, and the range is
 /// checked so a corrupt config cannot produce a negative target.
 fn narrow_f32(value: f64) -> f32 {
@@ -800,7 +770,6 @@ fn narrow_f32(value: f64) -> f32 {
     -1.0
 }
 
-/// `StandardTemplate::getTemperatureCoords` / Minimal's (identical).
 fn standard_temp_coords() -> TemperatureCoords {
     TemperatureCoords {
         current_temp_x: 34,
@@ -812,7 +781,6 @@ fn standard_temp_coords() -> TemperatureCoords {
     }
 }
 
-/// `StandardTemplate::getPIDCoords` / Minimal's.
 fn standard_pid_coords() -> PidCoords {
     PidCoords {
         pid_x: 38,
@@ -822,9 +790,8 @@ fn standard_pid_coords() -> PidCoords {
     }
 }
 
-/// `ScaleTemplate::getTemperatureCoords`. Same x, but the value column is 50
-/// rather than 84 — the value is at the right of a 128 px panel instead of
-/// past it.
+/// Same x as Standard, but the value column is 50 rather than 84 — the value sits
+/// at the right of a 128 px panel instead of past it.
 fn scale_temp_coords() -> TemperatureCoords {
     TemperatureCoords {
         current_temp_x: 0,
@@ -838,29 +805,24 @@ fn scale_temp_coords() -> TemperatureCoords {
 
 // The Scale template's five content rows.
 //
-// **Re-pitched from 16/26/26/36/46.** The C++ puts the setpoint row and the brew
-// row both at `y = 26` (`ScaleTemplate.h:24,59-61`), and the brew row's inverted
-// field is `78 x 10` at `(x + 50, y + 1)` (`DisplayWidgets.h:170-171`) — so it
-// erases the setpoint's label, value and `°C`. The collision is not hidden by a
-// flag: `display.fullscreen_brew_timer` defaults to **false** in both firmwares, so
-// on a Scale-template machine the setpoint simply disappears for the whole
-// duration of a brew.
-//
 // A ten-pixel pitch cannot hold five rows above the progress bar at y=60: the last
 // row's ink would end at 58-61 and touch it. A **nine**-pixel pitch fits, and the
 // rows start at 13 so the last ends at 58, two clear of the bar.
 //
-// The cost is real and is the point of recording it: the C++'s row positions
-// move, so `scale*.ppm` changes and the screen looks different. What does *not*
-// change is that nothing is clipped and nothing is erased.
+// The pitch is what keeps the setpoint row and the brew row apart. At a shared
+// `y = 26` the brew row's inverted `78 x 10` field at `(x + 50, y + 1)` erases the
+// setpoint's label, value and `°C`, and `display.fullscreen_brew_timer` defaults to
+// false, so nothing hides that: on a scale machine the setpoint disappears for the
+// whole duration of a brew. The rows therefore move, and `scale*.ppm` records the
+// difference. What does *not* change is that nothing is clipped and nothing is
+// erased.
 const SCALE_ROW_TEMP: i32 = 13;
 const SCALE_ROW_SET: i32 = 22;
 const SCALE_ROW_BREW: i32 = 31;
 const SCALE_ROW_WEIGHT: i32 = 40;
 const SCALE_ROW_PRESSURE: i32 = 49;
 
-/// `UprightTemplate::getTemperatureCoords`. The value column is `base_x + 50`
-/// against `base_x = 1`, i.e. 51.
+/// The value column is `base_x + 50` against `base_x = 1`, i.e. 51.
 fn upright_temp_coords() -> TemperatureCoords {
     TemperatureCoords {
         current_temp_x: 1,

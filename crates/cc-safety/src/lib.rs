@@ -1,58 +1,45 @@
 //! The one place that decides whether an actuator may be energised.
 //!
-//! # What this crate is
-//!
 //! A pure reducer: `(previous safety state, telemetry, configuration, now) ->
-//! (new safety state, verdict)`. It performs no I/O, allocates nothing, and has
-//! exactly one dependency (`cc-domain`, for units and the state enum). That is
-//! the whole point of keeping it separate (04 §6): a reviewer can read this
-//! crate in one sitting and be certain nothing else influences the verdict.
+//! (new safety state, verdict)`. It performs no I/O, allocates nothing, and
+//! depends only on `cc-domain`, for units and the state enum. That is the point
+//! of keeping it separate: a reviewer can read this crate in one sitting and be
+//! certain nothing else influences the verdict.
 //!
-//! # The safety paths it implements
+//! # The safety paths
 //!
-//! | Path | C++ source | Rust |
-//! | --- | --- | --- |
-//! | **S1** overtemp | `src/control/EmergencyStopManager.cpp:17-69` | [`reduce`] |
-//! | **S2** emergency latch | `src/hardware/HardwareManager.cpp:278-321,353,398,443` | [`Verdict`] permissions |
-//! | **S3** emergency recovery | `EmergencyStopManager.cpp:71-90` | [`reduce`] |
-//! | **S4** water tank empty | `HardwareManager.cpp:325-328,546-561` | [`Verdict::may_pump`] |
-//! | **S5** water-valve fail-safe | `include/clevercoffee/handlers/BrewHandler.h:105-122` | [`water_flow_allowed`] |
-//! | **S5'** steam-valve fail-safe | **absent in the C++** — see [`steam_flow_allowed`] | [`steam_flow_allowed`] |
+//! | Path | Implemented by |
+//! | --- | --- |
+//! | **S1** over-temperature | [`reduce`] |
+//! | **S2** emergency latch | [`Verdict`] permissions |
+//! | **S3** emergency recovery | [`reduce`] |
+//! | **S4** water tank empty | [`Verdict::may_pump`] |
+//! | **S5** water-valve fail-safe | [`water_flow_allowed`] |
+//! | **S5'** steam-valve fail-safe | [`steam_flow_allowed`] |
 //!
-//! Plus the two fail-closed configuration rules recovered from the previous
-//! Rust firmware ([08 §4.1](../docs/history/recovered-oracle.md)):
-//! [`validate_config`] and [`load_or_default`].
+//! [`validate_config`] and [`load_or_default`] are the two fail-closed
+//! configuration rules: an unsafe configuration is refused when it is stored and
+//! refused again when it is loaded.
 //!
-//! # Semantics that are *not* the C++'s, and why
+//! # Deliberate divergences
 //!
-//! These are deliberate, human-approved divergences. Every one is a line in
-//! [`intentional-diffs.md`](../../docs/history/divergences.md)
-//! and is pinned by a `div_`-prefixed test, so a parity harness that reports a
-//! diff there knows it is expected.
+//! Each one is an entry in `docs/history/divergences.md` and is pinned by a
+//! `div_`-prefixed test, so a parity diff there is known to be expected.
 //!
-//! * **S4 gates the water valve as well as the pump.** The C++ checks
-//!   `waterTankEmpty_` in `enablePump` and `setPumpPressure` only
-//!   (`HardwareManager.cpp:325-328,398-406`); `openWaterValve` does not check it
-//!   ([09 §3](../docs/history/cpp-findings.md)). Emptying the tank and
-//!   then entering a brew state opened the water valve against a dry reservoir.
-//!   Gating it costs nothing — the S5 whitelist is consulted in the same breath —
-//!   and removes a way to be wrong.
-//! * **S5' is new.** The C++ has no steam-valve whitelist at all
-//!   ([09 §2](../docs/history/cpp-findings.md)); see
-//!   [`steam_flow_allowed`] for the derivation and for why it is not merely
-//!   theoretical.
-//! * **S4 is edge-free here.** The C++ kills a running pump inside
-//!   `setWaterTankEmpty(true)` — an *event* on the empty→empty edge
-//!   (`HardwareManager.cpp:546-561`). Here the verdict simply says
-//!   `may_pump == false` while the tank is empty, and the applier drives the
-//!   pump to that. The observable behaviour is identical, and it is *strictly*
-//!   safer: the C++ version depends on the transition being observed exactly
-//!   once, so a missed edge leaves a pump running against a dry tank.
-//! * **Every call is checked, not every call site.** The C++ checks
-//!   `emergencyMode_` and `waterTankEmpty_` inside `HardwareManager`'s
-//!   methods, which every caller happens to use. Here the check is the
-//!   verdict, and `04 §4` makes the applier the only code that can reach an
-//!   actuator at all.
+//! * **S4 gates the water valve as well as the pump.** Emptying the tank and then
+//!   entering a brew state would otherwise open the water valve against a dry
+//!   reservoir. Gating it costs nothing — the S5 whitelist is consulted in the
+//!   same breath — and removes a way to be wrong.
+//! * **S5' is new.** The steam valve is the same physical relay as the water
+//!   valve, so it gets a whitelist of its own; [`steam_flow_allowed`] carries the
+//!   derivation.
+//! * **S4 is edge-free.** The verdict says `may_pump == false` for as long as the
+//!   tank is empty, and the applier drives the pump to that. A rule that fires on
+//!   the empty-to-empty edge instead leaves a pump running against a dry tank
+//!   whenever the edge is missed.
+//! * **Every call is checked, not every call site.** The check is the verdict, and
+//!   the applier is the only code that can reach an actuator at all, so a new
+//!   caller cannot bypass it.
 //! * **`Telemetry` carries the machine state.** S5 is a function of the current
 //!   state, and the state is an input to the decision, not to the safety latch,
 //!   so it belongs in the telemetry rather than in [`SafetyState`].
@@ -68,30 +55,25 @@ use cc_domain::units::{Celsius, Millis};
 
 /// The number of consecutive above-threshold readings that trip emergency stop.
 ///
-/// `EmergencyStopManager::DEBOUNCE_COUNT = 3` (`EmergencyStopManager.h:106`).
-/// With the production 400 ms sensor interval (`Timing::TEMPERATURE_SENSOR_INTERVAL_MS`)
-/// that is roughly 1.2 s of sustained overheat.
+/// Three readings is about 1.2 s of sustained overheat at the 400 ms sensor
+/// interval the firmware samples on.
 pub const DEBOUNCE_COUNT: u8 = 3;
 
 /// The temperature below which an emergency stop may be cleared.
 ///
-/// `Temperature::EMERGENCY_SAFE_TEMP_C = 100.0`
-/// (`include/clevercoffee/constants/Temperature.h:11`), used at
-/// `EmergencyStopManager.cpp:83`.
+/// 100 °C: water at atmospheric pressure, and a boiler that cool is not
+/// steaming.
 pub const EMERGENCY_SAFE_TEMP_C: Celsius = Celsius::new(100.0);
 
 /// The configuration inputs the safety reducer needs.
 ///
-/// Deliberately tiny: it holds only the values that can change whether an
-/// actuator may be energised, and nothing else. Everything else in the
-/// 98-parameter schema is irrelevant to a verdict, and putting it here would
-/// make the reducer's inputs impossible to audit.
+/// Deliberately tiny: only the values that can change whether an actuator may be
+/// energised. Everything else in the parameter schema is irrelevant to a verdict,
+/// and carrying it here would make the reducer's inputs impossible to audit.
 ///
-/// The set has grown twice past "four", both times by exactly the fields a new
-/// [`validate_config`] rule needed and nothing else: [`Self::effective_brew_setpoint`]
-/// and the brew-stop trio below. What the struct is *not* allowed to become is a
-/// mirror of `cc_config::Config` — the shape to preserve is "every field is one
-/// somebody had to think about", not "every field is small".
+/// What the struct must not become is a mirror of `cc_config::Config`: the shape
+/// to preserve is "every field is one somebody had to think about", not "every
+/// field is small".
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SafetyConfig {
     /// `safety.emergency_temp` — the over-temperature threshold.
@@ -115,12 +97,7 @@ pub struct SafetyConfig {
     pub brew_by_weight_enabled: bool,
     /// `hardware.sensors.scale.enabled` — whether this machine has a scale.
     ///
-    /// **The C++'s own definition of a fitted scale**, not this port's: it is
-    /// the guard on every scale command (`WebServerManager.cpp:540,563`) and the
-    /// third argument of `recordBrewIfQualified` (`BrewStates.cpp:311`), which
-    /// is [`crate::validate_config`]'s subject as much as the reducer's is.
-    ///
-    /// It is a configuration value rather than a live probe, which is the point:
+    /// A configuration value rather than a live probe, which is the point:
     /// [`validate_config`] must be a pure function of configuration, and the
     /// value it needs has to be readable before the driver has produced a
     /// single sample. What the *driver* then does — starts, faults, answers —
@@ -138,9 +115,9 @@ pub struct SafetyConfig {
     /// [`Self::steam_setpoint`] is, and the offset is in here for the same
     /// reason it is in `cc_config::Config::effective_brew_setpoint`: the
     /// threshold has to clear the temperature the boiler is *driven to*, and
-    /// the offset is part of that number. `brew.temp_offset` is bounded 0..=20
-    /// (`defaults.h:84-85`), which is enough to push a legal `brew.setpoint`
-    /// past a legal `safety.emergency_temp`.
+    /// the offset is part of that number. `brew.temp_offset` is bounded 0..=20,
+    /// which is enough to push a legal `brew.setpoint` past a legal
+    /// `safety.emergency_temp`.
     pub effective_brew_setpoint: Celsius,
     /// `hardware.relays.heater.trigger_type` — needed only by
     /// [`validate_config`]. See [`RelayTriggerType`]: a low-trigger heater relay
@@ -154,48 +131,30 @@ pub struct SafetyConfig {
     pub valve_relay_trigger: RelayTriggerType,
     /// `hardware.sensors.temperature.type`.
     ///
-    /// **Not used by [`validate_config`] any more**, and that is a deliberate
-    /// reversal. It is still here because a configuration's sensor type is part
-    /// of the configuration and the firmware has to carry it somewhere, and
-    /// because the `cc-config` schema and this struct are the two ends of the
-    /// same key.
+    /// **Not used by [`validate_config`].** It is here because a configuration's
+    /// sensor type is part of the configuration and the firmware has to carry it
+    /// somewhere, and because the `cc-config` schema and this struct are the two
+    /// ends of the same key.
     ///
-    /// Both sensor types are now implemented — see
-    /// `cc_protocol::sensor::ds18b20` and `cc_protocol::sensor::tsic306` — so
-    /// there is no `ConfigViolation` left for either of them and nothing to
-    /// validate. An earlier revision carried an
-    /// `UnsupportedTemperatureSensor` variant that refused `TSIC_306` on the
-    /// grounds that no Rust driver existed; R3-07 added the driver, and the
-    /// variant has been deleted rather than left behind as a dead arm.
+    /// Both types have a driver (`cc_protocol::sensor::ds18b20` and
+    /// `cc_protocol::sensor::tsic306`), so no value of this field can be refused
+    /// and there is nothing to validate.
     pub temperature_sensor: TemperatureSensorType,
 }
 
 impl Default for SafetyConfig {
-    /// The C++ compiled-in defaults: `Config.h:813-829` sets
-    /// `emergencyTemp` to 150.0 with range 120-180, and `emergencyStopHysteresis`
-    /// to 5.0 with range 1-15.
-    ///
-    /// NOTE the divergence from `Temperature::EMERGENCY_THRESHOLD_C = 145.0`
-    /// (`Temperature.h:6`): that constant is *not* what the running firmware
-    /// uses. `EmergencyStopManager.cpp:18` reads `config_.emergencyStopTemp`, and
-    /// that parameter's default is 150.0. The 145.0 constant is dead. See the
-    /// crate report — this is finding 2.
     fn default() -> Self {
         Self {
             emergency_temp: Celsius::new(150.0),
             emergency_hysteresis: Celsius::new(5.0),
-            // `BrewMode::Manual`, `brewByTimeEnabled = false` and
-            // `brewByWeightEnabled = false`: `Config.h:236` and `defaults.h`
-            // give every one of them as false/Manual, so the shipped defaults
-            // carry no brew-stop rule of their own — a default configuration
-            // that its own validator refuses is a machine that will not run.
+            // The defaults must pass `validate_config` themselves: a default
+            // configuration its own validator refuses is a machine that will not
+            // run, so no brew-stop rule is enabled here.
             //
-            // `scale_fitted: false` is the C++ default too
-            // (`hardwareSensorsScaleEnabled`, `Config.h`) and is also the honest
-            // answer for the machine this firmware was built for: GPIO32/25/33
-            // are unconnected (09 §23). It is the *conservative* direction here,
-            // because with no scale the by-weight stop cannot fire and the rule
-            // below can only refuse more, never less.
+            // `scale_fitted: false` is also the honest answer for the machine
+            // this firmware was built for, whose scale pins are unconnected. It
+            // is the *conservative* direction: with no scale the by-weight stop
+            // cannot fire, so the rule below can only refuse more, never less.
             brew_mode: BrewMode::Manual,
             brew_by_time_enabled: false,
             brew_by_weight_enabled: false,
@@ -205,26 +164,15 @@ impl Default for SafetyConfig {
             heater_relay_trigger: RelayTriggerType::HighTrigger,
             pump_relay_trigger: RelayTriggerType::HighTrigger,
             valve_relay_trigger: RelayTriggerType::HighTrigger,
-            // `TSIC_306`, matching `Config.h:1085-1092`:
-            //
-            //   EnumParamDef<Hardware::TemperatureSensorType> hardwareSensorsTemperatureType{
-            //       "hardware.sensors.temperature.type",
-            //       Hardware::TemperatureSensorType::TSIC_306, ...
-            //
-            // An earlier revision defaulted this to `DALLAS_DS18B20` and made
-            // `validate_config` reject `TSIC_306`, so that a default which the
-            // validator refused could never be the machine's own configuration.
-            // That reasoning was sound *given a missing driver*; the driver now
-            // exists (`cc_protocol::sensor::tsic306`, R3-07) and both types are
-            // supported, so the parity default is restored.
+            // `TSIC_306`, the schema default. Both types have a driver, so
+            // either value is honoured.
             //
             // **What this does not mean:** that a TSIC-306 is fitted to this
-            // machine. It is not — the probe on the board is a DS18B20 (family
-            // 0x28, ROM `286937aacd78af41`, measured 2026-09-28). A machine
-            // built with this default and a DS18B20 fitted reports
-            // `NOT_CONNECTED`/no-presence and says so, because the two drivers
-            // fail differently and visibly. `cc-firmware` therefore selects the
-            // driver from the *board*, not from this default; see its
+            // machine. The probe on the board is a DS18B20, family 0x28, ROM
+            // `286937aacd78af41`. A machine built with this default and a
+            // DS18B20 fitted reports `NOT_CONNECTED` and says so, because the two
+            // drivers fail differently and visibly. `cc-firmware` therefore
+            // selects the driver from the *board*, not from this default; see its
             // `PROBE` constant.
             temperature_sensor: TemperatureSensorType::Tsic306,
         }
@@ -249,23 +197,18 @@ pub struct Telemetry {
     ///
     /// # Why this field exists
     ///
-    /// S1's debounce counts **samples**: the C++ increments
-    /// `emergencyTempReadingCount_` once per `updateTemperature()`, which the
-    /// coordinator calls on its 400 ms sensor cadence, so `DEBOUNCE_COUNT = 3` is
-    /// about **1.2 s** of sustained overheat. This port calls [`reduce`] once
-    /// per **control tick** — every 10 ms — with whatever the last conversion
-    /// produced, so without a sequence number the *same* reading is counted
-    /// about forty times and the debounce trips in **30 ms**.
+    /// S1's debounce counts **samples**, because [`DEBOUNCE_COUNT`] readings is
+    /// meant to be about 1.2 s of sustained overheat. [`reduce`] runs once per
+    /// control tick, every 10 ms, with whatever the last conversion produced, so
+    /// without a sequence number the *same* reading would be counted about forty
+    /// times and the debounce would trip in 30 ms instead. A probe spike — a
+    /// 1-Wire CRC retry, a flash write — would then latch an emergency stop
+    /// mid-brew.
     ///
-    /// A probe spike (a 1-Wire CRC retry, a flash write, someone moving the
-    /// probe on a boiler at 155 °C) would then latch an emergency stop the C++
-    /// rides out mid-brew. That is the most user-visible divergence in the safety
-    /// path, and it is invisible in a test that feeds one reading per call.
-    ///
-    /// So the caller sets this to the driver's own sample counter and
-    /// [`reduce`] advances the debounce **only when it changes**. The latching
-    /// check and the hysteresis are unaffected: they are properties of the
-    /// reading, not of how often we look.
+    /// The caller sets this to the driver's own sample counter, and [`reduce`]
+    /// advances the debounce **only when it changes**. The latching check and the
+    /// hysteresis are unaffected: they are properties of the reading, not of how
+    /// often we look.
     pub sample_seq: u32,
 }
 
@@ -285,10 +228,9 @@ impl Telemetry {
 /// The reducer's only memory.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SafetyState {
-    /// Whether emergency stop is latched. Mirrors `emergencyActive_`.
+    /// Whether emergency stop is latched.
     pub latched: bool,
-    /// Consecutive above-threshold readings so far. Mirrors
-    /// `emergencyTempReadingCount_`.
+    /// Consecutive above-threshold readings so far.
     pub high_reading_count: u8,
     /// The `sample_seq` the counter was last advanced on, so a repeat of the
     /// same sample does not advance it.
@@ -305,8 +247,7 @@ impl SafetyState {
 
     /// Whether a reading is currently above `safety.emergency_temp`.
     ///
-    /// Strictly greater: a reading *exactly* at the threshold does not count,
-    /// which is what `EmergencyStopManager.cpp:36` does.
+    /// Strictly greater, so a reading *exactly* at the threshold does not count.
     #[must_use]
     pub fn is_over_threshold(self, temperature: Celsius, emergency_temp: Celsius) -> bool {
         temperature.raw() > emergency_temp.raw()
@@ -324,16 +265,14 @@ impl SafetyState {
         temperature.raw() < emergency_temp.raw() - hysteresis.raw()
     }
 
-    /// Latch emergency stop. Mirrors `triggerEmergency()`
-    /// (`EmergencyStopManager.cpp:92-97`): idempotent, and deliberately does
-    /// *not* touch the debounce counter, so the operator can see how many
-    /// readings had accumulated when the trip happened.
+    /// Latch emergency stop. Idempotent, and deliberately does *not* touch the
+    /// debounce counter, so the operator can see how many readings had
+    /// accumulated when the trip happened.
     pub fn trigger(&mut self) {
         self.latched = true;
     }
 
-    /// Clear emergency stop. Mirrors `clearEmergency()`
-    /// (`EmergencyStopManager.cpp:99-105`), which also zeroes the counter.
+    /// Clear emergency stop, and zero the debounce counter with it.
     pub fn clear(&mut self) {
         self.latched = false;
         self.high_reading_count = 0;
@@ -343,7 +282,7 @@ impl SafetyState {
         self.last_sample_seq = None;
     }
 
-    /// Forget everything. Mirrors `reset()` (`EmergencyStopManager.cpp:107-110`).
+    /// Forget everything.
     pub const fn reset(&mut self) {
         *self = Self::CLEAR;
     }
@@ -384,9 +323,8 @@ pub enum Reason {
     },
     /// S5': the current state is not one in which steam may flow.
     ///
-    /// **No C++ equivalent** — `openSteamValve` checks only `emergencyMode_`
-    /// ([09 §2](../../docs/history/cpp-findings.md)). See
-    /// [`steam_flow_allowed`].
+    /// **A deliberate divergence**: the steam valve is the same physical relay as
+    /// the water valve, so it gets a whitelist. See [`steam_flow_allowed`].
     NotASteamState {
         /// The state that was refused.
         state: MachineState,
@@ -396,19 +334,16 @@ pub enum Reason {
 /// The decision: may each actuator be energised right now?
 ///
 /// Four independent permissions plus the latch. They are independent by
-/// construction — an empty tank must not stop the heater (the boiler is
-/// separate from the reservoir) and an emergency must stop everything — so they
-/// are four booleans rather than one enum. Each permission is written to a
-/// distinct actuator, and the shape is fixed by the R2-05 brief as much as by
-/// the C++'s guards. The enum argument, and the `struct_excessive_bools`
-/// allowance it earns, are on the definition.
+/// construction — an empty tank must not stop the heater (the boiler is separate
+/// from the reservoir) and an emergency must stop everything — so they are four
+/// booleans rather than one enum. Each permission is written to a distinct
+/// actuator.
 #[allow(
     clippy::struct_excessive_bools,
     reason = "an enum would either lose the \"heater yes, pump no\" combination or \
-              grow a combinatorial number of variants. The C++ guards have the \
-              same shape — `emergencyMode_`, `waterTankEmpty_` and `valveState_` \
-              are separate fields consulted independently \
-              (`HardwareManager.cpp:278,325,354,398`)"
+              grow a combinatorial number of variants: an empty tank blocks the \
+              pump and the water valve but must not block the heater, and a steam \
+              whitelist refusal must not block the water valve"
 )]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Verdict {
@@ -421,16 +356,15 @@ pub struct Verdict {
     /// set, when the water tank is empty, **or** when the current state is not a
     /// water-flow state.
     ///
-    /// The tank condition is a **deliberate divergence** ([09 §3](../../docs/history/cpp-findings.md)):
-    /// the C++'s `openWaterValve` checks only `emergencyMode_`.
+    /// The tank condition is a **deliberate divergence**: an empty reservoir must
+    /// not open the water valve either.
     pub may_open_water: bool,
     /// May the steam valve be energised? `false` when the latch is set **or**
     /// the current state is not a steam-flow state.
     ///
-    /// The state condition is a **deliberate divergence**
-    /// ([09 §2](../../docs/history/cpp-findings.md)): the C++'s
-    /// `openSteamValve` checks only `emergencyMode_`, and the steam and water
-    /// valves are the *same physical relay*.
+    /// The state condition is a **deliberate divergence**: the steam and water
+    /// valves are the *same physical relay*, so an ungated steam open would
+    /// re-open the hole S5 exists to close.
     pub may_open_steam: bool,
     /// Whether the emergency latch is set after this reduce.
     pub latched: bool,
@@ -449,9 +383,8 @@ impl Verdict {
         reason: None,
     };
 
-    /// Everything refused because the emergency latch is set. This is the
-    /// emergency-shutdown actuator state of `HardwareManager::disableAllHardware`
-    /// (`HardwareManager.cpp:528-542`), expressed as a permission set.
+    /// Everything refused because the emergency latch is set: the shutdown state
+    /// of every actuator, expressed as a permission set.
     pub const ALL_REFUSED: Self = Self {
         may_heat: false,
         may_pump: false,
@@ -480,26 +413,15 @@ pub struct Outcome {
 
 /// S5: may water flow in this state?
 ///
-/// A `match` with **no `_` arm**, on purpose. Adding a 19th `MachineState`
-/// variant makes this function fail to compile until someone has decided
-/// whether the new state flows water. That is the entire mechanism: the C++
+/// A `match` with **no `_` arm**, on purpose. Adding a `MachineState` variant
+/// makes this function fail to compile until someone has decided whether the new
+/// state flows water, which is what keeps the whitelist auditable.
 ///
-/// ```cpp
-/// const bool waterFlowActive = (isBrewState(state) && state != BREW_FINISHED) ||
-///                              isManualFlushState(state) ||
-///                              (isBackflushState(state) && state != BACKFLUSH_IDLE &&
-///                               state != BACKFLUSH_FINISHED);
-/// ```
+/// The whitelist is the set of states in which water is drawn:
 ///
-/// (`BrewHandler.h:109-112`) hides the decision inside predicates, so a new
-/// state silently inherits "no water" without anyone noticing. Here it is a
-/// compile error (04 §4, skill §4).
-///
-/// The whitelist, transcribed from the C++ expression above:
-///
-/// * brew states except `BREW_FINISHED` — 31, 32, 33
-/// * `MANUAL_FLUSH_RUNNING` — 36
-/// * backflush states except `BACKFLUSH_IDLE` and `BACKFLUSH_FINISHED` — 61, 62
+/// * the brew states except `BrewFinished`
+/// * `ManualFlushRunning`
+/// * the backflush states except `BackflushIdle` and `BackflushFinished`
 #[must_use]
 pub const fn water_flow_allowed(state: MachineState) -> bool {
     match state {
@@ -526,85 +448,30 @@ pub const fn water_flow_allowed(state: MachineState) -> bool {
 
 /// S5': may steam flow in this state?
 ///
-/// A `match` with **no `_` arm**, for the same reason as
-/// [`water_flow_allowed`]: a new state must be classified before it compiles.
-/// There is no C++ expression to transcribe here, so the whitelist is derived —
-/// and the derivation is the argument, so it is written out.
+/// `SteamRunning`, and only `SteamRunning`, which is what
+/// [`MachineState::is_steam_state`] reports. A `match` with **no `_` arm**, for
+/// the same reason as [`water_flow_allowed`]: a new state must be classified
+/// before it compiles.
 ///
-/// # The C++ has no steam whitelist at all
+/// # Why this exists
 ///
-/// ```cpp
-/// void HardwareManager::openSteamValve() noexcept {
-///     if (emergencyMode_) {
-///         LOG(WARNING, "Cannot open steam valve - emergency mode active");
-///         return;
-///     }
-///     ...
-/// ```
-/// (`src/hardware/HardwareManager.cpp:397-400`)
+/// Steam and water share one physical relay, so an ungated steam open energises
+/// the very solenoid S5 exists to keep closed. The steam valve is reachable
+/// through `Effect::OpenSteamValve`, and this whitelist is what
+/// `Actuators::may_open_steam` consults before allowing it. `may_open_water`
+/// excludes `SteamRunning` for the same reason, from the other side.
 ///
-/// `emergencyMode_` is the *only* check. There is no `steamSafetyShutdownCheck`
-/// anywhere in the tree — `BrewHandler::valveSafetyShutdownCheck`
-/// (`BrewHandler.h:105-122`) is the water valve's, and it names only the water
-/// relay. The same three lines, minus the whitelist, at
-/// `MachineStateContext.cpp:556-558`.
+/// # The whitelist
 ///
-/// # Why that is a real gap and not a theoretical one
+/// The set of states in which steam is drawn is `SteamRunning` alone.
+/// `SteamRunning` is the only state that turns steam mode on, and leaving it
+/// turns the flag off again; every other state either never touches the flag or
+/// clears it. Water injection while steaming happens **inside** `SteamRunning`
+/// rather than in a state of its own.
 ///
-/// Steam and water share **one relay**:
-///
-/// > "Steam and water valves share the same physical relay. This enum tracks
-/// > which valve(s) should be open, ensuring correct relay control."
-///
-/// — `include/clevercoffee/hardware/ValveState.h:8-11`.
-///
-/// The pin map confirms it: one valve relay, GPIO17
-/// (`include/clevercoffee/hardware/pinmapping.h:39`). So an ungated
-/// `openSteamValve()` does not open some other solenoid — **it energises the
-/// very relay that S5 spends its whole existence keeping closed.** The C++ is
-/// protected only by the accident that nothing calls it: `rg -n openSteamValve`
-/// over `src/` and `include/` finds the definition, the pass-through, the
-/// interface declaration and nothing else. A port that gives the state machine
-/// the ability to express it — which this one does, via
-/// `Effect::OpenSteamValve` — inherits the gap with none of the accident.
-///
-/// # The derivation
-///
-/// The whitelist is *the set of states in which steam is drawn*. From the C++:
-///
-/// 1. `SteamRunningState::onEntryImpl` is the **only** place in the tree that
-///    turns steam mode on: `context.setSteamMode(true)`
-///    (`src/state/states/SteamStates.cpp:16`). Every other state either never
-///    touches it or clears it — `SteamRunningState::onExitImpl` (`:21`),
-///    `SystemStates.cpp:17`.
-///
-/// 2. Steam mode is what the process controller keys off to select the steam
-///    setpoint, and nothing else: `updateSetpoint(isSteamModeActive())`
-///    (`src/control/ProcessController.cpp:119-120`, `:235-244`). So the
-///    *only* state in which the machine is holding the boiler at
-///    `steam.setpoint` is `STEAM_RUNNING`.
-///
-/// 3. Water injection during steam — the second place the C++ moves water while
-///    steaming — happens **inside** `STEAM_RUNNING`, not in a state of its own:
-///    `SteamRunningState::update` drives the pump from the water switch
-///    (`SteamStates.cpp:36-46`). `MachineStateId` has no injection state; the
-///    eleven state ids in `MachineStateIds.h` include exactly one steam state
-///    (`STEAM_RUNNING = 51`).
-///
-/// 4. `WebServerManager.cpp:444-445` can flip `isSteamModeActive()` directly
-///    over HTTP without changing the state. That is a debug surface, and it is
-///    the case that makes a *mode-based* gate wrong: the steam mode would be on
-///    in `PID_NORMAL`, where the setpoint has not changed and no steam can be
-///    drawn. A state-based whitelist ignores it, correctly.
-///
-/// Therefore: **`STEAM_RUNNING`, and only `STEAM_RUNNING`.** Every other state —
-/// including `PID_NORMAL`, `BREW_RUNNING`, `BACKFLUSH_FILLING` and `STANDBY` —
-/// must hold the steam valve closed.
-///
-/// The single-state whitelist is not a stub left for later. A wider one would be
-/// actively wrong: because the relay is shared, listing a water-flow state as a
-/// steam state would make `may_open_steam` agree with `may_open_water` and
-/// quietly re-open S5's hole from the other side.
+/// A wider whitelist would be actively wrong: because the relay is shared,
+/// listing a water-flow state as a steam state would make `may_open_steam` agree
+/// with `may_open_water` and quietly re-open S5's hole from the other side.
 #[must_use]
 pub const fn steam_flow_allowed(state: MachineState) -> bool {
     match state {
@@ -632,20 +499,17 @@ pub const fn steam_flow_allowed(state: MachineState) -> bool {
 /// The whole safety decision, as a pure function.
 ///
 /// Runs once per control tick, before the PID computes and before any state
-/// transition — the same order `LoopManager::update()` uses
-/// (`src/core/LoopManager.cpp:617-620`, emergency check then PID compute at step
-/// 7). `now` is accepted for interface symmetry with the other reducers and for
-/// the deadman timeout that R2-09b will add; nothing in S1-S5 is time-based, so
-/// it does not participate in the decision today.
+/// transition. `now` is accepted for interface symmetry with the other reducers
+/// and for the deadman timeout that is not implemented yet; nothing in S1-S5' is
+/// time-based, so it does not participate in the decision.
 ///
 /// # The rules, in evaluation order
 ///
 /// 1. **S1, invalid reading.** A reading outside
 ///    [`Celsius::MIN`]..=[`Celsius::MAX`] (or `NaN`) latches immediately, with
-///    **no debounce** — `EmergencyStopManager.cpp:23-33` says so in a comment
-///    ("no debouncing for safety") and it is right: a probe reading 222 °C is
-///    reporting a fault, not a temperature.
-/// 2. **S1, overtemp with debounce.** Above `emergency_temp` the counter
+///    **no debounce**: a probe reading 222 °C is reporting a fault, not a
+///    temperature, and waiting three readings to act on it protects nothing.
+/// 2. **S1, over-temperature with debounce.** Above `emergency_temp` the counter
 ///    increments; at [`DEBOUNCE_COUNT`] it latches. A reading exactly at the
 ///    threshold does not count.
 /// 3. **S1 reset / S3 clear.** Below `emergency_temp - emergency_hysteresis`
@@ -654,16 +518,13 @@ pub const fn steam_flow_allowed(state: MachineState) -> bool {
 ///    those two temperatures the counter is left alone, which is the hysteresis
 ///    that stops the machine oscillating around the threshold.
 /// 4. **S2.** If latched, nothing may be energised.
-/// 5. **S4.** An empty tank blocks the pump and — deliberately, unlike the C++
-///    — the water valve. The boiler is fed from the reservoir, so an empty tank
-///    means the pump is running dry; leaving the valve open is not what makes
-///    that safe, it is just as much of a mistake.
+/// 5. **S4.** An empty tank blocks the pump and the water valve. The boiler is
+///    fed from the reservoir, so an empty tank means the pump is running dry;
+///    leaving the valve open is not what makes that safe, it is just as much of a
+///    mistake.
 /// 6. **S5.** A state outside [`water_flow_allowed`] blocks the water valve.
-/// 7. **S5'.** A state outside [`steam_flow_allowed`] blocks the steam valve.
-///    This check does not exist in the C++ at all
-///    ([09 §2](../../docs/history/cpp-findings.md)); it is added here
-///    because the steam valve is the same relay as the water valve and the port
-///    can reach it. See [`steam_flow_allowed`] for the derivation.
+/// 7. **S5'.** A state outside [`steam_flow_allowed`] blocks the steam valve,
+///    which is the same relay as the water valve.
 #[must_use]
 pub fn reduce(
     prev: &SafetyState,
@@ -733,8 +594,8 @@ pub fn reduce(
     let mut verdict = Verdict::ALL_PERMITTED;
     if !telemetry.water_tank_full {
         verdict.may_pump = false;
-        // Deliberate divergence from the C++ (09 §3): `openWaterValve` does not
-        // check `waterTankEmpty_` there.
+        // A deliberate divergence: an empty reservoir must not open the water
+        // valve either.
         verdict.may_open_water = false;
         verdict.reason = Some(Reason::WaterTankEmpty);
     }
@@ -760,11 +621,9 @@ pub fn reduce(
 
 /// S3: may a latched emergency stop be cleared?
 ///
-/// Port of `EmergencyStopManager::isEmergencyCleared`
-/// (`EmergencyStopManager.cpp:71-90`): the reading must be plausible **and** at
-/// or below [`EMERGENCY_SAFE_TEMP_C`]. The comparison is `>`, so exactly
-/// 100.0 °C does clear — 100 °C is water at atmospheric pressure, and the
-/// machine will not be steaming.
+/// The reading must be plausible **and** at or below
+/// [`EMERGENCY_SAFE_TEMP_C`], so exactly 100.0 °C clears: 100 °C is water at
+/// atmospheric pressure, and the machine will not be steaming.
 #[must_use]
 pub fn can_clear(temperature: Celsius) -> bool {
     temperature.is_valid() && temperature.raw() <= EMERGENCY_SAFE_TEMP_C.raw()
@@ -798,17 +657,10 @@ pub enum ConfigViolation {
     /// emergency threshold means the boiler is driven there and held, and the
     /// three-reading debounce can never count a breach.
     ///
-    /// `safety.emergency_temp` defaults to 150 (`Config.h:813-829`) and
-    /// `brew.setpoint` is bounded 20..=110 by the schema
-    /// (`Config.h:795-802`, `defaults.h:81-82`), so the schema bounds alone
-    /// keep the defaults 40 °C apart — which is why the C++ is not exposed to
-    /// this through `/api/parameters`. It *was* exposed here, because
-    /// `POST /api/setpoint` filtered to `0..=150` instead of the schema's range
-    /// and wrote the result straight to the store without passing
-    /// `cc_config::assign::parse` (`WebServerManager.cpp:391-402` reads
-    /// `0..=150` and then range-checks nothing; `Config.h:795` is what would
-    /// have, and it was bypassed). The check lives here so that **every** write
-    /// path is covered, not just the one that was found.
+    /// The schema bounds alone keep the defaults far enough apart to be safe, so
+    /// the live hazard is a legal pair written by a path that skipped them. The
+    /// check lives here, at the validator, so that every write path is covered,
+    /// not just the one where the hole was found.
     EmergencyTempTooLowForBrew {
         /// The configured emergency threshold.
         emergency_temp: Celsius,
@@ -820,21 +672,18 @@ pub enum ConfigViolation {
     },
     /// The heater relay is configured `LOW_TRIGGER`.
     ///
-    /// An ESP32 GPIO is high-impedance before `pinMode()` runs and while the
-    /// chip resets, and a low-trigger relay board energises its coil when the
-    /// input is low *or floating*. Firmware cannot prevent that: it loses
-    /// control of the pin before its first instruction. The heater would be
-    /// energised on every boot. This is a wiring property, not a code path, so
-    /// no amount of firmware can make it safe.
-    /// A `LOW_TRIGGER` heater relay. See [`Self::PumpRelayLowTrigger`] for why
-    /// the same hazard applies to the other two.
+    /// An ESP32 GPIO is high-impedance before the pin is configured as an output and
+    /// resets, and a low-trigger relay board energises its coil when the input is
+    /// low *or floating*. Firmware cannot prevent that: it loses control of the
+    /// pin before its first instruction, so the heater would be energised on
+    /// every boot. This is a wiring property rather than a code path, and no
+    /// amount of firmware can make it safe.
     HeaterRelayLowTrigger,
     /// A `LOW_TRIGGER` pump relay: the pump runs at every boot, before any
     /// firmware exists to stop it.
     ///
-    /// The C++ honours this setting (`Relay.cpp:13-27`), and so does this port —
-    /// `actuators::Polarity` exists for it — but a configuration carrying one is
-    /// refused at boot rather than obeyed, because the pin floats before
+    /// `actuators::Polarity` can drive such a relay, but a configuration carrying
+    /// one is refused at boot rather than obeyed, because the pin floats before
     /// firmware runs and "honoured" would mean "energised from power-on".
     PumpRelayLowTrigger,
     /// A `LOW_TRIGGER` valve relay: water at every boot.
@@ -842,44 +691,31 @@ pub enum ConfigViolation {
     /// An automatic brew whose only stop condition is a weight, on a machine
     /// with no scale.
     ///
-    /// **A pump with an open water valve and nothing to stop it.**
-    /// `BrewRunningState::checkSpecificTransitions` (`BrewStates.cpp:266-303`)
-    /// ends an automatic shot on exactly two things: `brew.by_time`, whose
-    /// target comes from `initTotalTargetBrewTime` (`:53-62`) and is **zero**
-    /// unless `brew.by_time.enabled`, and `brew.by_weight`, which compares
-    /// `getCurrentBrewWeight()` against `brew.by_weight.target_weight`. With
-    /// `by_time` off and no scale to weigh with, neither arm can ever fire and
-    /// the only thing left is the brew switch or `BREW_PUMP_TIMEOUT_MS` — 300
-    /// seconds (`timing::BREW_PUMP_TIMEOUT_MS`) of water.
+    /// **A pump with an open water valve and nothing to stop it.** An automatic
+    /// shot has two stop conditions: `brew.by_time`, whose target is zero unless
+    /// `by_time.enabled`, and `brew.by_weight`, which compares the scale reading
+    /// against `target_weight`. With `by_time` off and nothing to weigh with,
+    /// neither arm can fire, and what is left is the brew switch or the
+    /// 300-second pump watchdog (`timing::BREW_PUMP_TIMEOUT_MS`) of water.
     ///
-    /// The configuration is **legal in every field**. `brew.mode` is an enum
-    /// with two values, both offered; `by_time.enabled` and `by_weight.enabled`
-    /// are independent booleans that both default to `false`; `target_weight`
-    /// is bounded `0 ..= 500` (`defaults.h`) and defaults to 36. So no
-    /// single-parameter range check anywhere can catch this — it takes two
-    /// settings read together, which is exactly what this function is for.
+    /// The configuration is **legal in every field**: both booleans default to
+    /// `false`, and `target_weight` is bounded `0 ..= 500` and defaults to 36. No
+    /// single-parameter range check can catch this, because it takes two settings
+    /// read together, which is exactly what this rule is for.
     ///
-    /// **The C++ cannot catch it either, and does not need to be told twice.**
-    /// `BrewStates.cpp:283-299` has the identical arm and the identical hole.
-    /// What differs is that in the C++ the weight is *never produced at all*
-    /// (09 §23: `HardwareContext::setScale` has no caller, so `getBrewWeight()`
-    /// returns 0 forever), so the by-weight arm is dead there unconditionally —
-    /// an operator who enabled it got a 300-second shot, which is the same
-    /// defect with a larger blast radius. Here the driver exists
-    /// (`cc_hal_esp32::Sampler`), so the arm is live and the weight is threaded
-    /// into it; that is precisely what makes the *unreachable* case the one
-    /// worth refusing. Inherited, not introduced — see
-    /// [09 §23](../docs/history/cpp-findings.md).
+    /// It bites only while the scale driver works: with no driver the by-weight
+    /// arm is dead anyway and the same configuration is merely a 300-second shot.
     BrewByWeightWithNoScale,
 }
 
 impl ConfigViolation {
     /// Keys this violation implicates. Repair reverts these. HTTP 400 names them.
     ///
-    /// Headroom rules name `safety.emergency_temp`, not the setpoint: raising
-    /// the threshold cannot fail the rule. Not always enough: `steam.setpoint`
-    /// 140 plus `safety.emergency_hysteresis` 15 exceeds the 150 default.
-    /// `cc_config::repair_unsafe` then uses `REPAIR_ESCALATION_KEYS`. Finding #12.
+    /// The headroom rules name `safety.emergency_temp`, not the setpoint:
+    /// raising the threshold cannot fail the rule. That is not always enough, as
+    /// `steam.setpoint` 140 plus `safety.emergency_hysteresis` 15 exceeds the
+    /// 150 default, so `cc_config::repair_unsafe` falls back to
+    /// `REPAIR_ESCALATION_KEYS`.
     #[must_use]
     pub const fn implicated_keys(self) -> &'static [&'static str] {
         match self {
@@ -896,47 +732,38 @@ impl ConfigViolation {
 
 /// Validate a configuration before it is run or stored.
 ///
-/// Recovered from the previous Rust firmware ([08 §4.1](../docs/history/recovered-oracle.md)),
-/// which is the only implementation known to have had this check. The C++ has
-/// neither rule: it validates each parameter in isolation
-/// (`Config.h:isValid`) and never looks at two parameters at once, so a
-/// perfectly legal `steam.setpoint = 140` together with
-/// `safety.emergency_temp = 120` is accepted, and the machine then refuses to
-/// steam.
+/// Each parameter is range-checked by `cc-config` before this is called, so the
+/// subject here is not an out-of-range value but a *legal* pair that is unsafe in
+/// combination, or a legal set of fields that leaves the machine with nothing to
+/// stop it. No single-parameter check can substitute for either: a rule enforced
+/// only where a hole was found is a rule waiting for the next writer.
 ///
 /// # Errors
 ///
 /// Returns the first [`ConfigViolation`] found, or `Ok(())` if the
 /// configuration is safe to run.
 ///
-/// # Note on the thresholds
+/// # The threshold pairs
 ///
-/// Both parameters are individually range-checked by `cc-config` before this
-/// is called, so the interesting case is not an out-of-range value but a
-/// *legal* pair that is unsafe in combination: `emergency_temp` in 120-180 and
-/// `steam_setpoint` in 100-140 overlap across 120-140, and
-/// `emergency_hysteresis` adds up to 15 more degrees on top.
+/// `emergency_temp` and `steam.setpoint` have ranges that overlap once
+/// `emergency_hysteresis` is added on top, so a legal pair can put the emergency
+/// threshold at or below the temperature the machine is told to hold.
 ///
-/// The brew pair is checked for the same reason and with the same asymmetry.
-/// S1's over-temperature test is **strictly greater**
+/// The brew pair is checked with the same asymmetry and one extra: S1's
+/// over-temperature test is **strictly greater**
 /// ([`SafetyState::is_over_threshold`]), so the failure mode of a brew setpoint
 /// at or above the threshold is not a machine that trips — it is a machine the
-/// PID drives *to* the threshold and holds there, with a debounce that can
-/// never count a breach. That is why the check belongs here rather than at the
-/// write path: `POST /api/setpoint` once filtered to `0..=150` and persisted the
-/// result without going through `cc_config::assign::parse`, and a rule enforced
-/// only where the bug was found is a rule waiting for the next writer.
+/// PID drives *to* the threshold and holds there, with a debounce that can never
+/// count a breach.
 ///
-/// The brew-stop rule ([`ConfigViolation::BrewByWeightWithNoScale`]) is here for
-/// the same reason and one more: it is a **four-way** conjunction in which no
-/// term is out of range on its own, so there is no single-parameter range check
-/// anywhere in the firmware that could substitute for it.
+/// [`ConfigViolation::BrewByWeightWithNoScale`] is here for the same reason and
+/// one more: it is a four-way conjunction in which no term is out of range on its
+/// own.
 pub fn validate_config(cfg: &SafetyConfig) -> Result<(), ConfigViolation> {
     let steam_headroom = cfg.steam_setpoint.raw() + cfg.emergency_hysteresis.raw();
-    // A bench build compiles the two headroom rules out so the over-temp trip
-    // in `operations/runbook.md` §13.1 can be reached with a hand-warmed
-    // DS18B20. Everything below this point still applies: the relay rules, the
-    // brew-target rule, and everything after them. See
+    // A bench build compiles the two headroom rules out so the over-temperature
+    // trip can be reached with a hand-warmed DS18B20 on the bench. The relay and
+    // brew-target rules below are unaffected; see
     // [`cc_domain::BENCH_UNSAFE_TEMPERATURES`].
     if !cc_domain::BENCH_UNSAFE_TEMPERATURES {
         if cfg.emergency_temp.raw() <= steam_headroom {
@@ -960,13 +787,11 @@ pub fn validate_config(cfg: &SafetyConfig) -> Result<(), ConfigViolation> {
         }
     }
 
-    // **Every relay, not just the heater.** The recovered oracle refused
-    // `LOW_TRIGGER` for the heater because such a relay energises whenever its
-    // pin floats, which is *before* any firmware runs — so a low-trigger pump or
-    // valve relay runs water at boot, with no firmware in the loop to stop it.
-    // Nothing about that hazard is heater-specific, and the C++ wires all three
-    // trigger types into `Relay::on()` (`HardwareManager.cpp:73,80,87`), so a
-    // stored configuration can carry any of them.
+    // **Every relay, not just the heater.** A low-trigger relay energises
+    // whenever its pin floats, which is *before* any firmware runs, so a
+    // low-trigger pump or valve relay runs water at boot with no firmware in the
+    // loop to stop it. Nothing about that hazard is heater-specific, and every
+    // trigger type is storable.
     if cfg.heater_relay_trigger == RelayTriggerType::LowTrigger {
         return Err(ConfigViolation::HeaterRelayLowTrigger);
     }
@@ -979,23 +804,17 @@ pub fn validate_config(cfg: &SafetyConfig) -> Result<(), ConfigViolation> {
 
     // **An automatic brew has to have somewhere to stop.** Placed after the
     // relays because, unlike them, this one is about what the machine will *do*
-    // rather than about what cannot be made safe in firmware at all.
+    // rather than about a wiring hazard firmware cannot undo.
     //
-    // The rule is the conjunction of the two arms of
-    // `BrewRunningState::checkSpecificTransitions` (`BrewStates.cpp:283-299`),
-    // negated: the by-time arm cannot fire because `by_time` is off (and
-    // `initTotalTargetBrewTime`, `:53-62`, returns 0.0 in that case, so
-    // `machine.brew.target_ms` is 0 and the arm's own `target > 0.0` test fails
-    // too), and the by-weight arm cannot fire because there is nothing to weigh.
-    // What is left is `requests.brew_stop` — the switch — and the 300-second
-    // pump watchdog.
+    // Neither stop arm can fire: by-time is off, so its target is zero, and
+    // by-weight has nothing to weigh. What is left is the brew switch and the
+    // 300-second pump watchdog.
     //
     // `brew.by_weight.target_weight > 0.0` is deliberately **not** part of this
-    // test. It is part of the arm's, so a target of 0 makes that arm dead too,
-    // but the schema bounds the field at `0 ..= 500` and defaults it to 36, and
-    // "brew by weight, to zero grams" is not a thing an operator configures by
-    // accident in a way the target check would usefully catch. Enabling
-    // by-weight on a machine that cannot weigh is refused either way.
+    // test. The field is bounded `0 ..= 500` and defaults to 36, and "brew by
+    // weight, to zero grams" is not a configuration an operator reaches by
+    // accident; enabling by-weight on a machine that cannot weigh is refused
+    // either way.
     if !cfg.scale_fitted
         && cfg.brew_mode == BrewMode::Automatic
         && !cfg.brew_by_time_enabled
@@ -1004,11 +823,8 @@ pub fn validate_config(cfg: &SafetyConfig) -> Result<(), ConfigViolation> {
         return Err(ConfigViolation::BrewByWeightWithNoScale);
     }
 
-    // `cfg.temperature_sensor` is deliberately not checked. Both types have a
-    // driver (R1-03 for the DS18B20, R3-07 for the TSIC-306), so there is no
-    // value of this field the firmware cannot honour. The
-    // `UnsupportedTemperatureSensor` refusal that used to be here is gone with
-    // the variant itself; the reasoning is in `intentional-diffs.md`.
+    // `cfg.temperature_sensor` is deliberately not checked: both types have a
+    // driver, so there is no value of this field the firmware cannot honour.
     let _ = cfg.temperature_sensor;
 
     Ok(())
@@ -1024,12 +840,10 @@ pub enum ConfigOrigin {
     /// A stored configuration was found, failed [`validate_config`], and was
     /// **discarded**. The defaults are in use instead.
     ///
-    /// This is the fail-closed rule from [08 §4.1](../docs/history/recovered-oracle.md):
-    /// refuse to store an unsafe configuration, and refuse to run one that was
-    /// stored by an older or corrupted image. The alternative — running a
+    /// Refusing to run it is the fail-closed direction: the alternative is a
     /// configuration that trips emergency stop on every steam shot, or that
-    /// energises the heater at reset — is not an option for a machine that
-    /// heats water to 120 °C under pressure.
+    /// energises the heater at reset, and neither is acceptable on a machine that
+    /// heats water under pressure.
     DiscardedUnsafe(ConfigViolation),
 }
 
@@ -1077,8 +891,7 @@ pub fn load_or_default(stored: Option<&SafetyConfig>) -> LoadedConfig {
 ///
 /// The mirror of [`load_or_default`]: the store is the other place an unsafe
 /// configuration can enter the system, and refusing at the boundary is cheaper
-/// than discovering it on the next boot. The recovered firmware logged
-/// `"refusing to store an unsafe configuration"` (08 §4.1).
+/// than discovering it on the next boot.
 ///
 /// # Errors
 ///

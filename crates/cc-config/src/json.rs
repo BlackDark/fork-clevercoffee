@@ -2,53 +2,50 @@
 //!
 //! # Format
 //!
-//! Nested objects, keys identical to the C++ dotted names:
+//! Nested objects, dotted keys split into the same nesting:
 //!
 //! ```json
 //! { "pid": { "regular": { "kp": 62.0 } }, "safety": { "emergency_temp": 150.0 } }
 //! ```
 //!
-//! That is what `Config::exportToJsonObject` produces
-//! (`src/Config.cpp:234-243`, via `ConfigJson::setNested`), what
-//! `docs/example_config.json` contains, and what the oracle firmware stored
-//! (08 §5.3). Enumerations are plain integers, because
-//! `EnumParamDef::toJson` writes `static_cast<int>(currentValue_)`
-//! (`Config.h:423`).
+//! That is the shape `docs/example_config.json` carries and the shape the import
+//! test parses. Enumerations are plain integers, because the wire format for an
+//! enumeration is its discriminant — see [`crate::IntEnum`].
 //!
-//! # The rejection rules, and where each comes from
+//! # The rejection rules
 //!
-//! | Rule | C++ |
-//! | --- | --- |
-//! | empty body is rejected | `Config.cpp:348-351` |
-//! | unparseable body is rejected | `Config.cpp:353-357` |
-//! | oversized body is rejected | `Config.cpp:359-362` (`doc.overflowed()`) |
-//! | a non-object root is rejected | `Config.cpp:364-368` |
-//! | flat dotted keys are rejected | `Config.cpp:370-374` (`usesFlatDotKeys`) |
-//! | an object with no known key is rejected | `Config.cpp:325-345` (`updatedCount > 0`) |
+//! Each rule exists because the alternative silently imports a configuration
+//! nobody chose:
+//!
+//! * **An empty body, or one with no known key, is rejected.** Either one mentions
+//!   nothing, so "success" would mean "nothing happened".
+//! * **An unparseable body is rejected.** The operator gets the parse error rather
+//!   than a success.
+//! * **An oversized body is rejected.** See [`MAX_CONFIG_BYTES`].
+//! * **A non-object root is rejected.** A bare scalar cannot carry a key to set.
+//! * **Flat dotted keys are rejected.** `{"pid.regular.kp": 62}` is a second
+//!   spelling of the same value, and two spellings means a format with two
+//!   dialects.
 //!
 //! # Two deliberate strengthenings
 //!
-//! 1. **A bad value for a known key rejects the whole import.** The C++ logs a
-//!    warning per bad parameter and carries on, then reports success as long as
-//!    *one* parameter imported (`Config.cpp:331-342`). A user uploading a
-//!    configuration with an out-of-range `safety.emergency_temp` gets a
-//!    `200 OK`, believes it took effect, and runs on the old value. Here the
-//!    import is all-or-nothing and the offending keys are named. The C++ *error
-//!    message* at `WebServerManager.cpp:752` already claims to reject "invalid
-//!    values", so this makes the code match the message.
-//! 2. **The size limit is explicit and stated.** `doc.overflowed()` is
-//!    `ArduinoJson` reporting that the document outgrew its fixed pool — a
-//!    capacity fact, not a policy. `serde_json` has no such pool, so the bound
-//!    has to be a decision. [`MAX_CONFIG_BYTES`] is set from what the store can
-//!    actually hold: the oracle's blob was 2071 bytes
-//!    (`cc_firmware: config: nvs (2071 B stored)`) and the `nvs` partition is
-//!    20 KB, so 8 KB leaves room for the keys around it and a decade of
-//!    added parameters.
+//! 1. **A bad value for a known key rejects the whole import.** A warn-and-continue
+//!    import answers `200` as long as *one* parameter imported, so an operator
+//!    uploading a configuration with an out-of-range `safety.emergency_temp`
+//!    believes it took effect and runs on the old value. Here the import is
+//!    all-or-nothing and the offending keys are named. The route's own error
+//!    message already claims to reject invalid values, so this makes the code match
+//!    the message (§22 of `docs/history/divergences.md`).
+//! 2. **The size limit is explicit and stated.** `serde_json` has no pool that can
+//!    overflow, so the bound has to be a decision rather than a capacity fact.
+//!    [`MAX_CONFIG_BYTES`] is set from what the store can hold: `docs/example_config.json`
+//!    is 1814 B in compact JSON and the `nvs` partition is 20 KB, so 8 KB leaves
+//!    room for the keys around it and for years of added parameters.
 //!
-//! Unknown keys are **ignored**, as in the C++. Forward compatibility is worth
-//! more here than strictness: a configuration exported by a newer firmware must
-//! still import into an older one, and the extra keys it will write are all
-//! range-checked on the way in.
+//! Unknown keys are **ignored**. Forward compatibility is worth more here than
+//! strictness: a configuration exported by a newer firmware must still import,
+//! and the keys this firmware does not know are each range-checked on the way in
+//! by the schema of the firmware that does know them.
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -60,20 +57,19 @@ use crate::schema::{self, ParamSpec, ParamValue};
 
 /// The largest configuration document that will be parsed or produced.
 ///
-/// See the module documentation: 8 KB, against an oracle blob of 2071 bytes and
-/// a 20 KB NVS partition.
+/// See the module documentation: 8 KB, against a 20 KB NVS partition and a
+/// configuration that is about 2 KB.
 pub const MAX_CONFIG_BYTES: usize = 8 * 1024;
 
 /// Why an import was rejected.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ImportError {
-    /// The body was empty. `Config.cpp:348`: "JSON import rejected — empty body".
+    /// The body was empty.
     Empty,
     /// The body was longer than [`MAX_CONFIG_BYTES`].
     ///
-    /// The C++ expresses this as `doc.overflowed()`
-    /// (`Config.cpp:359`), which is a fixed-pool capacity failure rather than a
-    /// policy; the limit here is a policy.
+    /// A policy, unlike a document that outgrows a fixed parser pool: the limit is
+    /// chosen from what the store can hold and stated in the response.
     TooLarge {
         /// The size that was rejected.
         bytes: usize,
@@ -83,16 +79,14 @@ pub enum ImportError {
         /// A human-readable description, for the API response.
         detail: String,
     },
-    /// The root was not a JSON object. `Config.cpp:364`.
+    /// The root was not a JSON object.
     NotAnObject,
-    /// A top-level key contained a `.`, i.e. the legacy flat format.
+    /// A top-level key contained a `.`: the flat dotted spelling.
     ///
-    /// `ConfigJson::usesFlatDotKeys` (`src/ConfigJson.cpp:40-52`) rejects this,
-    /// and so does `/api/config/upload` (`WebServerManager.cpp:737-745`). The
-    /// reason it matters: `{"brew.setpoint": 95}` looks like a valid nested
-    /// document to a human, imports *nothing at all* under the nested reader,
-    /// and the C++ would then report "0 parameters imported" and fail — but only
-    /// after a confusing round trip. Rejecting it by name is kinder.
+    /// Rejected **by name, and early**, because `{"brew.setpoint": 95}` looks like
+    /// a valid nested document to a human and under the nested reader it would
+    /// import *nothing at all*. Naming the shape is kinder than a round trip that
+    /// ends in "0 parameters imported".
     FlatDottedKeys {
         /// The offending top-level key.
         key: String,
@@ -101,8 +95,8 @@ pub enum ImportError {
     NoKnownParameters,
     /// One or more known keys held a value this firmware rejects.
     ///
-    /// See the module documentation: this is a deliberate strengthening of the
-    /// C++, which logs and continues.
+    /// See the module documentation: the import is all-or-nothing, rather than
+    /// applying what it can.
     InvalidValues {
         /// One entry per rejected key, in the order the keys appear in
         /// [`schema::SCHEMA`].
@@ -136,7 +130,7 @@ impl core::fmt::Display for ImportError {
 /// One parameter whose value was rejected.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RejectedValue {
-    /// The dotted C++ key.
+    /// The dotted key.
     pub key: &'static str,
     /// Why it was rejected, ready for an API response.
     pub reason: RejectReason,
@@ -162,11 +156,11 @@ pub enum RejectReason {
 
 /// Serialise a configuration to the nested JSON blob.
 ///
-/// Byte-compatible with `Config::exportToJson()` for every key the C++
-/// exports, plus the two `safety.*` keys it omits. Compact rather than pretty:
-/// the C++ uses `serializeJsonPretty` for the HTTP download and plain
-/// `serializeJson` for storage, and this is the storage form. The download
-/// handler can re-emit it with `to_string_pretty`.
+/// Every key of the schema is present, including the two `safety.*` keys that a
+/// store built for the MQTT surface alone would not carry. Compact rather than
+/// pretty; both HTTP routes that serve this body send it as it is, and
+/// `/api/config/download` differs only in adding
+/// `Content-Disposition: attachment`.
 ///
 /// # Errors
 ///
@@ -195,9 +189,9 @@ pub enum ExportError {
 
 /// Parse a configuration from a nested JSON blob.
 ///
-/// Missing keys keep their defaults, exactly as a partial `POST /api/config`
-/// would in the C++ (each parameter is looked up independently and `continue`d
-/// when absent, `Config.cpp:328-331`). Unknown keys are ignored.
+/// Missing keys keep their defaults: this is the seeding path, so a document
+/// that mentions twelve keys produces a `Config` that is those twelve plus the
+/// defaults. Unknown keys are ignored.
 ///
 /// # Errors
 ///
@@ -288,15 +282,12 @@ fn scan(root: &Map<String, Value>) -> Result<Vec<(&'static ParamSpec, Value)>, I
 
 /// The dotted `(key, value)` pairs a nested configuration document carries.
 ///
-/// **This is the reader for `POST /api/config/upload`.** The C++'s route
-/// (`WebServerManager.cpp:727-762`) hands the body to
-/// `Config::importFromJsonObject` (`Config.cpp:323-345`), which walks the
-/// parameters, applies the ones the document mentions, and reports success if
-/// *one* of them imported. It is deliberately **not** `json_import`, which
-/// deserialises a whole `Config` with defaults filled in — that is the right
-/// shape for seeding a fresh store from `/config.json` and the wrong shape for
-/// an upload, where a document that mentions twelve keys must leave the other
-/// eighty-six exactly as they are.
+/// **This is the reader for `POST /api/config/upload`.** It is deliberately
+/// **not** [`json_import`], which deserialises a whole `Config` with defaults
+/// filled in — that is the right shape for seeding a fresh store from a document
+/// that is meant to be complete, and the wrong shape for an upload, where a
+/// document that mentions twelve keys must leave the other eighty-six exactly as
+/// they are (§22 of `docs/history/divergences.md`).
 ///
 /// Returning *pairs* rather than a `Config` is what keeps the writer single.
 /// The handler hands these to the control task, which applies them with
@@ -347,10 +338,10 @@ pub fn document_pairs(text: &str) -> Result<Vec<crate::form::Field>, ImportError
 
 /// The live value of one parameter, borrowed from a [`Config`].
 ///
-/// What the C++'s `toJson` puts in `value` (`Config.h:226-238`): the
-/// *current* value of the parameter, not its compiled-in default. The two are
-/// the same on a freshly-booted machine and different after anything has been
-/// stored, which is the whole reason the field exists.
+/// What `/api/parameters` reports in each entry's `value`: the *current* value of
+/// the parameter, not its compiled-in default. The two are the same on a
+/// freshly-booted machine and different after anything has been stored, which is
+/// the whole reason the field exists.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LiveValue<'a> {
     /// A `bool` parameter.
@@ -362,20 +353,19 @@ pub enum LiveValue<'a> {
     /// A text parameter, borrowed so a credential is never copied.
     Text(&'a str),
     /// An enum discriminant, which is `i8` because every `Config` enum is
-    /// `#[repr(i8)]` with contiguous discriminants (see [`crate::IntEnum`]) and
-    /// `Config.h:105` writes it as an `int`.
+    /// `#[repr(i8)]` with contiguous discriminants (see [`crate::IntEnum`]).
     Enum(i8),
 }
 
 impl LiveValue<'_> {
     /// The schema kind this value belongs to.
     ///
-    /// `Config.h:105` writes `static_cast<int>(getParamType())`, and
-    /// [`ParamKind::cpp_param_type`](schema::ParamKind::cpp_param_type) is that
-    /// mapping. It has to agree with the schema's own `kind` for the parameter,
-    /// or `/api/parameters` would report a `type` of `5` (ENUM) beside a value
-    /// that looks like a plain integer — which is what the React editor reads to
-    /// decide whether to offer a dropdown.
+    /// This is the `type` field of `/api/parameters`, and it has to agree with
+    /// the schema's own `kind` for the parameter, or `/api/parameters` would
+    /// report a `type` of `5` (ENUM) beside a value that looks like a plain
+    /// integer. The React editor reads that field to decide whether to offer a
+    /// dropdown. See [`ParamKind::cpp_param_type`](schema::ParamKind::cpp_param_type)
+    /// for the mapping itself.
     #[must_use]
     pub fn kind(&self) -> schema::ParamKind {
         match self {
@@ -409,16 +399,14 @@ impl<'a> From<LiveValue<'a>> for ParamValue<'a> {
 
 /// Read one schema key's current value out of a [`Config`].
 ///
-/// What the C++'s `toJson` puts in `value` (`Config.h:226-238`): the
-/// *current* value of the parameter, not its compiled-in default. The two are
-/// the same on a freshly-booted machine and different after anything has been
-/// stored, which is the whole reason the field exists.
+/// The same value [`values_for`] reports for that key, for a caller that has one
+/// key in hand. `None` for a key the schema does not register, which is a client
+/// asking for a parameter this firmware does not have.
 ///
-/// The read half of the C++'s `ConfigParamDef` lives on the [`ParamSpec`]
-/// itself (`schema::ParamSpec::get`), so this is a lookup rather than a
-/// 98-arm match — the same collapse `assign::set` got, and for the same
-/// reason. `None` for a key the schema does not register, which is what
-/// `findConfigParameter` returning `nullptr` means (`Config.h:1550`).
+/// The read half lives on the [`ParamSpec`] itself (`schema::ParamSpec::get`), so
+/// this is a lookup rather than a 98-arm match — the same collapse
+/// [`crate::assign::set`] uses, and for the same reason: a key that is in the
+/// table is readable and writable by construction.
 #[must_use]
 pub fn live_value<'a>(config: &'a Config, key: &str) -> Option<LiveValue<'a>> {
     schema::SCHEMA
@@ -429,22 +417,16 @@ pub fn live_value<'a>(config: &'a Config, key: &str) -> Option<LiveValue<'a>> {
 
 /// Every schema key's current value, in schema order.
 ///
-/// The list `/api/parameters` needs, and **the order `/api/parameters` emits
-/// is this function's, not `live_value`'s**: this iterates
-/// [`schema::SCHEMA`], so the output is SCHEMA order — the C++'s
-/// `getAllConfigParams` order (`Config.cpp:438-563`) for the first 96 — even
-/// though `live_value` is free to answer in any order it likes. That was
-/// already true before the accessors moved onto [`ParamSpec`]
-/// (`cc-hal-esp32`'s `parameters_json` pairs `SCHEMA.iter().enumerate()`
-/// against `values[index]`), so the collapse did not move a single byte of
-/// the response.
+/// The list `/api/parameters` needs, and **the order it emits is this function's
+/// order**: this iterates [`schema::SCHEMA`], even though [`live_value`] is free
+/// to answer in any order it likes.
 ///
 /// The `Option` is kept rather than filtered away, even though it is now
 /// structurally impossible to be `None`: every spec carries its own getter, so
 /// there is no second table left to disagree with. It is kept because
 /// `parameters_json` indexes this vector positionally against `SCHEMA` and a
 /// short vector would silently mis-pair every entry after the gap, and because
-/// dropping it would change `cc-hal-esp32` and the JSON for no gain.
+/// dropping it would change `cc-hal-esp32` and the wire format for no gain.
 ///
 /// Returning a `Vec` rather than an iterator keeps the borrow of `config` in
 /// one place, so a caller cannot hold it across the JSON it is building.
@@ -459,9 +441,9 @@ pub fn values_for(config: &Config) -> Vec<Option<LiveValue<'_>>> {
 /// Walk a dotted key through a nested object and return the value at its leaf.
 ///
 /// A leaf where an intermediate object was expected means the key is simply not
-/// present at that path, so the default stands. The C++ behaves the same way:
-/// `getNested` returns a null variant and the parameter is skipped
-/// (`ConfigJson.cpp:73-76`).
+/// present at that path, so the parameter keeps its default. That is the wanted
+/// behaviour for a partial document, and it is why this returns `None` rather
+/// than reporting a malformed document.
 fn lookup<'a>(root: &'a Map<String, Value>, key: &str) -> Option<&'a Value> {
     let mut cursor = root;
     let mut segments = key.split('.').peekable();
@@ -583,22 +565,16 @@ pub(crate) fn enum_discriminants_known(key: &str, value: i8) -> bool {
 
 /// The longest a text parameter may be.
 ///
-/// This is the **only** length limit in the schema, and it is a storage bound,
-/// not a validation rule — and it is deliberately far looser than the C++'s own
-/// constants, because the C++ has none in force at all.
-///
-/// `defaults.h:118-125` defines eight of them (`HOSTNAME_MAX_LENGTH` 64,
-/// `WIFI_PASSWORD_MAX_LENGTH` 64, `MQTT_BROKER_MAX_LENGTH` 64, …) and
-/// **not one of them is ever read**: `Config.h:isValid` returns `true`
-/// unconditionally for `String`, so the running firmware will store a 4 KB
-/// hostname and then hand it to `WiFi.setHostname()`. Enforcing 64 here would
-/// reject configurations the production firmware accepts, which is a parity
-/// break and not obviously an improvement — the limit exists to keep one
-/// pathological value out of a 20 KB NVS partition, and this does that without
-/// changing what a legitimate configuration may contain.
+/// This is the **only** length limit in the schema, and it is a storage bound
+/// rather than a validation rule. It is deliberately loose: a per-field limit
+/// (64 for a hostname, 64 for an MQTT broker address) would reject configurations
+/// that machines in the field already carry, and a parity break is not obviously an
+/// improvement. What this does do is keep one pathological value out of a 20 KB NVS
+/// partition.
 ///
 /// Deliberately *not* tightened. If a decision is ever taken to bound these,
-/// it belongs in `intentional-diffs.md` next to the eight unused constants.
+/// it belongs in `docs/history/divergences.md` with the field list, because it
+/// changes what an import accepts.
 pub const MAX_TEXT_LEN: usize = 4096;
 
 /// Write `value` into a nested object at the dotted `key`, creating the
@@ -666,9 +642,8 @@ mod tests {
 
     #[test]
     fn a_live_value_is_the_current_one_not_the_default() {
-        // The whole point of the field. `Config.h:226-238` writes
-        // `obj["value"] = currentValue_`, which is the *stored* value; a
-        // firmware that only ever reported the default would render an
+        // The whole point of the field: an entry's `value` is the *stored* value,
+        // and a firmware that only ever reported the default would render an
         // operator's saved settings as if they had been lost.
         let mut config = Config::default();
         config.brew.setpoint = 91.5;
@@ -676,10 +651,9 @@ mod tests {
             live_value(&config, "brew.setpoint"),
             Some(LiveValue::Float(91.5))
         );
-        // …and the compiled-in default is unchanged, so the C++'s `default`
-        // field still reports what a factory reset would give. 95.0 is the
-        // schema's `ParamValue::Float(95.0)` for `brew.setpoint`
-        // (`schema.rs:277-282`).
+        // …and the compiled-in default is unchanged, so the `default` field still
+        // reports what a factory reset would give. 95.0 is the schema's
+        // `ParamValue::Float(95.0)` for `brew.setpoint` (`schema.rs`).
         assert_eq!(
             live_value(&Config::default(), "brew.setpoint"),
             Some(LiveValue::Float(95.0))
@@ -700,9 +674,8 @@ mod tests {
 
     #[test]
     fn the_live_kind_agrees_with_the_schema_kind() {
-        // `Config.h:105` writes `static_cast<int>(getParamType())` from the
-        // *parameter's* type, so a `value` whose kind disagrees with the
-        // schema's `type` would make the React editor render the wrong input.
+        // A `value` whose kind disagreed with the schema's `type` would make the
+        // React editor render the wrong input.
         let config = Config::default();
         for (spec, value) in schema::SCHEMA.iter().zip(values_for(&config)) {
             let Some(value) = value else { continue };
@@ -728,11 +701,11 @@ mod tests {
         // dotted key, so what it hands back matters. It borrows the plaintext
         // rather than wrapping it in the `Secret` that redacts `Debug` and
         // `Display` — deliberately, because the *caller* decides whether to
-        // publish it. `/api/parameters` does publish `value` for the four
-        // credential parameters, which is the C++'s behaviour
-        // (`Config.h:232-234` writes `obj["value"] = currentValue_` for a
-        // `String` with no redaction), and that is a property of the C++ this
-        // firmware is matching, not a decision made here.
+        // publish it. `/api/parameters` **does** publish `value` for the four
+        // credential parameters, deliberately: that endpoint is the configuration,
+        // it sits behind authentication, and redacting one field there would change
+        // the wire format the UI is built against for no security gain a
+        // credential in the same response's other fields does not already cost.
         //
         // What this test pins is the cheaper half: nothing on this path *copies*
         // the credential. A `String` would be a second plaintext allocation

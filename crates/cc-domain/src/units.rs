@@ -7,8 +7,7 @@
 //! Two different kinds of bound live here, and they must not be confused:
 //!
 //! * **Sensor validity** — the range outside which a *reading* cannot be
-//!   believed. `Celsius::is_plausible` is the one safety path S1 depends on
-//!   (`EmergencyStopManager.cpp:25`).
+//!   believed. `Celsius::is_plausible` is the one safety path S1 depends on.
 //! * **Configuration range** — the range a *user setting* may take. Those live
 //!   with the parameter that owns them, in `cc-config`, not here, because they
 //!   are policy rather than physics.
@@ -89,39 +88,36 @@ macro_rules! float_unit {
 float_unit!(
     /// A temperature in degrees Celsius.
     ///
-    /// The validity range is the C++ sensor-plausibility range from
-    /// `include/clevercoffee/constants/Temperature.h:14-15`
-    /// (`MIN_VALID_TEMP_C = 0.0`, `MAX_VALID_TEMP_C = 200.0`), which is the
-    /// range `EmergencyStopManager::checkEmergencyConditions` uses to reject a
-    /// disconnected or faulted probe.
+    /// The validity range is 0.0 to 200.0 °C, which is what S1 uses to reject a
+    /// disconnected or faulted probe. It is deliberately wider than anything brewing needs:
+    /// the TSIC-306 reports 221 / 222 for a fault, and both must be implausible or S1 would
+    /// debounce a hard sensor fault instead of refusing it.
     Celsius, 0.0, 200.0
 );
 
 float_unit!(
     /// A pressure in bar.
     ///
-    /// Range from the fitted sensor: `ABP2_pmin` / `ABP2_pmax` in
-    /// `include/clevercoffee/hardware/pressureSensor.h:19-20`, which describe
-    /// the ABP2LANT010BG2A3XX 0-10 bar differential gauge.
+    /// Range from the fitted sensor, an ABP2LANT010BG2A3XX: a 0-10 bar differential gauge,
+    /// so a reading outside 0.0 to 10.0 bar is a driver fault rather than pressure.
     Bar, 0.0, 10.0
 );
 
 float_unit!(
     /// A mass in grams.
     ///
-    /// Range from the widest mass the firmware's scale calibration can express:
-    /// `SCALE_KNOWN_WEIGHT_MAX` = 2000 g (`include/clevercoffee/defaults.h:117`).
+    /// Range from the widest mass the scale can be told to calibrate against, which is
+    /// `hardware.sensors.scale.known_weight`'s 2000 g cap.
     Grams, 0.0, 2000.0
 );
 
 float_unit!(
     /// A duration in seconds.
     ///
-    /// The longest interval the firmware schedules is
-    /// `HASSIO_DISCOVERY_INTERVAL_MS` = 300 s
-    /// (`include/clevercoffee/constants/Timing.h:45`); the upper bound is an
-    /// hour, which is comfortably above anything a brewing state needs and low
-    /// enough that a unit mix-up (seconds for milliseconds, say) is caught.
+    /// The longest interval the firmware schedules is the Home Assistant discovery
+    /// interval, 300 s. The upper bound is an hour, which is comfortably above anything a
+    /// brewing state needs and low enough that a unit mix-up — seconds for milliseconds,
+    /// say — is caught.
     Seconds, 0.0, 3600.0
 );
 
@@ -129,23 +125,20 @@ float_unit!(
     /// A heater duty, expressed in milliseconds of energisation per chopper
     /// window.
     ///
-    /// The C++ heater output is a 1 Hz chopper whose window is
-    /// `windowSize_ = 1000` ms (`include/clevercoffee/context/ProcessState.h:183`),
-    /// and the PID output is bounded by exactly that window
-    /// (`SystemInitializer.cpp:552`, `setPidOutputLimits(0, processWindowSize())`).
-    /// So the PID output *is* a millisecond duty, and the upper bound is the
-    /// window length. R1-07 may move this to LEDC, which would change the unit
-    /// — that is a recorded behaviour change, not a refactor (04 §5).
+    /// The heater is a 1 Hz chopper whose window is 1000 ms, and the PID's output limits
+    /// are that same window, so the PID output *is* a millisecond duty and the upper bound
+    /// is the window length.
+    ///
+    /// Moving the heater to an LEDC carrier would change the unit, not the range, and that
+    /// is a behaviour change rather than a refactor.
     Duty, 0.0, 1000.0
 );
 
 /// A millisecond timestamp or interval.
 ///
-/// Wrapping rather than panicking is deliberate: the C++ does
-/// `unsigned long now = millis(); timeChange = now - lastTime;`
-/// (`PID_v1.cpp:60-61`) on a 32-bit `unsigned long`, so it deliberately relies
-/// on `u32` wraparound to keep working across the 49.7-day rollover. A Rust
-/// port that panicked there would be a behaviour change.
+/// Wrapping rather than panicking is deliberate: the arithmetic relies on `u32` wraparound
+/// to keep working across the 49.7-day rollover of a millisecond counter, and panicking
+/// there would be a behaviour change rather than a safety improvement.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Millis(u32);
 
@@ -165,11 +158,10 @@ impl Millis {
         self.0
     }
 
-    /// Time elapsed from `earlier` to `self`, wrapping like the C++.
+    /// Time elapsed from `earlier` to `self`, wrapping.
     ///
-    /// The result is only meaningful when it is genuinely smaller than ~24 days;
-    /// longer intervals are indistinguishable from a short one, exactly as in
-    /// the C++.
+    /// The result is only meaningful when it is genuinely smaller than ~24 days; a longer
+    /// interval is indistinguishable from a short one.
     #[must_use]
     pub const fn since(self, earlier: Self) -> Self {
         Self(self.0.wrapping_sub(earlier.0))
@@ -213,7 +205,7 @@ impl From<u32> for Millis {
     }
 }
 
-/// Millisecond arithmetic, wrapping like the C++'s `unsigned long`.
+/// Millisecond arithmetic, wrapping.
 ///
 /// `impl Add for Millis` is here because a deadline pipeline cannot be written
 /// without "now plus an interval", and hand-rolling `Millis::new(now.raw() + n)`
@@ -245,8 +237,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn celsius_validity_matches_the_cpp_sensor_range() {
-        // constants/Temperature.h:14-15
+    fn celsius_validity_matches_the_sensor_range() {
         assert!(Celsius::new(0.0).is_valid());
         assert!(Celsius::new(200.0).is_valid());
         assert!(!Celsius::new(-0.1).is_valid());
@@ -256,8 +247,8 @@ mod tests {
 
     #[test]
     fn tsic_fault_sentinels_are_rejected() {
-        // 01 §3: the TSIC-306 driver reports 221 / 222 for a faulted probe.
-        // Both must be implausible, or S1 would debounce a hard sensor fault.
+        // The TSIC-306 reports 221 / 222 for a faulted probe. Both must be implausible, or
+        // S1 would debounce a hard sensor fault instead of refusing it.
         assert!(!Celsius::new(221.0).is_valid());
         assert!(!Celsius::new(222.0).is_valid());
     }
@@ -286,10 +277,10 @@ mod tests {
 
     #[test]
     fn millis_addition_wraps_rather_than_panicking() {
-        // A deadline pipeline is written as `now + interval`, and the C++
-        // relies on 32-bit wraparound to keep working across the 49.7-day
-        // rollover. `saturating_add` would freeze a deadline for the last 49.7
-        // days of every cycle, so this must wrap.
+        // A deadline pipeline is written as `now + interval`, and the arithmetic
+        // deliberately relies on 32-bit wraparound across the 49.7-day rollover.
+        // `saturating_add` would freeze a deadline for the last 49.7 days of every cycle,
+        // so this must wrap.
         assert_eq!(Millis::new(10) + Millis::new(5), Millis::new(15));
         assert_eq!(
             Millis::new(0xFFFF_FFFF) + Millis::new(2),
@@ -334,7 +325,6 @@ mod tests {
 
     #[test]
     fn duty_bound_is_the_chopper_window() {
-        // ProcessState.h:183 windowSize_ = 1000
         assert!(Duty::new(0.0).is_valid());
         assert!(Duty::new(1000.0).is_valid());
         assert!(!Duty::new(1001.0).is_valid());

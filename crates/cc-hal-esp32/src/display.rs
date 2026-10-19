@@ -1,12 +1,10 @@
 //! The SSD1306 OLED over I²C: transport only.
 //!
-//! Owner: **R3-09**.
-//!
 //! # What this file is, and what it is not
 //!
 //! This is the *wire*. It owns the I²C address, the controller's power state,
-//! the transfer of 1024 bytes to the panel, and the 100 ms cadence the C++
-//! refreshes at. It does **not** decide what is on the screen: every template,
+//! the transfer of 1024 bytes to the panel, and the 100 ms refresh cadence. It
+//! does **not** decide what is on the screen: every template,
 //! glyph, bar and label is [`cc_display`]'s, host-tested against 48 goldens and
 //! pixel-for-pixel against the real U8g2 (`just test-display-parity`). This
 //! crate therefore never names `cc-display` — [`Oled::flush`] takes
@@ -22,28 +20,26 @@
 //!
 //! # Why `ssd1306`, and why the init sequence is hand-written
 //!
-//! `ssd1306` 0.10.0 is the crate the compatibility matrix selected (02
-//! §OLED): `embedded-hal 1.0`, which `esp-idf-hal` 0.47.0 satisfies
+//! `ssd1306` 0.10.0 is the crate
+//! [dependency-evaluation.md](../../../docs/history/dependency-evaluation.md)
+//! selected: `embedded-hal 1.0`, which `esp-idf-hal` 0.47.0 satisfies
 //! (`src/i2c.rs:458-478` implements `ErrorType` and `I2c<SevenBitAddress>` for
 //! `I2cDriver`).
 //!
-//! **The SH1106 decision holds, and is better founded than when it was made.**
-//! `sh1106` 0.5.0 needs `embedded-hal 0.2.3` — and that is *not* the blocker,
-//! because `embedded-hal` 0.2.7 is still in this tree for exactly that kind of
-//! consumer. The blocker is geometry: the SH1106's GDDRAM is 132 columns wide
-//! with the 128x64 window centred, so it needs the column window moved by two
-//! on every frame. U8g2 does that in its SH1106 init; `ssd1306` exposes no
-//! such knob on `DisplaySize`, so supporting it means forking the driver. The
-//! C++ defaults `hardware.oled.type` to `SSD1306` (`Config.h:943-949`), so
-//! SH1106 is a reachable but unused configuration: dropping it removes an
-//! *option*, not a behaviour the C++ exercised. Recorded in
-//! `intentional-diffs.md`.
+//! **SH1106 is not supported, and the blocker is geometry.** `sh1106` 0.5.0
+//! needs `embedded-hal` 0.2.7, which is still in this tree, so the trait version
+//! is not it. The SH1106's GDDRAM is 132 columns wide with the 128x64 window
+//! centred, so every frame needs the column window moved by two. U8g2 does that
+//! in its SH1106 init; `ssd1306` exposes no such knob on `DisplaySize`, so
+//! supporting it means forking the driver. `hardware.oled.type` defaults to
+//! `SSD1306`, so dropping SH1106 removes an *option* this firmware never
+//! selects, not a behaviour.
 //!
 //! The init sequence is U8g2's, byte for byte
 //! (`u8x8_d_ssd1306_128x64_noname.c:41-72`), sent through [`I2cPanel`] rather
 //! than through `ssd1306`'s `DisplayConfig::init`. That is a deliberate
 //! deviation from the crate's defaults, and it exists because three of the
-//! crate's init commands **disagree with the C++**:
+//! crate's init commands **disagree with U8g2**,
 //!
 //! | command | U8g2 | `ssd1306` 0.10 default |
 //! | --- | --- | --- |
@@ -51,10 +47,10 @@
 //! | `0x81` contrast | `0xCF` | `0x7F` (`Brightness::NORMAL`) |
 //! | `0xD9` pre-charge | `0xF1` | `0x21` |
 //!
-//! The contrast one is visible: the crate's default is a dimmer panel than the
-//! one the machine ships with. Taking the whole sequence from the C++ is the
-//! only way to claim the panel comes up looking exactly as it did, and it makes
-//! [`INIT_SEQUENCE`] an auditable artefact instead of a pile of defaults.
+//! The contrast one is visible: the crate's default is a dimmer panel. Taking
+//! the whole sequence from U8g2 is what makes the panel come up the way the
+//! layout expects, and it makes [`INIT_SEQUENCE`] an auditable artefact instead
+//! of a pile of defaults.
 //!
 //! # Rotation: the panel never rotates
 //!
@@ -70,23 +66,22 @@
 //! # The bus is shared, and this driver does not own it
 //!
 //! The OLED and the ABP2 are on the same two wires ([`crate::sensors::pins`]:
-//! SCL 22, SDA 21 — `pinmapping.h:53-54`). There is exactly one I²C
+//! SCL 22, SDA 21). There is exactly one I²C
 //! peripheral, so [`I2cPanel`] **borrows** an already-constructed
 //! [`I2cDriver`] instead of calling `Peripherals::take()` — the same rule and
 //! the same reason as [`crate::Abp2I2c::new`]. Borrowing rather than owning is
 //! what lets the display task take the bus for one frame and give it straight
-//! back, which is the mutex-guarded shared bus 04 §7 describes. What this file
+//! back, which is the mutex-guarded shared bus every device on those wires
+//! needs. What this file
 //! guarantees is that it **never creates a second bus**.
 //!
 //! # Timing
 //!
-//! [`REFRESH_INTERVAL_MS`] is `DISPLAY_REFRESH_INTERVAL_MS` = 100
-//! (`Timing.h:38`) and [`Oled::refresh_due`] is the gate that enforces it. The
-//! bus runs at 400 kHz ([`crate::sensors::I2C_HZ`]), so one frame is 1024
-//! payload bytes ≈ 24 ms of bus time. That is the same order as the C++'s
-//! Arduino `Wire` transfer, and it is why the data path chunks at
-//! [`DATA_CHUNK_BYTES`] rather than at the `display-interface-i2c` default of
-//! 16 — see [`I2cPanel::send_data`].
+//! [`REFRESH_INTERVAL_MS`] is 100 and [`Oled::refresh_due`] is the gate that
+//! enforces it. The bus runs at 400 kHz ([`crate::sensors::I2C_HZ`]), so one
+//! frame is 1024 payload bytes ≈ 24 ms of bus time, which is why the data path
+//! chunks at [`DATA_CHUNK_BYTES`] rather than at the `display-interface-i2c`
+//! default of 16 — see [`I2cPanel::send_data`].
 
 use core::time::Duration;
 
@@ -107,27 +102,24 @@ use ssd1306::{
 /// which matters.
 pub use display_interface::DisplayError as Error;
 
-/// Panel width in pixels. `defaults.h:224`.
+/// Panel width in pixels.
 pub const WIDTH: u8 = 128;
-/// Panel height in pixels. `defaults.h:225`.
+/// Panel height in pixels.
 pub const HEIGHT: u8 = 64;
 
 /// Bytes in one frame: eight pages of 128 columns, one bit per pixel.
 pub const FRAMEBUFFER_LEN: usize = (WIDTH as usize) * (HEIGHT as usize / 8);
 
-/// The default I²C address. `Config.h:951-957`, `hardware.oled.address`.
+/// The default I²C address, `hardware.oled.address`.
 pub const ADDRESS_3C: u8 = 0x3C;
 /// The alternate I²C address, for a panel strapped the other way.
 pub const ADDRESS_3D: u8 = 0x3D;
 
-/// How often a flush is allowed. `DISPLAY_REFRESH_INTERVAL_MS` (`Timing.h:38`).
+/// How often a flush is allowed.
 ///
-/// The C++ puts this on a `MillisecondTimer` calling
-/// `DisplayTemplateManager::printScreen`, and `LoopManager::updateDisplay`
-/// then sends the buffer when the coordinator marked it ready
-/// (`LoopManager.cpp:197-201`, `:386-387`). The two halves are separated here
-/// too: [`Oled::refresh_due`] is the timer, and *what* to draw stays with the
-/// caller, because only the caller knows whether the content changed.
+/// The timer and the rendering are separate: [`Oled::refresh_due`] is the timer,
+/// and *what* to draw stays with the caller, because only the caller knows
+/// whether the content changed.
 pub const REFRESH_INTERVAL_MS: u32 = 100;
 
 /// The `0x40` control byte: Co = 0, D/C# = 1 — "the bytes that follow are
@@ -147,16 +139,14 @@ pub const DISPLAY_OFF: u8 = 0xAE;
 /// `0xAF` — the SSD1306 "display ON" command, and U8g2's `setPowerSave(0)`.
 ///
 /// Named because blanking the panel is exactly these two bytes and nothing else,
-/// and because the controller keeps its RAM across them — which is why the C++
-/// can blank the panel and come back to the same screen with no re-flush
-/// (`LoopManager.cpp:330-334` returns without updating, and the next frame after
-/// waking draws again).
+/// and because the controller keeps its RAM across them, so a blanked panel
+/// comes back to the same screen with no re-flush.
 pub const DISPLAY_ON: u8 = 0xAF;
 
 /// Payload bytes per I²C write on the data path.
 ///
-/// 128 is U8g2's page size, so a frame is eight writes — the shape the C++
-/// produces. It is also why this driver does **not** use
+/// 128 is U8g2's page size, so a frame is eight writes. It is also why this
+/// driver does **not** use
 /// `display_interface_i2c::I2CInterface`, which hard-codes 16-byte chunks
 /// (`display-interface-i2c-0.5.0/src/lib.rs:97-118`): that would turn one
 /// frame into 64 transactions instead of 8, and every extra transaction is
@@ -190,7 +180,7 @@ pub const INIT_SEQUENCE: &[u8] = &[
     0xA6, // not inverted
 ];
 
-/// The panel orientation the C++ runs, and the only one that exists here.
+/// The panel orientation this firmware runs, and the only one that exists here.
 ///
 /// `0xA1` + `0xC8`, which is what [`INIT_SEQUENCE`] sends and what U8g2 sends
 /// for every one of its four rotations. See the module's "Rotation" section
@@ -202,8 +192,7 @@ pub const PANEL_ROTATION: DisplayRotation = DisplayRotation::Rotate0;
 /// One refresh period. A frame that cannot be transferred in the time between
 /// two frames has already missed its deadline, so holding the bus longer only
 /// starves the ABP2 — which reads on the *same* two wires — for no gain. This
-/// is the bound the `Abp2I2c` module docs ask of every transaction and the C++
-/// never had, because Arduino's `Wire.endTransmission()` returns instead.
+/// is the bound the `Abp2I2c` module docs ask of every transaction.
 pub const BUS_TIMEOUT: Duration = Duration::from_millis(REFRESH_INTERVAL_MS as u64);
 
 /// [`BUS_TIMEOUT`] in the units `I2cDriver::write` actually takes.
@@ -238,7 +227,7 @@ impl<'bus, 'd> I2cPanel<'bus, 'd> {
     /// # Wiring
     ///
     /// The borrow, not ownership, is the point. The bus is the shared
-    /// mutex-guarded resource 04 §7 requires, and the display task must be
+    /// mutex-guarded resource, and the display task must be
     /// able to take it for one frame and hand it straight back so the ABP2 can
     /// read. [`PanelOled`] is therefore built per flush from a short borrow, not
     /// parked for the life of the process; the panel's own state that must
@@ -367,19 +356,17 @@ impl<DI> core::fmt::Debug for Oled<DI> {
 impl<DI: WriteOnlyDataCommand> Oled<DI> {
     /// Bring the controller up on `interface`.
     ///
-    /// The order is the C++'s (`DisplayManager.cpp:22-25`: `begin()`, then
-    /// `clearBuffer()`) with one addition — [`INIT_SEQUENCE`] goes out through
-    /// the transport *before* the `Ssd1306` wrapper exists, because the wrapper
-    /// has no accessor for its interface and U8g2's sequence is not one of the
-    /// crate's defaults anyway. The addressing mode is then declared to the
-    /// wrapper so its cached state agrees with the sequence, and the panel is
-    /// switched on, which is the `0xAF` U8g2 sends outside the sequence.
+    /// [`INIT_SEQUENCE`] goes out through the transport *before* the `Ssd1306`
+    /// wrapper exists, because the wrapper has no accessor for its interface and
+    /// U8g2's sequence is not one of the crate's defaults anyway. The addressing
+    /// mode is then declared to the wrapper so its cached state agrees with the
+    /// sequence, and the panel is switched on, which is the `0xAF` U8g2 sends
+    /// outside the sequence.
     ///
     /// # Errors
     ///
     /// Any I²C failure. A panel that does not answer is not fatal to the
-    /// machine — the C++ logs it and carries on (`DisplayManager.cpp:26-28`) —
-    /// so the caller decides whether to run without a display.
+    /// machine, so the caller decides whether to run without a display.
     pub fn new(mut interface: DI) -> Result<Self, Error> {
         interface.send_commands(DataFormat::U8(INIT_SEQUENCE))?;
         let mut dev = Ssd1306::new(interface, DisplaySize128x64, PANEL_ROTATION);
@@ -407,15 +394,14 @@ impl<DI: WriteOnlyDataCommand> Oled<DI> {
     /// by the human on real hardware — and it also costs ~30 bytes of commands
     /// per frame on a bus the ABP2 pressure sensor shares.
     ///
-    /// The correct shape is U8g2's: `u8g2_InitDisplay` runs once from
-    /// `begin()`, and every later `drawTile` sets the draw area and writes
-    /// pixels. So the sequence goes out **once**, from
+    /// The correct shape is U8g2's: `u8g2_InitDisplay` runs once, and every later
+    /// tile write sets the draw area and writes pixels. So the sequence goes out
+    /// **once**, from
     /// [`I2cPanel::initialise`], and every frame after it is [`Oled::flush`].
     ///
     /// # Errors
     ///
-    /// Any I²C failure. A panel that does not answer is not fatal — the C++ logs
-    /// it and carries on (`DisplayManager.cpp:26-28`).
+    /// Any I²C failure. A panel that does not answer is not fatal.
     pub fn new_initialised(mut interface: DI) -> Result<Self, Error> {
         // The addressing mode is declared to the wrapper so its cached state
         // agrees with what the init sequence already put on the panel. Two
@@ -454,9 +440,8 @@ impl<DI: WriteOnlyDataCommand> Oled<DI> {
     /// The 100 ms gate: `true` once per [`REFRESH_INTERVAL_MS`], and `true`
     /// immediately for the first call after boot.
     ///
-    /// This is the timer half of the C++'s `printDisplayTimer_`. The render
-    /// half stays with the caller, so a false return means "do nothing this
-    /// loop" — the same no-op iteration the C++ performs.
+    /// The render half stays with the caller, so a false return means "do
+    /// nothing this pass".
     pub fn refresh_due(&mut self, now_ms: u32) -> bool {
         if self.flushed_once && now_ms.wrapping_sub(self.last_flush_ms) < REFRESH_INTERVAL_MS {
             return false;
@@ -468,13 +453,10 @@ impl<DI: WriteOnlyDataCommand> Oled<DI> {
 
     /// Blank the panel (`true`) or wake it (`false`).
     ///
-    /// `0xAE` and `0xAF`, which is U8g2's `setPowerSave` in both directions and
-    /// what `LoopManager::updateDisplay` drives from
-    /// `standbyCoordinator().shouldTurnOffDisplay()` (`LoopManager.cpp:334-339`).
+    /// `0xAE` and `0xAF`, which is U8g2's `setPowerSave` in both directions.
     ///
     /// The controller keeps its RAM contents, so waking restores the last frame
-    /// without a re-flush — which is why the C++ can return early and still come
-    /// back to a correct screen.
+    /// without a re-flush.
     ///
     /// The state is recorded locally too, so [`Oled::power_saved`] costs no bus
     /// round trip.
@@ -496,9 +478,8 @@ impl<DI: WriteOnlyDataCommand> Oled<DI> {
 
     /// Whether a flush is worth sending at all.
     ///
-    /// `false` means the C++'s `updateDisplay` would have returned at
-    /// `LoopManager.cpp:334-339`: the panel is off, so a transfer would buy
-    /// nothing. Making this a method rather than a convention is what keeps
+    /// `false` means the panel is off, so a transfer would buy nothing. Making
+    /// this a method rather than a convention is what keeps
     /// "do not touch the bus while blanked" at one call site instead of in every
     /// caller.
     #[must_use]
@@ -674,15 +655,13 @@ pub mod tests {
     /// The two I²C addresses an SSD1306 can be strapped to.
     #[cfg_attr(test, test)]
     pub fn the_addresses_are_the_datasheet_pair() {
-        // Config.h:951-957: `hardware.oled.address` defaults to ADDR_3C.
         assert_eq!(ADDRESS_3C, 0x3C);
         assert_eq!(ADDRESS_3D, 0x3D);
     }
 
-    /// The C++ refreshes at `DISPLAY_REFRESH_INTERVAL_MS` = 100 ms.
+    /// 100 ms, the panel's refresh interval.
     #[cfg_attr(test, test)]
-    pub fn the_refresh_interval_is_the_csqs_hundred_milliseconds() {
-        // DISPLAY_REFRESH_INTERVAL_MS, Timing.h:38.
+    pub fn the_refresh_interval_is_a_hundred_milliseconds() {
         assert_eq!(REFRESH_INTERVAL_MS, 100);
     }
 
@@ -800,7 +779,7 @@ pub mod tests {
     /// The init bytes are U8g2's `SSD1306_128X64_NONAME` sequence, byte for byte.
     pub fn the_init_sequence_is_u8g2s_ssd1306_noname_sequence() {
         // u8x8_d_ssd1306_128x64_noname.c:41-72, entry for entry. If this fails,
-        // the panel is not coming up the way the C++ brought it up, and the
+        // the panel is not coming up the way U8g2 brings it up, and the
         // difference is invisible until someone reports a dim screen.
         assert_eq!(
             INIT_SEQUENCE,
@@ -813,7 +792,7 @@ pub mod tests {
 
     #[cfg_attr(test, test)]
     /// Segment remap and COM scan direction are set the way U8g2 sets them, so
-    /// the rendered frame is not mirrored relative to the C++.
+    /// the rendered frame is not mirrored.
     pub fn the_init_sequence_remaps_segments_and_reverses_com() {
         // The orientation. U8g2 sends these two for *all four* of its
         // rotations, which is why the panel has one orientation and rotation is
@@ -822,7 +801,7 @@ pub mod tests {
     }
 
     #[cfg_attr(test, test)]
-    /// The contrast value matches the one the C++ writes, not the crate default.
+    /// The contrast value matches U8g2's, not the crate default.
     pub fn the_init_sequence_sets_the_contrast_the_cpp_set() {
         // 0x81 0xCF. The `ssd1306` crate's own init sends 0x7F, which is
         // visibly dimmer — the likeliest cause of a "the new firmware's display
@@ -904,8 +883,7 @@ pub mod tests {
         assert!(!oled.power_saved());
         assert!(oled.should_flush());
 
-        // 0xAE then 0xAF: `setPowerSave` in both directions, which is all
-        // `MachineStateContext::setDisplayPowerSave` ever did.
+        // 0xAE then 0xAF: `setPowerSave` in both directions.
         assert!(recorder.contains(&[0xAE]));
         assert!(recorder.contains(&[0xAF]));
     }

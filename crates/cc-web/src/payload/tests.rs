@@ -1,10 +1,8 @@
-//! The payload tests, moved verbatim from `cc-hal-esp32/src/web.rs`'s
-//! `#[cfg(any(test, feature = "device-tests"))] mod tests`.
+//! The payload tests.
 //!
-//! They were reachable only by flashing a board. `status_json` and
-//! `nvs_debug_json` gained a heap parameter here, which is the one change in
-//! this file: the caller passes `free_heap()`, so the bytes are the same and the
-//! assertion no longer needs a chip to have a heap.
+//! `status_json` and `nvs_debug_json` take the two heap readings as parameters, so
+//! the bytes are the ones the handler emits and no assertion here needs a chip to
+//! have a heap.
 
 use super::*;
 
@@ -14,9 +12,9 @@ use crate::telemetry::Telemetry;
 use cc_config::schema::SCHEMA;
 
 #[test]
-fn the_status_payload_has_the_csqs_keys() {
-    // WebServerManager.cpp:356-372. The names are a wire format the React
-    // UI reads, so they are pinned here rather than left to review.
+fn the_status_payload_has_the_declared_keys() {
+    // The names are a wire format the React UI reads, so they are pinned here
+    // rather than left to review.
     let t = Telemetry {
         temperature_c: 93.5,
         setpoint_c: 94.0,
@@ -94,9 +92,8 @@ fn the_heap_reading_is_interpolated_verbatim() {
 }
 
 #[test]
-fn the_temperatures_payload_is_the_csqs_three_keys() {
-    // getTempString, WebServerManager.cpp:1180-1182. The same shape is the
-    // `new_temps` SSE event, so the UI has one parser.
+fn the_temperatures_payload_is_the_declared_three_keys() {
+    // The same shape is the `new_temps` SSE event, so the UI has one parser.
     let t = Telemetry {
         temperature_c: 91.25,
         setpoint_c: 94.0,
@@ -123,9 +120,8 @@ fn the_health_payload_distinguishes_alive_from_published() {
 
 #[test]
 fn nvs_debug_reports_the_blob_and_the_heap_and_no_parameters() {
-    // The C++ reported counts and heap figures only (WebServerManager.cpp:659-666)
-    // and the credentials are in the same blob, so a payload listing
-    // parameters would be a disclosure with no local symptom.
+    // Counts and heap figures only: the credentials are in the same blob, so a
+    // payload listing parameters would be a disclosure with no local symptom.
     let json = nvs_debug_json("cc/cc.config: schema v1, 2071 B JSON", 96, 40_000, 22_000);
     let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
     assert_eq!(parsed["parameters_count"], 96);
@@ -147,10 +143,8 @@ fn an_empty_blob_describes_as_zeroes_rather_than_panicking() {
 
 #[test]
 fn the_parameters_body_carries_a_value_for_every_parameter() {
-    // `Config.h:226-238`: `toJson` writes `value` alongside `default`, and
-    // it is the *current* value. A parameter with no `value` is the shape
-    // the React editor cannot render, and it was the shape this firmware
-    // shipped: the response had five fields and the C++ has ten.
+    // `value` is written alongside `default`, and it is the *current* value. A
+    // parameter with no `value` is the shape the React editor cannot render.
     let body = parameters_json(&Config::default());
     let parsed: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
     let entries = parsed.as_array().expect("an array");
@@ -170,10 +164,8 @@ fn the_parameters_body_carries_a_value_for_every_parameter() {
 
 #[test]
 fn a_parameter_value_is_typed_like_its_default() {
-    // The C++'s `toJson` distinguishes `bool` from `int` from `double` from
-    // `const char*`, and so does this. A quoted number makes the React
-    // editor's number input refuse the value, so the two fields of a pair
-    // must agree on shape — not merely both be present.
+    // A quoted number makes the React editor's number input refuse the value, so
+    // the two fields of a pair must agree on shape — not merely both be present.
     let body = parameters_json(&Config::default());
     let parsed: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
     for entry in parsed.as_array().expect("an array") {
@@ -218,10 +210,9 @@ fn a_set_parameter_reports_the_stored_value_not_the_default() {
     assert_eq!(setpoint["value"], 91.5);
     // …and `default` still reports what a factory reset would give.
     //
-    // 95.0, not 94.5: `constants/Temperature.h:18` `DEFAULT_BREW_SETPOINT_C =
-    // 95.0f` and `Config::default()` sets 95.0. This assertion was 94.5 and
-    // failed on its first run on hardware. The device-test harness caught it,
-    // which is the harness doing its job.
+    // 95.0, not a rounder number: `Config::default()` sets `brew.setpoint` to the
+    // factory default, and this assertion exists to catch a change to either
+    // side of that pairing.
     assert_eq!(setpoint["default"], 95.0);
 }
 
@@ -243,11 +234,8 @@ fn a_default_snapshot_reports_no_radio_rather_than_a_fabricated_one() {
 
 #[test]
 fn the_status_body_reports_an_associated_radio() {
-    // The positive case, and the shape the C++'s reader expects: the keys
-    // are always present, and they carry the radio's numbers when there are
-    // any. `/api/status` had no `wifi*` key at all in the C++
-    // (`WebServerManager.cpp:352-363`), so these are this firmware's
-    // additions, kept stable because the UI reads them.
+    // The positive case: the keys are always present, and they carry the radio's
+    // numbers when there are any. The UI reads them, so they are stable.
     let t = Telemetry {
         wifi_associated: true,
         signal: 4,
@@ -262,14 +250,11 @@ fn the_status_body_reports_an_associated_radio() {
 
 #[test]
 fn steam_mode_is_the_latched_steam_flag_and_not_the_brew_state() {
-    // The defect this pins. The C++'s `steamMode` is
-    // `MachineStateContext::steamON_` -- set in
-    // `SteamRunningState::onEntryImpl` (`SteamStates.cpp:16`), cleared in its
-    // `onExitImpl` (`:21`) and in `StandbyState::onEntryImpl`
-    // (`SystemStates.cpp:17`). This port emitted `"brewing"`
-    // -- `state.is_brew_state()`, a *derived* value with no C++ counterpart --
-    // under the C++'s name, so a poll answered a steam-mode question with a
-    // brew-state answer.
+    // The defect this pins: `steamMode` and a brew-state flag are different facts.
+    // `Telemetry::steam_mode` is latched — set on entering steam, cleared on leaving
+    // it and on entering standby (`cc-machine/src/states.rs`) — where `brewing` is
+    // derived from the current state. Emitting the derived one under the steam name
+    // made a status poll answer a steam-mode question with a brew-state answer.
     let steaming = status_json(
         &Telemetry {
             steam_mode: true,
@@ -302,21 +287,16 @@ fn steam_mode_is_the_latched_steam_flag_and_not_the_brew_state() {
 #[test]
 fn the_status_steam_mode_agrees_with_the_steam_toggle_response() {
     // `POST /api/steam` answers `{"success":true,"steamMode":<bool>}` from
-    // `Telemetry::steam_mode` (`WebServerManager.cpp:444-475`), and the UI
-    // reads that field (`machine-toggle-result.ts:9`). If `/api/status`
-    // reported a different fact under the same name, a poll would contradict
-    // the toggle that set it -- which is the class of bug this file already
-    // records once, for the toggle reading its value before the command was
-    // applied.
+    // `Telemetry::steam_mode`, and the UI reads that field
+    // (`machine-toggle-result.ts`). If `/api/status` reported a different fact under
+    // the same name, a poll would contradict the toggle that set it — which is the
+    // class of bug this file already records once, for the toggle reading its value
+    // before the command was applied.
     //
-    // **This assertion was wrong until `cc-web` was created.** It compared the
-    // poll against the *whole* toggle body, `{"success":true,"steamMode":…}`,
-    // and `/api/status` has never emitted a `success` key — so the test could
-    // only have failed. It did not fail on hardware, because `cc-hal-esp32` is
-    // unreachable from `cargo test` and `just test-esp32` is not in the gate:
-    // this is the third instance of the gap finding 4.1 names, and the first
-    // one that is a *broken test* rather than an untested bug. The comparison is
-    // now on the field both documents carry.
+    // The comparison is on the field both documents carry. Comparing the poll
+    // against the *whole* toggle body could never have passed, because `/api/status`
+    // has no `success` key — a broken test that stayed invisible while the two sides
+    // were unreachable from `cargo test`.
     let t = Telemetry {
         steam_mode: true,
         brewing: true,
@@ -351,10 +331,9 @@ fn the_refused_url_route_says_what_is_missing() {
 // ================================================ POST /api/config/upload
 
 #[test]
-fn the_upload_response_is_the_cpp_shape() {
-    // `sendConfigUploadResponse` (`WebServerManager.cpp:50-62`): three keys,
-    // and `restart` mirrors `success` because the C++ does not reboot
-    // itself -- it sets a flag and the browser calls `/api/restart`.
+fn the_upload_response_has_three_keys() {
+    // Three keys, and `restart` mirrors `success`: the device does not reboot
+    // itself — it sets a flag and the browser calls `/api/restart`.
     assert_eq!(
         upload_response(true, "Configuration validated and applied successfully."),
         "{\"success\":true,\"message\":\"Configuration validated and applied successfully.\",\"restart\":true}"

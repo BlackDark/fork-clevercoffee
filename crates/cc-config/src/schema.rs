@@ -1,52 +1,43 @@
 //! The parameter registry: every key the firmware persists, with its type,
 //! default and validation range.
 //!
-//! The keys are the **C++ dotted names**, kept verbatim. The oracle firmware
-//! (08 §5.3) reached the same conclusion independently — 97 recovered strings,
-//! all in the C++ namespace — and 08 §6 records the reasoning: the names are
-//! good, familiar, and the incompatibility with C++-written NVS is already
-//! accepted (skill §1b, "no NVS backward compatibility"). Inventing a `cc.`
-//! prefix would buy nothing and cost every operator who has memorised a key.
+//! # Why the keys are what they are
+//!
+//! The dotted names are the ones this product has always used, kept verbatim.
+//! They are already in the operator's documentation, and inventing a `cc.` prefix
+//! would buy nothing and cost every operator who has memorised a key. The cost of
+//! keeping them is that an NVS written by another firmware is not readable, and
+//! that is already accepted (§32 of `docs/history/divergences.md`).
 //!
 //! # The count, and why it is 98
 //!
-//! `Config::getAllConfigParams()` (`src/Config.cpp:438-563`) returns **96**
-//! parameters. Two more are defined in `Config.h` and read by
-//! `EmergencyStopManager.cpp:18-19` but are *absent* from that list:
+//! Two of the keys — `safety.emergency_temp` and `safety.emergency_hysteresis` —
+//! are read by the emergency-stop path and are **not** part of the MQTT-editable
+//! set. That matters, because persistence and editability are different questions:
+//! a parameter that is not in this registry is not written to NVS, not exported and
+//! not imported, so it silently resets to its compiled-in default on every reboot.
+//! An operator who lowers the emergency threshold to 130 °C and gets 150 °C back
+//! after the next power cycle, with no message, is exactly that failure. Both keys
+//! are registered here, both are fields of [`crate::Config`], and
+//! `schema_covers_every_registered_key` asserts the count.
 //!
-//! * `safety.emergency_temp` (`Config.h:813`)
-//! * `safety.emergency_hysteresis` (`Config.h:822`)
-//!
-//! Because they are never registered, they are never written to NVS, never
-//! exported, and never imported. They silently reset to their compiled
-//! defaults on every reboot — so a user who lowered the emergency threshold to
-//! 130 °C through the web UI got 150 °C back after the next power cycle, with
-//! no message. This is finding 1 of
-//! [`docs/history/feature-inventory.md` §10](../../docs/history/feature-inventory.md)
-//! and this port **fixes** it: both keys are in the schema, both are in
-//! [`crate::Config`], and `schema_covers_every_registered_key` asserts the count.
-//!
-//! # Two C++ quirks preserved verbatim
+//! # Two quirks preserved deliberately
 //!
 //! * **`steam.setpoint` and `safety.emergency_temp` both claim order 203** in
-//!   section 1 (`Config.h:817` and `Config.h:837`). Harmless, and preserved for
-//!   parity of `/api/parameters` ordering.
-//! * **`ParamDef<String>` has no length limit.** `defaults.h:118-125` defines
-//!   `MQTT_BROKER_MAX_LENGTH`, `USERNAME_MAX_LENGTH`, `PASSWORD_MAX_LENGTH`,
-//!   `MQTT_TOPIC_MAX_LENGTH`, `MQTT_HASSIO_PREFIX_MAX_LENGTH`,
-//!   `HOSTNAME_MAX_LENGTH`, `WIFI_SSID_MAX_LENGTH` and
-//!   `WIFI_PASSWORD_MAX_LENGTH` — and **none of them is ever used**;
-//!   `Config.h:isValid` returns `true` unconditionally for `String`. So the C++
-//!   will happily store a 4 KB hostname. The constants are reproduced here as
-//!   `MAX_KEY_LEN`/`MAX_TEXT_LEN` notes and the bounds are **not** enforced,
-//!   because enforcing them would reject configurations the C++ accepts. See
-//!   the crate report.
+//!   section 1. It is harmless, and it is preserved because the ordering is
+//!   observable: `/api/parameters` emits in schema order, and re-sorting would move
+//!   entries in a response the UI renders.
+//! * **Text parameters have no per-field length limit.** [`crate::json::MAX_TEXT_LEN`]
+//!   is a storage bound, not a validation rule, and it is loose on purpose: the
+//!   failure worth preventing is one pathological value filling a 20 KB NVS
+//!   partition, and a tighter per-field limit would reject configurations without
+//!   preventing anything more than this already does.
 //!
 //! # A note on `ParamValue::Text`
 //!
-//! The defaults are `&'static str` because every one of them is a string
-//! literal in `defaults.h`. Values arriving from JSON borrow for the duration of
-//! the validation, hence the lifetime parameter.
+//! The defaults are `&'static str` because every one of them is a string literal.
+//! Values arriving from JSON borrow for the duration of the validation, hence the
+//! lifetime parameter.
 
 use alloc::borrow::ToOwned;
 
@@ -61,59 +52,54 @@ use crate::config::Config;
 use crate::json::LiveValue;
 use crate::IntEnum;
 
-/// The longest dotted key in the schema, and the bound the C++ uses for a
-/// single path segment.
+/// The longest a dotted key may be, asserted for every schema entry.
 ///
-/// `kMaxPathSegment = 64` in `src/ConfigJson.cpp:7`. The longest key here is
-/// `hardware.sensors.watertank.keep_heater_on_empty` at 44 bytes, so 64 leaves
-/// headroom for keys added later without another migration.
+/// The longest key here is `hardware.sensors.watertank.keep_heater_on_empty` at
+/// 44 bytes, so 64 leaves headroom for keys added later without a change to the
+/// bound.
 pub const MAX_KEY_LEN: usize = 64;
 
 /// The device's default network name.
 ///
-/// The C++ default is `"silvia"` (`include/clevercoffee/defaults.h:14`), which
-/// is the product's own name. **This is a deliberate divergence**, decided
-/// 2026-09-29: the development device is named for what it is, so that a
-/// hostname on the network is never ambiguous about which firmware is running
-/// it. `"test-cc-rust"` says both halves — it is a test device, and it is the
-/// Rust port — which matters because the C++ and the Rust firmware are on the
-/// same network during the migration and would otherwise collide on
-/// `silvia.local`.
+/// `"test-cc-rust"` names the device for what it is, so a hostname on a network is
+/// never ambiguous about which firmware is running it. A second firmware that
+/// shipped with the product's own name (`"silvia"`) may be on the same network, and
+/// two machines claiming `silvia.local` is a collision with no visible cause.
 ///
-/// The C++ firmware is unchanged and still answers to `silvia`. An operator who
-/// wants the product name back sets `system.hostname` in the config; nothing
-/// else in the port depends on the value.
+/// The value is a default, not a constant: an operator who wants the product name
+/// back sets `system.hostname` in the configuration. Nothing else depends on it,
+/// and `docs/example_config.json` is kept in step with it because an import test
+/// parses that file. §13 of `docs/history/divergences.md` carries the full reasoning.
 pub const DEFAULT_HOSTNAME: &str = "test-cc-rust";
 
 /// The number of parameters this crate registers.
 ///
-/// 96 as the C++ registers them, plus the two `safety.*` parameters it defines
-/// but forgets to register.
+/// The two `safety.*` parameters are counted because they are registered and
+/// therefore persisted; see the module documentation.
 pub const PARAM_COUNT: usize = 98;
 
 /// What kind of value a parameter holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ParamKind {
-    /// `bool`. Every boolean is always valid (`Config.h:isValid`).
+    /// `bool`. Every boolean is always valid.
     Bool,
     /// `i32`, range-checked.
     Int,
-    /// `f64`, range-checked. The C++ stores these as `double`.
+    /// `f64`, range-checked.
     Float,
-    /// A string. The C++ performs no validation at all — see the module
-    /// documentation.
+    /// A string, bounded only by [`crate::json::MAX_TEXT_LEN`].
     Text,
-    /// An enumeration, stored as its integer discriminant so the JSON matches
-    /// the C++ byte for byte (`Config.h:toJson` writes
-    /// `static_cast<int>(currentValue_)`).
+    /// An enumeration, stored as its integer discriminant, so an exported
+    /// configuration carries a number rather than a variant name.
     Enum,
 }
 
 impl ParamKind {
-    /// The C++ `ParamType` discriminant, which `/api/parameters` reports.
+    /// The `type` discriminant `/api/parameters` reports for this kind.
     ///
-    /// From `Config.h:36-44`: `INT = 0, UINT8 = 1, DOUBLE = 2, FLOAT = 3,
-    /// STRING = 4, ENUM = 5, BOOL = 6`.
+    /// `INT = 0, UINT8 = 1, DOUBLE = 2, FLOAT = 3, STRING = 4, ENUM = 5, BOOL = 6`.
+    /// The numbers are part of the wire format — the React editor switches on them
+    /// to decide which input to render — so they are fixed.
     #[must_use]
     pub const fn cpp_param_type(self) -> u8 {
         match self {
@@ -201,47 +187,31 @@ impl ParamValue<'_> {
 
 /// One registered parameter: what it is, and how to read and write it.
 ///
-/// **This is the whole parameter table.** Before, the parameter set was
-/// described three times over — here, as a `set` dispatch in
-/// [`crate::assign`], and as a `match` in [`crate::json::live_value`] — and
-/// adding a parameter meant three edits in three files, with a missed one
-/// showing up only as a parameter that validates but does not read, or reads
-/// but does not write. The C++ has one table, not three:
-/// `Config::getAllConfigParams` (`git show main:src/Config.cpp:438-563`)
-/// returns 96 `ConfigParamDef*`, and each carries its key, default, min, max
-/// **and** the `toJson`/`fromString` virtual pair. `get` and `set` are those
-/// two virtuals, as function pointers.
+/// **This is the whole parameter table**, and the accessors are part of the entry:
+/// `key`, `kind`, `default`, bounds, `get` and `set` are written once, in one
+/// place. A key that exists in [`SCHEMA`] and is not readable, or not writable, is
+/// therefore not expressible — as opposed to being a mistake that shows up as a
+/// parameter that validates but reads nothing back, or reads but cannot be
+/// written. `every_schema_key_has_a_live_value` and
+/// `every_schema_default_matches_the_config_default` still exist and still run;
+/// they are nearly tautological, which is the point of them, not a reason to
+/// delete them.
 ///
-/// So a key that exists in [`SCHEMA`] and is not readable is no longer
-/// expressible: the accessor and the declaration are one entry, written once.
-/// `every_schema_key_has_a_live_value` and
-/// `every_schema_default_matches_the_config_default` still exist and still
-/// run, but they are now nearly tautological — that is the point of them, not
-/// a reason to delete them.
-///
-/// **No `PartialEq`.** The derive was on this struct while the accessors were
-/// a separate table, and it compared the data fields, which was meaningful.
-/// Carrying two `fn` pointers makes the derived equality compare function
-/// addresses, which is not a stable property of a program (`rustc`'s
-/// `unpredictable_function_pointer_comparisons` warns about exactly this), and
-/// nothing in the crate compared two specs anyway — the properties that matter
-/// are [`ParamSpec::key`] and [`ParamSpec::default`], and those are read
-/// directly.
+/// **No `PartialEq`.** A derived equality would compare two `fn` pointers, which
+/// is not a stable property of a program (`rustc`'s
+/// `unpredictable_function_pointer_comparisons` warns about exactly this), and two
+/// specs are compared by [`ParamSpec::key`] and [`ParamSpec::default`] instead.
 #[derive(Clone, Copy, Debug)]
 pub struct ParamSpec {
-    /// The dotted C++ key, e.g. `"pid.regular.kp"`.
+    /// The dotted key, e.g. `"pid.regular.kp"`.
     pub key: &'static str,
-    /// The operator-facing help text, transcribed verbatim from the C++'s
-    /// `helpText_` constructor argument (`Config.h:69`, `:536`, `:661`).
+    /// The operator-facing help text.
     ///
-    /// This is the whole of `GET /api/parameter-help`: the C++ answers with
-    /// `paramDef->getHelpText()` (`WebServerManager.cpp:598-599`) and nothing
-    /// else, so this field *is* that route's body. It was missing here until
-    /// finding 3.4 of
-    /// [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md)
-    /// — `web.rs` answered that route with an error object and HTTP 200 rather
-    /// than admit it had no data. The bytes are the C++'s, so a client reading
-    /// the Rust firmware gets the same string it got from the C++ one.
+    /// This field **is** the body of `GET /api/parameter-help`: the route answers
+    /// with one entry per parameter and no other field. A route that has no data
+    /// for a parameter must fail rather than answer an error object with `200`,
+    /// which is why the text lives in the schema rather than at the route — a
+    /// parameter without help text cannot be registered.
     pub help: &'static str,
     /// The value's type.
     pub kind: ParamKind,
@@ -253,8 +223,7 @@ pub struct ParamSpec {
     pub max: Option<f64>,
     /// Read this key's current value out of a [`Config`].
     ///
-    /// The read half of the C++'s `toJson` (`Config.h:215-238`), which writes
-    /// `obj["value"] = currentValue_` — the *stored* value, not the default.
+    /// The **stored** value, not the default; see [`crate::json::LiveValue`].
     ///
     /// Higher-ranked in the config's lifetime rather than a bare
     /// `fn(&Config)`: the four credential parameters hand back a `&str`
@@ -266,13 +235,12 @@ pub struct ParamSpec {
     pub get: for<'a> fn(&'a Config) -> LiveValue<'a>,
     /// Write a value into this parameter's field. `false` = not applicable.
     ///
-    /// The write half of the C++'s `fromString` (`Config.h:242-262`) without
-    /// the parsing and without the NVS write, which moved to
-    /// [`crate::BlobConfigStore::save`]. `false` covers a value of the wrong
+    /// No parsing and no NVS write: the value arrives already validated, and the
+    /// write to the store happens once for the whole request (see
+    /// [`crate::BlobConfigStore::save`]). `false` covers a value of the wrong
     /// [`ParamKind`] and — for an enumeration — a discriminant that names no
-    /// variant, which is the analogue of `EnumParamDef::isValid`
-    /// (`Config.h:379-388`). The bounds live in [`ParamSpec::accepts`] and are
-    /// checked before a value gets this far, by [`crate::assign::parse`].
+    /// variant. The bounds live in [`ParamSpec::accepts`] and are checked before a
+    /// value gets this far, by [`crate::assign::parse`].
     pub set: fn(&mut Config, &LiveValue<'_>) -> bool,
 }
 
@@ -316,12 +284,10 @@ impl ParamSpec {
 
     /// Whether `value` is acceptable for this parameter.
     ///
-    /// Port of `ParamDef::isValid` (`Config.h:190-200`): booleans and strings
-    /// are always valid, everything else is range-checked with `>=` and `<=`.
-    /// Enumerations are additionally checked against their option list in the
-    /// C++ (`EnumParamDef::isValid`, `Config.h:379-388`); here an out-of-range
-    /// discriminant fails the `from_raw` conversion before it can reach a
-    /// `Config`, and [`SCHEMA`] bounds nothing for enums because the enum type
+    /// Booleans and strings are always valid; everything else is range-checked with
+    /// `>=` and `<=`. Enumerations are bounded by their type rather than by a list
+    /// here: an out-of-range discriminant fails the `from_raw` conversion before it
+    /// can reach a `Config`, and [`SCHEMA`] carries no enum bounds because the enum
     /// itself is exhaustive.
     #[must_use]
     pub fn accepts(self, value: ParamValue<'_>) -> bool {
@@ -547,11 +513,11 @@ macro_rules! accessors {
         )
     };
 }
-/// Every parameter the firmware persists, in the C++ registration order.
+/// Every parameter the firmware persists, in registration order.
 ///
-/// The order is the C++ order (`getAllConfigParams`) with the two `safety.*`
-/// parameters appended, so `/api/parameters` output keeps the same ordering as
-/// the C++ build for the first 96 entries.
+/// `/api/parameters` emits in this order, so the order is part of the wire format:
+/// a re-sort moves entries in a response the UI renders. New parameters are
+/// appended.
 pub const SCHEMA: &[ParamSpec] = &[
     ParamSpec::new(
         "pid.enabled",
@@ -1294,8 +1260,8 @@ pub const SCHEMA: &[ParamSpec] = &[
         "hardware.switches.brew.enabled",
         "Enable physical brew switch",
         ParamKind::Bool,
-        // `true`, not the C++'s `false` (`Config.h:985`) — see
-        // `HardwareSwitchesBrew::enabled` and intentional-diffs.md.
+        // `true`, not `false`: see `HardwareSwitchesBrew::enabled` and §14 of
+        // `docs/history/divergences.md`.
         ParamValue::Bool(true),
         None,
         None,
@@ -1460,11 +1426,10 @@ pub const SCHEMA: &[ParamSpec] = &[
         "hardware.sensors.temperature.type",
         "Type of temperature sensor connected",
         ParamKind::Enum,
-        // TSIC_306, the C++'s value at `Config.h:1085-1092`. Both the schema
-        // default and the struct default must agree, or `Config::default()` and
-        // `schema::SCHEMA` diverge and the export test fails. See
-        // `HardwareSensorsTemperature`'s Default impl for why this was
-        // `DALLAS_DS18B20` in an earlier revision and is not now.
+        // TSIC_306. The schema default and the struct default must agree, or
+        // `Config::default()` and `schema::SCHEMA` diverge and the export test
+        // fails. See `HardwareSensorsTemperature`'s `Default` impl, and §7 of
+        // `docs/history/divergences.md`.
         ParamValue::Enum(TemperatureSensorType::Tsic306 as i8),
         None,
         None,
@@ -1607,9 +1572,8 @@ pub const SCHEMA: &[ParamSpec] = &[
             hardware.sensors.scale.known_weight
         ),
     ),
-    // ---- the two parameters the C++ defines but never registers ----------
-    // `Config.h:813` and `Config.h:822`; read by `EmergencyStopManager.cpp:18-19`
-    // and missing from `Config::getAllConfigParams()`. See the module docs.
+    // ---- the two parameters that are not editable over MQTT --------------
+    // Registered so that they are persisted: see the module documentation.
     ParamSpec::new(
         "safety.emergency_temp",
         "Temperature threshold that triggers emergency stop",
@@ -1873,11 +1837,11 @@ mod tests {
     }
 
     #[test]
-    fn every_key_fits_the_cpp_path_segment_bound() {
+    fn every_key_fits_the_path_segment_bound() {
         for spec in SCHEMA {
             assert!(
                 spec.key.len() <= MAX_KEY_LEN,
-                "{} exceeds the C++ kMaxPathSegment of {MAX_KEY_LEN}",
+                "{} exceeds MAX_KEY_LEN of {MAX_KEY_LEN}",
                 spec.key
             );
             for segment in spec.key.split('.') {
@@ -1886,9 +1850,8 @@ mod tests {
         }
     }
 
-    /// The regression test for finding 1 of 01 §10: the two `safety.*`
-    /// parameters must be registered. Against the C++ behaviour this test does
-    /// not exist and the parameters are silently dropped on every reboot.
+    /// The two `safety.*` parameters must be registered, because a parameter that
+    /// is not registered is not persisted and would reset on every reboot.
     #[test]
     fn the_two_safety_parameters_are_registered() {
         let temp = find("safety.emergency_temp").expect("safety.emergency_temp must be registered");
@@ -1932,7 +1895,7 @@ mod tests {
 
     #[test]
     fn booleans_and_strings_are_always_valid() {
-        // Config.h:isValid returns true unconditionally for bool and String.
+        // Booleans and strings have no bounds, so nothing can reject them.
         let pid = find("pid.enabled").expect("registered");
         assert!(pid.accepts(ParamValue::Bool(true)));
         assert!(pid.accepts(ParamValue::Bool(false)));
@@ -1949,8 +1912,8 @@ mod tests {
     }
 
     #[test]
-    fn cpp_param_types_match_the_cpp_enum() {
-        // Config.h:36-44
+    fn the_param_type_discriminants_are_the_wire_format() {
+        // The `type` field `/api/parameters` reports; the UI switches on it.
         assert_eq!(ParamKind::Int.cpp_param_type(), 0);
         assert_eq!(ParamKind::Float.cpp_param_type(), 2);
         assert_eq!(ParamKind::Text.cpp_param_type(), 4);

@@ -1,14 +1,12 @@
 //! The cross-task command channel: network → control.
 //!
-//! Owner: **R3-14** (task E).
-//!
 //! # What this is, and why it is a wrapper
 //!
-//! 04 §3.2 is unambiguous: *"Commands into the control task (brew start,
-//! setpoint change, factory reset) arrive on a bounded
-//! `hal::task::queue::Queue<Command, 32>` drained at the top of every tick. Never
-//! a direct call from a network task into control state — that is how the C++
-//! code couples `LoopManager` to `MQTTManager` and `WebServerManager`."*
+//! [target-architecture.md
+//! §3.2](../../../docs/history/target-architecture.md) is unambiguous: commands
+//! into the control task (brew start, setpoint change, factory reset) arrive on a
+//! bounded `hal::task::queue::Queue<Command, 32>` drained at the top of every
+//! tick, and never as a direct call from a network task into control state.
 //!
 //! [`hal::task::queue::Queue`] is bounded by `T: Copy`
 //! (`esp-idf-hal` 0.47 `task.rs:980`), so [`crate::web::Command`] is `Copy` and
@@ -18,8 +16,10 @@
 //!
 //! # Drop-newest, and why not drop-oldest
 //!
-//! 04 §3.2 says `Event` drops oldest (freshness wins) and `Command` drops
-//! newest (the newest request is the most relevant). A `POST /api/setpoint`
+//! [target-architecture.md
+//! §3.2](../../../docs/history/target-architecture.md) says `Event` drops oldest
+//! (freshness wins) and `Command` drops newest (the newest request is the most
+//! relevant). A `POST /api/setpoint`
 //! arriving while the queue is full of older setpoints must win, or the UI
 //! shows a value the machine never applied.
 //!
@@ -27,8 +27,9 @@
 //!
 //! `POST /api/parameters` carries a *list of key/value pairs*, and a `Command`
 //! cannot: `Queue<T>` is bounded by `T: Copy` (`esp-idf-hal` 0.47 `task.rs:978`,
-//! "ensures the contained elements are not `Drop`") and 04 §3.2 turns that into a
-//! rule — *"No `String`, no `Vec`, no `Box` in a cross-task message."* A `Vec` of
+//! "ensures the contained elements are not `Drop`") and [target-architecture.md
+//! §3.2](../../../docs/history/target-architecture.md) turns that into a rule —
+//! *"No `String`, no `Vec`, no `Box` in a cross-task message."* A `Vec` of
 //! pairs in a `Command` does not compile, and inlining the values into fixed
 //! arrays would cap the value length at a number chosen by the queue's
 //! ergonomics rather than by the schema.
@@ -36,7 +37,7 @@
 //! So the pairs travel in [`ParameterHandoff`], a bounded mailbox that is
 //! drained at the same point in the tick as the queue. **The rule is still
 //! applied in one place**: `cc_config::assign::apply` is what the control task
-//! calls, and it is also what R3-13's inbound MQTT will call — MQTT being
+//! calls, and it is also what the inbound MQTT will call — MQTT being
 //! *on* the control task already, so it hands over nothing.
 
 use alloc::collections::VecDeque;
@@ -49,7 +50,8 @@ use esp_idf_hal::task::thread::ThreadSpawnConfiguration;
 
 use cc_web::Command;
 
-/// The queue depth. 04 §3.2: `Queue<Command, 32>`.
+/// The queue depth: `Queue<Command, 32>`, from [target-architecture.md
+/// §3.2](../../../docs/history/target-architecture.md).
 pub const COMMAND_QUEUE_DEPTH: usize = 32;
 
 /// A bounded, non-blocking, drop-newest channel from the network tasks to the
@@ -148,12 +150,13 @@ pub fn delay_ms(ms: u32) {
 /// `std::thread::Builder` on this target is `esp_pthread`
 /// (`components/pthread/port/linux/pthread.c`), which reads its priority from
 /// the **process-wide** `esp_pthread` default,
-/// `CONFIG_PTHREAD_TASK_PRIO_DEFAULT`. That default is 5 in this build, and
-/// `04 §2` says control is 5, display is 3 and provisioning is 4 — so the
-/// control task got the right number by coincidence and the other two did not.
-/// Worse, lwIP's own `tcpip` task runs at **18**, so a bare spawn left network
-/// work preempting the control loop, which is the inversion ADR-0002 records
-/// for the C++ firmware and which `04 §2` exists to remove. Naming the
+/// `CONFIG_PTHREAD_TASK_PRIO_DEFAULT`. That default is 5 in this build, and the
+/// [priority table](../../../docs/history/target-architecture.md) says control is
+/// 5, display is 3 and provisioning is 4 — so the control task got the right
+/// number by coincidence and the other two did not. Worse, lwIP's own `tcpip`
+/// task runs at **18**, so a bare spawn left network work preempting the control
+/// loop, which is the inversion ADR-0002 records and which the table exists to
+/// remove. Naming the
 /// priorities and never applying them is worse than not naming them: the log
 /// claims a relationship nothing establishes.
 ///
@@ -217,7 +220,9 @@ where
 
 /// The control task's `FreeRTOS` priority.
 ///
-/// 5, from `04 §2`'s table: the control loop is the highest-priority non-ISR
+/// 5, from the [priority
+/// table](../../../docs/history/target-architecture.md): the control loop is the
+/// highest-priority non-ISR
 /// task in the firmware, so a network or display task cannot preempt a
 /// decision about the heater.
 ///
@@ -228,14 +233,16 @@ where
 /// [`crate::scale::SAMPLER_PRIO`]'s doc, which is where it is measured.
 pub const CONTROL_PRIO: u8 = 5;
 
-/// The display task's priority, 3 (`04 §2`).
+/// The display task's priority, 3, from the [priority
+/// table](../../../docs/history/target-architecture.md).
 ///
 /// Below [`CONTROL_PRIO`] on purpose: a frame is ten milliseconds of I²C bus
 /// time, and the tick that must not be delayed is the one that decides whether
 /// the heater stays on.
 pub const DISPLAY_PRIO: u8 = 3;
 
-/// The provisioning task's priority, 4 (`04 §2`).
+/// The provisioning task's priority, 4, from the [priority
+/// table](../../../docs/history/target-architecture.md).
 ///
 /// Between display and control: the UART console is interactive, so it should
 /// answer while a frame is going out, but it is still a network-tier task and
@@ -263,7 +270,7 @@ pub const TELNET_PRIO: u8 = 2;
 /// table is not checked.
 ///
 /// A display task at 5 would compile, run, and reintroduce exactly the tick
-/// overrun `04 §2` moved the display out of the control loop to fix. Asserted
+/// overrun that moving the display out of the control loop fixed. Asserted
 /// at compile time for the reason [`crate::scale::SAMPLER_PRIO`] asserts its
 /// relationship the same way.
 const _: () = {
@@ -310,9 +317,8 @@ pub const STAGED_PARAMETER_DEPTH: usize = 4;
 ///
 /// Four control periods (400 ms each at the time of writing), which is long
 /// enough that a loaded control task still answers and short enough that a
-/// stalled one fails visibly rather than hanging a browser. The C++ has no
-/// timeout here because its handler *is* the writer; see
-/// [`ParameterHandoff::stage_and_wait`].
+/// stalled one fails visibly rather than hanging a browser. See
+/// [`ParameterHandoff::stage_and_wait`] for why the wait is bounded.
 pub const PARAMETER_ACK_TIMEOUT_MS: u32 = 1_600;
 
 /// The poll interval inside that wait.
@@ -524,13 +530,11 @@ impl ParameterHandoff {
     ///    to a reader for up to a second afterwards.
     ///
     /// Step 3 is fixed by publishing immediately after the apply. Steps 1 and 2
-    /// are inherent to keeping the configuration in one task, and the C++ does
-    /// not have them: `Config::getInstance()` is a singleton, so the C++'s
-    /// handler mutates the live configuration in place
-    /// (`WebServerManager.cpp:821-878`) and the very next read sees it.
+    /// are inherent to keeping the configuration in one task: the store has one
+    /// owner, and the only way to reach it is to ask that owner and wait.
     ///
-    /// A bounded wait is how this port buys the C++'s guarantee without giving
-    /// the httpd task a handle on the store or the machine. It is bounded
+    /// A bounded wait buys the same guarantee without giving the httpd task a
+    /// handle on the store or the machine. It is bounded
     /// because the alternative — answering `200` and hoping — is the lie the
     /// human reported, and an unbounded wait would be a hung web server.
     #[must_use]
@@ -637,7 +641,9 @@ pub mod tests {
 
     #[cfg_attr(test, test)]
     pub fn a_command_carries_no_pointer() {
-        // The 04 §3.2 bound, as a compile-time fact: `Queue` requires
+        // The [target-architecture.md
+        // §3.2](../../../docs/history/target-architecture.md) bound, as a
+        // compile-time fact: `Queue` requires
         // `T: Copy`, and `Command` is only `Copy` because every variant is
         // `Copy`. A future `String` in a variant would make this file stop
         // compiling, which is the intended enforcement — and it is why a
@@ -645,8 +651,6 @@ pub mod tests {
         fn assert_copy<T: Copy>() {}
         assert_copy::<Command>();
         // 16, not the 8 it used to be. `SetSetpoint` carries an `f64` because
-        // the C++ hands the request's `double` straight to
-        // `setProcessSetpoint` (`WebServerManager.cpp:394-396`) and
         // `brew.setpoint` is a float parameter; as an `i32` it silently dropped
         // `93.5` to `93` on the bench. The bound still exists and still means
         // "a fixed-size `Copy` slot, no allocator" — which is the property this

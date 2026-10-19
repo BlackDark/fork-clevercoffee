@@ -2,37 +2,29 @@
 //!
 //! # Why effects and not calls
 //!
-//! An [`Effect`] is a *description*. The C++ state classes call
-//! `context.enablePump()` / `context.openWaterValve()` directly
-//! (`BrewStates.cpp:70-71`), and `MachineStateContext` forwards straight to
-//! `HardwareManager` (`MachineStateContext.cpp:544-578`). That is why
-//! `HardwareManager`'s `valveState_` bookkeeping is a thing that can drift, and
-//! why 04 §3.1 insists "a new state cannot accidentally poke a relay, because it
-//! has no way to reach one — it can only return an `Effect`".
+//! An [`Effect`] is a *description*. Nothing in the machine calls an actuator, so a new
+//! state cannot poke a relay even by accident: it has no way to reach one, and can only
+//! return an `Effect`. The bookkeeping that makes direct calls dangerous -- a valve flag
+//! that can drift from the pin it describes -- has nowhere to live here.
 //!
-//! In this crate nothing is called. [`reduce`](crate::reduce) returns a list,
-//! and `crate::applier::apply` is the single function that turns a
-//! list into actuator calls. A test asserts hardware by inspecting the list, and
-//! needs no mock object, no GPIO, and no `HardwareManager`.
+//! [`reduce`](crate::reduce) returns a list, and `crate::applier::apply` is the single
+//! function that turns a list into actuator calls. A test asserts hardware by inspecting the
+//! list, and needs no mock object and no GPIO.
 //!
 //! # Order
 //!
-//! Order is part of the contract, not an implementation detail: the C++ runs
-//! `onExit` → swap → `onEntry` (`StateMachine.cpp:136-148`) and
-//! `update()` → `checkTransitions()` (`StateMachine.cpp:81-86`), and the S5
-//! valve fail-safe runs *after* all of it (`LoopManager.cpp:616-619`). Two
-//! effects that both write the same relay in the same tick resolve differently
-//! depending on order, so the applier applies the vector front to back and the
+//! Order is part of the contract, not an implementation detail: the old state's exit runs
+//! before the new state's entry, the tick's own effects follow, and the S5 valve fail-safe
+//! runs *after* all of it. Two effects that write the same relay in the same tick resolve
+//! differently depending on order, so the applier applies the vector front to back and the
 //! tests assert on exact sequences, not sets.
 //!
-//! # The list does not allocate — see [`Effects`]
+//! # The list does not allocate -- see [`Effects`]
 //!
-//! `Effect` is `Copy` and small; the *list* of them is what the control loop
-//! churned through. One allocation per [`reduce`](crate::reduce), four to five
-//! `reduce` calls per 10 ms tick, plus two more in the shell. See
-//! [`MAX_EFFECTS_PER_EVENT`] for the measurement and [`Effects::dropped`] for
-//! what happens if the ceiling is ever reached.
-
+//! `Effect` is `Copy` and small; the *list* of them is what the control loop churned
+//! through. One allocation per [`reduce`](crate::reduce), four to five `reduce` calls per
+//! 10 ms tick, plus two more in the shell. See [`MAX_EFFECTS_PER_EVENT`] for the measurement
+//! and [`Effects::dropped`] for what happens if the ceiling is ever reached.
 use core::fmt;
 use core::ops::Deref;
 
@@ -40,61 +32,57 @@ use cc_domain::state::MachineState;
 
 /// Something the machine wants done.
 ///
-/// The three groups are, in the order the C++ performs them: actuator writes,
-/// state-machine bookkeeping, and everything else. The grouping is a comment,
-/// not a type — a single enum keeps one `Vec` and one match in the applier, and
-/// the applier is the only place that has to be exhaustive over hardware.
+/// Three groups, declared in the order they are applied: actuator writes, state-machine
+/// bookkeeping, and everything else. The grouping is a comment, not a type -- a single enum
+/// keeps one list and one match in the applier, and the applier is the only place that has
+/// to be exhaustive over hardware.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Effect {
     // ---- actuator writes: the only things that may change a pin ------------
-    /// `context.enablePump()` → `HardwareManager::enablePump()`
-    /// (`MachineStateContext.cpp:544`).
+    /// Energise the pump relay.
     EnablePump,
-    /// `context.disablePump()` (`MachineStateContext.cpp:548`).
+    /// De-energise the pump relay.
     DisablePump,
-    /// `context.openWaterValve()` (`MachineStateContext.cpp:564`).
+    /// Open the water valve.
     OpenWaterValve,
-    /// `context.closeWaterValve()` (`MachineStateContext.cpp:568`).
+    /// Close the water valve.
     CloseWaterValve,
-    /// `context.openSteamValve()` (`MachineStateContext.cpp:556`).
+    /// Open the steam valve.
     ///
-    /// **Deliberate divergence, see 09 §2 / `intentional-diffs.md` #2.** The C++
-    /// has no steam-valve whitelist at all and nothing ever calls it. This port
-    /// gates it on `cc_safety::steam_flow_allowed` — `STEAM_RUNNING` and nothing
-    /// else — in two places: the reducer's tail closes the valve in every other
-    /// state (the `steamValveSafetyShutdownCheck` this port adds), and the
-    /// verdict's `may_open_steam` refuses the actuator call. The effect still
-    /// exists because the state machine must be able to express it, and because
-    /// the shared-relay argument means "the C++ never calls it" is a fact about
-    /// the call graph, not a safety property.
+    /// **Gated, deliberately: §2 of `docs/history/divergences.md`.**
+    ///
+    /// `cc_safety::steam_flow_allowed` admits `STEAM_RUNNING` and nothing else, and it is
+    /// consulted in two places: the reducer's tail closes the valve in every other state,
+    /// and the applier's verdict refuses the actuator call. The effect still exists because
+    /// the state machine must be able to express it even where the whitelist will refuse it
+    /// -- and on this machine it shares a relay with the water valve, so "nothing opens it"
+    /// is a fact about the call graph rather than a safety property.
     OpenSteamValve,
-    /// `context.closeSteamValve()` (`MachineStateContext.cpp:560`).
+    /// Close the steam valve.
     CloseSteamValve,
-    /// `context.enableHeater()` (`MachineStateContext.cpp:532`).
+    /// Command the heater on. Only the chopper decides the duty; see [`Self::SetHeaterDuty`].
     EnableHeater,
-    /// `context.disableHeater()` (`MachineStateContext.cpp:536`).
+    /// Drive the heater off.
     DisableHeater,
-    /// The heater duty, in the C++'s 0-1000 units.
+    /// The heater duty, in milliseconds of on-time per 1000 ms window: `0..=1000`.
     ///
-    /// Not `HardwareManager::setHeaterPower` (`uint8_t` percent): the C++ heater
-    /// path is a PWM window compared against the PID output
-    /// (`isr.h:96-118`), and R1-07 settles the method. This is the value the
-    /// applier will hand to `HeaterOutput`, not a relay pin.
+    /// Not a percentage and not a count of 10 ms ticks: this is the PID output's own unit,
+    /// the one the chopper compares against its counter. The applier hands it to the heater
+    /// output, which owns the conversion.
     SetHeaterDuty(f32),
-    /// `context.emergencyShutdown()` → `HardwareManager::emergencyShutdown()`
-    /// (`MachineStateContext.cpp:580`).
+    /// All relays off, and **latched**: every later actuator effect is refused until the
+    /// latch is cleared.
     ///
-    /// Distinct from `DisablePump + CloseWaterValve + DisableHeater` because it
-    /// also sets the actuator facade's own `emergencyMode_`, which makes every
-    /// later `Enable*` call a no-op until cleared
-    /// (`HardwareManager.cpp:278,306,321,353,398,443`). Latching is the point.
+    /// Distinct from `DisablePump + CloseWaterValve + DisableHeater`, which leaves the
+    /// machine able to run again. Latching is the point of this one: nothing may re-energise
+    /// the hardware while the emergency stop is in force, and a machine that stayed latched
+    /// has to have its latch cleared deliberately.
     EmergencyShutdown,
-    /// `context.safeHardwareShutdown()` → `HardwareManager::safeHardwareShutdown()`
-    /// (`MachineStateContext.cpp:584`).
+    /// All relays off, **without** latching.
     ///
-    /// Also distinct: it turns the relays off **without** setting
-    /// `emergencyMode_` (`ProcessController.cpp:489-500` says so explicitly),
-    /// so the machine can come back after standby.
+    /// The counterpart of [`Effect::EmergencyShutdown`]: the hardware stops, and the machine
+    /// can still run afterwards, which is what standby recovery, a reboot and an OTA session
+    /// all need.
     SafeHardwareShutdown,
 
     // ---- state-machine bookkeeping ----------------------------------------
@@ -102,140 +90,110 @@ pub enum Effect {
     ExitState(MachineState),
     /// The state being entered. Emitted before the new state's entry effects.
     EnterState(MachineState),
-    /// `context.setPidRuntimeState(bool)` (`MachineStateContext.cpp:275`).
+    /// Turn the PID's runtime participation on or off.
     ///
-    /// Runtime only — it never writes `pid.enabled`. That distinction is the
-    /// whole reason `EmergencyStopState::onExitImpl` can restore the PID from
-    /// config (`EmergencyStopState.cpp:29-30`).
+    /// Runtime only: it never writes `configuration.pid.enabled`. That distinction is what
+    /// lets a state's exit restore the PID from the configuration, rather than from whatever
+    /// value the previous state happened to leave behind.
     SetPidRuntime {
         /// The new runtime PID state.
         enabled: bool,
     },
-    /// `context.setSteamMode(bool)` (`MachineStateContext.cpp:271`).
-    ///
-    /// Also sets `steamFirstON_` to the same value, exactly as
-    /// `SystemUtils.h:42-53` does.
+    /// Turn steam mode on or off, and with it the "steam came first" flag the display's
+    /// status line uses.
     SetSteamMode {
         /// Whether steam mode is now on.
         enabled: bool,
     },
-    // NOTE: the brew timer (`ProcessController::currBrewTime_` /
-    // `totalTargetBrewTime_`) and the backflush cycle counter
-    // (`MachineStateContext::currBackflushCycles_`) are deliberately **not**
-    // effects. In the C++ they are values in other objects that the display and
-    // MQTT read; here they are `Machine::brew` and `Machine::backflush`, and
-    // the applier is handed the new `Machine` by `reduce`. An effect that
-    // restates a field the applier can already read is a second source of
-    // truth waiting to disagree with the first.
-    /// `maintenanceCoordinator().recordBrewIfQualified(...)` from
-    /// `BrewFinishedState::onEntryImpl` (`BrewStates.cpp:310-311`).
+    // NOTE: the brew timer and the backflush cycle counter are deliberately **not**
+    // effects. They are `Machine::brew` and `Machine::backflush`, and `reduce` hands the
+    // applier the new `Machine`, so the applier can already read them. An effect that
+    // restates a field the applier can read is a second source of truth waiting to disagree
+    // with the first.
+    /// Persist a counted shot.
     ///
-    /// **The decision, not the facts.** The C++'s one call applies the
-    /// qualification rule, increments the counter and writes NVS. Here the
-    /// counter is [`Machine::shots_since_backflush`](crate::machine::Machine::shots_since_backflush),
+    /// **The decision, not the facts.** The counter is
+    /// [`Machine::shots_since_backflush`](crate::machine::Machine::shots_since_backflush),
     /// which only the reducer may write, so
-    /// [`crate::maintenance::record_brew_if_qualified`] has already run by the
-    /// time this effect is emitted and `counted` is its answer. The effect is
-    /// therefore the *durability* half — the number to write down — and nothing
-    /// else.
+    /// [`crate::maintenance::record_brew_if_qualified`] has already run by the time this
+    /// effect is emitted and `counted` is its answer. The effect is therefore the
+    /// *durability* half -- the number to write down -- and nothing else.
     ///
-    /// It carries `counted` rather than the three inputs it was derived from so
-    /// that the shell never re-derives it. This is the whole of the bug this
-    /// shape fixes: with the inputs on the effect, the qualification rule was
-    /// only evaluated by a side channel that had to be *wired* to it, it was
-    /// not, and the counter sat at 0 for the life of the firmware with nothing
-    /// to fail. A rule evaluated once, where the value it changes lives, cannot
-    /// be forgotten that way.
+    /// It carries `counted` rather than the three inputs it was derived from so that the
+    /// shell never re-derives it. With the inputs on the effect instead, the qualification
+    /// rule would be evaluated only by a side channel that had to be *wired* to it, and a
+    /// rule that has to be wired can be forgotten: the counter would sit at 0 for the life
+    /// of the firmware with nothing to fail. A rule evaluated once, where the value it
+    /// changes lives, cannot be forgotten that way.
     RecordBrew {
-        /// `qualifiesAsCountedShot(totalBrewTimeMs, brewWeight, scaleEnabled)`.
+        /// Whether the shot qualified.
         counted: bool,
     },
-    /// `maintenanceCoordinator().resetSinceBackflush()` from
-    /// `BackflushFinishedState::onEntryImpl` (`BackflushStates.cpp:144`).
+    /// Reset the shot counter: a backflush cycle finished.
     ResetShotsSinceBackflush,
-    /// `context.clearAllActionRequests()` (`MachineStateContext.h:615-627`).
+    /// Drain every action request.
     ///
-    /// S11. The *effect* is emitted so the applier's flag mirror stays in step
-    /// with [`Machine::requests`](crate::machine::Machine::requests); the
-    /// reducer has already applied it.
+    /// What S11 requires of a state that cannot act on requests. The *effect* is emitted so
+    /// the applier's flag mirror stays in step with
+    /// [`Machine::requests`](crate::machine::Machine::requests); the reducer has already
+    /// applied it.
     ClearActionRequests,
-    /// `context.clearStaleStopRequests()` (`MachineStateContext.h:634-639`).
+    /// Drain the stop requests and leave the starts.
     ///
-    /// Not the same as [`Effect::ClearActionRequests`]: `STANDBY` keeps the
-    /// start flags as wake triggers and drains only the stops.
+    /// Not the same as [`Effect::ClearActionRequests`]: `STANDBY` keeps the start flags as
+    /// wake triggers, so only the stops are stale there.
     ClearStaleStopRequests,
-    /// `standbyCoordinator().reset()`, via every
-    /// `setXxxRequested(true)` that counts as user activity
-    /// (`MachineStateContext.cpp:217-267`).
+    /// Restart the standby countdown: something counted as user activity.
     ResetStandbyTimer,
-    /// `networkCoordinator().resetMqttConnectionAttempts()`
-    /// (`MachineStateContext.cpp:327-329`), on the way out of standby.
+    /// Reset the MQTT reconnect backoff, on the way out of standby.
     ResetMqttReconnectCount,
-    /// `MachineStateContext::exitStandbyMode()`'s one real side effect:
-    /// `display->setPowerSave(0)` (`MachineStateContext.cpp:411-417`).
+    /// Bring the panel out of power save.
     WakeDisplay,
-    /// `PowerHandler::triggerSystemReboot()` (`PowerHandler.h:177-192`).
+    /// Show the reboot message, shut the hardware down safely, and restart the chip.
     ///
-    /// The reducer does not restart the chip. The applier shows the message,
-    /// performs the safe shutdown, and restarts — and the
-    /// `POWER_REBOOT_DISPLAY_MS` delay is a *shell* concern, because a pure
-    /// function may not sleep.
+    /// The reducer itself cannot restart anything: the applier does it, and the
+    /// [`POWER_REBOOT_DISPLAY_MS`](crate::timing::POWER_REBOOT_DISPLAY_MS) pause is a
+    /// *shell* concern, because a pure function may not sleep.
     RequestReboot,
     /// A pump watchdog expired.
     ///
-    /// **Divergence, see 09 §11 / `intentional-diffs.md` #1.** In the C++ both
-    /// watchdogs are dead code — `PumpTimer::start()` is never called, so
-    /// `isExpired()` is unconditionally `false` and the two `logError` lines
-    /// that would announce a trip are unreachable. The port arms both on the
-    /// activating edge, so this effect is reachable, and it is emitted *so the
-    /// trip is visible in the field log* rather than being a silent hardware
-    /// change: an operator needs to be able to tell that a five-minute brew
-    /// timeout exists and fired, which is the only way to diagnose a
-    /// marginal-boiler machine.
+    /// §1 of `docs/history/divergences.md` records that arming this watchdog is deliberate,
+    /// which is what makes this effect reachable at all. It exists *so the trip is visible
+    /// in the field log*, rather than being a silent hardware change: without a log line, a
+    /// machine that stops mid-shot looks like a fault rather than a limit.
     ///
-    /// The two C++ messages this stands for, verbatim:
-    ///
-    /// * `BrewHandler::checkPumpTimeout` — `"Pump timeout - stopping for safety"`
-    ///   (`BrewHandler.h:256`)
-    /// * `HotWaterHandler::checkPumpTimeout` — `"Hot water pump timeout - stopping
-    ///   for safety"` (`HotWaterHandler.h:117`; also recovered verbatim from the
-    ///   previous Rust firmware, [08 §4.2](../../docs/history/recovered-oracle.md))
-    ///
-    /// The applier turns it into the log line; the *action* that follows
-    /// (`Request::BrewStop` / `Effect::DisablePump`) is a separate effect, in
-    /// the C++'s order.
+    /// The applier turns it into the log line, via [`PumpWatchdog::message`]. The *action*
+    /// that follows (`Request::BrewStop` / `Effect::DisablePump`) is a separate effect, so
+    /// the order is the reducer's choice rather than a side effect of logging.
     PumpTimeoutFired {
         /// Which watchdog fired.
         watchdog: PumpWatchdog,
     },
 }
 
-/// Which of the C++'s two `PumpTimer` instances expired.
+/// Which pump watchdog expired.
 ///
-/// `BrewHandler` owns a `pumpTimer_(300000)` and `HotWaterHandler` a
-/// `pumpTimer_(60000)`; they are separate objects with separate deadlines, so
-/// they are separate variants rather than one flag. See
-/// [`timing::BREW_PUMP_TIMEOUT_MS`](crate::timing::BREW_PUMP_TIMEOUT_MS)
-/// and [`timing::HOT_WATER_PUMP_TIMEOUT_MS`](crate::timing::HOT_WATER_PUMP_TIMEOUT_MS).
+/// Two separate timers with two separate deadlines, so two variants rather than one flag.
+/// See [`timing::BREW_PUMP_TIMEOUT_MS`](crate::timing::BREW_PUMP_TIMEOUT_MS) and
+/// [`timing::HOT_WATER_PUMP_TIMEOUT_MS`](crate::timing::HOT_WATER_PUMP_TIMEOUT_MS).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PumpWatchdog {
-    /// `BrewHandler::pumpTimer_` — 300 000 ms.
+    /// The brew pump's watchdog: five minutes.
     Brew,
-    /// `HotWaterHandler::pumpTimer_` — 60 000 ms.
+    /// The hot-water pump's watchdog: one minute.
     HotWater,
 }
 
 impl PumpWatchdog {
-    /// The C++'s `logError` text, verbatim.
+    /// The operator-facing line for a trip.
     ///
-    /// Quoted rather than re-worded so a grep for the C++ message finds it, and
-    /// so a log line from the Rust firmware is recognisable as the same event.
+    /// The strings are part of the parity contract: the `ledger` matchers for divergence §1
+    /// in `docs/history/divergences.md` search the source for exactly these lines, so
+    /// re-wording one would stop the harness matching the behaviour it audits.
     #[must_use]
     pub const fn message(self) -> &'static str {
         match self {
-            // BrewHandler.h:256
             Self::Brew => "Pump timeout - stopping for safety",
-            // HotWaterHandler.h:117
             Self::HotWater => "Hot water pump timeout - stopping for safety",
         }
     }
@@ -359,26 +317,21 @@ pub const MAX_EFFECTS_PER_EVENT: usize = 32;
 ///
 /// # Why this is not `alloc::vec::Vec`
 ///
-/// Because it was, and it cost four heap allocations per 10 ms control tick.
+/// Because it was, and it cost four heap allocations per 10 ms control tick. See
+/// `tests/tick_allocations.rs`, which is the measurement and the regression test in one.
 ///
-/// The control task calls [`reduce`](crate::reduce) four to five times per tick
-/// (sensor, safety, switch edges, PID output, tick), and each call built a fresh
-/// `Vec`. Measured on the host against the real code, in a `Control::tick`-shaped
-/// harness: **4.00 allocations and ~192 bytes per tick**, i.e. roughly 400
-/// allocations per second, driven by the same loop that runs the heater deadman
-/// — on a device with about 320 KB of RAM. `Control::tick` allocated a second
-/// list and `cc-firmware`'s `main.rs` a third.
+/// The control task calls [`reduce`](crate::reduce) four to five times per tick (sensor,
+/// safety, switch edges, PID output, tick), and each call built a fresh `Vec`. Measured on
+/// the host against the real code, in a `Control::tick`-shaped harness: **4.00 allocations
+/// and ~192 bytes per tick**, i.e. roughly 400 allocations per second, on a device with
+/// about 320 KB of RAM, driven by the same loop that runs the heater deadman.
+/// `Control::tick` allocated a second list and `cc-firmware`'s `main.rs` a third.
 ///
-/// The C++ allocated nothing here. `LoopManager::update`
-/// (`src/core/LoopManager.cpp:90-253`) wrote relays inline into member state,
-/// so the effect list only ever existed as the C++ call stack.
-///
-/// `heapless::Vec` with a `const` capacity is the same shape with the storage in
-/// the value: no allocator call, no fragmentation, and the capacity is a
-/// compile-time constant. `heapless` with `default-features = false` is
-/// core-only — the `alloc` feature the workspace entry enables adds `Vec`/`String`
-/// conversions this crate does not use, and it is already in the device graph via
-/// `cc-hal-esp32`, so naming it here adds no second copy.
+/// `heapless::Vec` with a `const` capacity is the same shape with the storage in the value:
+/// no allocator call, no fragmentation, and the capacity is a compile-time constant.
+/// `heapless` with `default-features = false` is core-only -- the `alloc` feature the
+/// workspace entry enables adds `Vec`/`String` conversions this crate does not use, and it is
+/// already in the device graph via `cc-hal-esp32`, so naming it here adds no second copy.
 ///
 /// # Overflow is counted, not ignored
 ///
