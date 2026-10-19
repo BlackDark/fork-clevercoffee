@@ -208,8 +208,8 @@ pub const CASES: &[Case] = &[
         run: provisioning::tests::a_reader_drops_a_line_that_is_not_utf8,
     },
     Case {
-        name: "scale::the_pins_are_the_cpp_pin_map",
-        run: scale::tests::the_pins_are_the_cpp_pin_map,
+        name: "scale::the_pins_match_the_board_map",
+        run: scale::tests::the_pins_match_the_board_map,
     },
     Case {
         name: "scale::the_sampler_stack_fits_the_datasets_it_carries",

@@ -394,9 +394,9 @@ impl<DI: WriteOnlyDataCommand> Oled<DI> {
     /// by the human on real hardware — and it also costs ~30 bytes of commands
     /// per frame on a bus the ABP2 pressure sensor shares.
     ///
-    /// The correct shape is U8g2's: `u8g2_InitDisplay` runs once from
-    /// `begin()`, and every later `drawTile` sets the draw area and writes
-    /// pixels. So the sequence goes out **once**, from
+    /// The correct shape is U8g2's: `u8g2_InitDisplay` runs once, and every later
+    /// tile write sets the draw area and writes pixels. So the sequence goes out
+    /// **once**, from
     /// [`I2cPanel::initialise`], and every frame after it is [`Oled::flush`].
     ///
     /// # Errors

@@ -10,25 +10,21 @@
 //!
 //! # The shed is a soft one, and that is the ADR's decision
 //!
-//! ```text
-//! When ESP.getFreeHeap() < 30 KB, writeToOutputs() skips WiFi writes
-//! (Serial still works). This is a soft shed — the telnet connection stays open
-//! and resumes when heap recovers. No active client_.stop() to avoid the
-//! "Connection reset by peer" problem.
-//! ```
-//! — ADR-0002, decision 5.
+//! ADR-0002 decision 5: below 30 KB of free heap the telnet stream skips its
+//! socket writes while the console keeps working, and resumes when the heap
+//! recovers. It is deliberately **soft** — the connection stays open, because an
+//! active close appears in the operator's terminal as "Connection reset by peer",
+//! which is indistinguishable from a network fault and sends the investigation in
+//! the wrong direction.
 //!
-//! "(Serial still works)" is the half that matters here, and it is a *promise
-//! about a second sink*, not about this one: the shed below ([`Shed`], applied
-//! in [`Server::flush`]) drops a ring entry before it is written to the socket,
-//! and the UART0 write in [`Fanout::log`] has already happened by then and is
-//! not reachable from it. **UART0 is written first**, and only then does the
-//! Wi-Fi client get a say.
+//! "The console keeps working" is the half that matters here, and it is a
+//! *promise about a second sink*, not about this one: the shed below ([`Shed`],
+//! applied in [`Server::flush`]) drops a ring entry before it is written to the
+//! socket, and the UART0 write in [`Fanout::log`] has already happened by then
+//! and is not reachable from it. **UART0 is written first**, and only then does
+//! the Wi-Fi client get a say.
 //!
-//! The client is *not* disconnected under heap pressure. An active close appears
-//! in the operator's terminal as "Connection reset by peer", which is
-//! indistinguishable from a network fault and sends the investigation in the
-//! wrong direction. **Shed, and do not crash** is what this implements.
+//! **Shed, and do not crash** is what this implements.
 //!
 //! # The split, and why it is this split
 //!

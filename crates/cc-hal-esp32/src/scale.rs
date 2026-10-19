@@ -988,7 +988,7 @@ pub mod tests {
     /// of these, the scale silently stops reading — and nothing else in the
     /// firmware would notice, because nothing else touches these pins.
     #[cfg_attr(test, test)]
-    pub fn the_pins_are_the_cpp_pin_map() {
+    pub fn the_pins_match_the_board_map() {
         assert_eq!(SCALE_DATA_1, 32);
         assert_eq!(SCALE_DATA_2, 25);
         assert_eq!(SCALE_CLOCK, 33);
