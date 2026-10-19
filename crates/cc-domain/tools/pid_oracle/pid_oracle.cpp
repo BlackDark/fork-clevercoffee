@@ -1,10 +1,11 @@
 /*
- * PID parity oracle — R2-04.
+ * PID parity oracle.
  *
- * Compiles the REAL vendored Arduino-PID-Library (`lib/Arduino-PID-Library/
- * PID_v1.cpp`, unmodified) against a hand-driven `millis()` and replays a fixed
- * input sequence through it. The Rust `cc-domain::pid::Controller` replays the
- * *same* sequence and asserts the same outputs.
+ * Compiles the REAL upstream PID library — the `rancilio-pid` fork of
+ * Arduino-PID-Library, at the commit `run.sh` pins — unchanged, against a
+ * hand-driven `millis()`, and replays a fixed input sequence through it. The Rust
+ * `cc-domain::pid::Controller` replays the *same* sequence and asserts the same
+ * outputs.
  *
  * This is the ground truth. The expected values checked into
  * `crates/cc-domain/src/pid_parity.rs` are produced by THIS program, never by
@@ -25,10 +26,10 @@
  * port, so that parity is exact. See the module docs of
  * `crates/cc-domain/src/pid.rs`:
  *
- *   D-PID-1  `dInput = (lastFilteredInput - oldFiltered) / (SampleTime / 1000)`
- *            (PID_v1.cpp:85) uses INTEGER division for the divisor. Any
- *            `SampleTime < 1000` makes it 0 and the whole output becomes NaN.
- *            Scenario D pins this.
+ *   D-PID-1  The `Compute()` line
+ *            `dInput = (lastFilteredInput - oldFiltered) / (SampleTime / 1000)`
+ *            uses INTEGER division for the divisor. Any `SampleTime < 1000`
+ *            makes it 0 and the whole output becomes NaN. Scenario D pins this.
  *   D-PID-2  The constructor leaves `integrator`, `lastInput`, `lastFilteredInput`,
  *            `lastFilteredDifferential`, `lastError`, `lastPPart` and `lastDPart`
  *            uninitialised; correctness depends on `SetMode(AUTOMATIC)` calling
@@ -40,25 +41,24 @@
 #include <cstdio>
 #include <cstring>
 
-/* PID_v1.cpp:8 does `#if ARDUINO >= 100` and falls back to <WProgram.h> when the
+/* PID_v1.cpp does `#if ARDUINO >= 100` and falls back to <WProgram.h> when the
  * macro is undefined. Pretend to be a modern core so it picks <Arduino.h>. */
 #define ARDUINO 10819
 
 #include "Arduino.h"
 
-/* The vendored library, byte for byte. */
+/* The library, byte for byte, from the pinned commit. */
 #include "PID_v1.cpp"
 
 /* ------------------------------------------------------------------ harness */
 
 /*
- * The C++ PID keeps `*myOutput` as a POINTER to a caller-owned double and
- * Compute() READS it for its anti-windup test (PID_v1.cpp:70), as well as
- * writing it. The oracle therefore owns the three variables — exactly as
- * `SystemContext::processTemperaturePtr() / processPidOutputPtr() /
- * processSetpointPtr()` do in the firmware — and hands their addresses to the
- * constructor. The Rust port keeps the same three values INSIDE the controller,
- * which is the same aliasing without the dangling-pointer risk (08 §6).
+ * The library keeps `*myOutput` as a POINTER to a caller-owned double, and
+ * Compute() READS it for its anti-windup test as well as writing it. The oracle
+ * therefore owns the three variables and hands their addresses to the
+ * constructor, which is the interface the library has. The Rust port keeps the
+ * same three values inside the controller: the aliasing is there without a
+ * pointer a caller could leave dangling.
  */
 static double g_input    = 0.0;
 static double g_setpoint = 0.0;
@@ -87,16 +87,18 @@ static void compute(PID& pid, uint32_t now) {
 }
 
 /*
- * The exact call sequence of `SystemInitializer::initializePID()`
- * (src/core/SystemInitializer.cpp:544-556), in the same order. Order matters:
- * `SetSampleTime` rescales ki/kd, so it has to come after the tuning.
+ * The configuration the vectors were taken with: the tunings, then the window,
+ * then the limits, then `SetMode(AUTOMATIC)`. The order matters twice over —
+ * `SetSampleTime` rescales ki/kd, so it has to come after the tuning, and
+ * `SetMode` is what calls `Initialize()`, so the limits have to be in place
+ * before it.
  */
 static void configure_production(PID& pid, double kp, double ki, double kd, int p_on) {
     pid.SetTunings(kp, ki, kd, p_on);
-    pid.SetSampleTime(1000); /* processWindowSize(), ProcessState.h:183 */
+    pid.SetSampleTime(1000); /* the production window, in milliseconds */
     pid.SetOutputLimits(0, 1000);
-    pid.SetIntegratorLimits(0, 55.0); /* AGGIMAX, defaults.h:27 */
-    pid.SetSmoothingFactor(0.6);      /* pidEmaFactor, defaults.h:32 */
+    pid.SetIntegratorLimits(0, 55.0); /* pid.regular.i_max */
+    pid.SetSmoothingFactor(0.6);      /* pid.ema_factor */
     pid.SetMode(AUTOMATIC);
 }
 
@@ -104,12 +106,11 @@ static void configure_production(PID& pid, double kp, double ki, double kd, int 
 
 static void scenario_a_production_pon_e() {
     std::printf("O scenario_a_production_pon_e\n");
-    g_oracle_millis = 0; /* the C++ constructor reads millis() */
+    g_oracle_millis = 0; /* the constructor reads millis() */
 
-    /* The production configuration:
-     *   kp = AGGKP = 62.0, Ki = kp/Tn = 62.0/52.0, kd = Tv*kp = 11.5*62.0
-     *   (ProcessController::calculatePIDParameters(), ProcessController.cpp:382-390)
-     *   POn = 1 (P_ON_E), DIRECT — SystemInitializer.cpp:299-304
+    /* The production tunings, `pid.regular.kp/tn/tv` at their defaults:
+     *   kp = 62.0, Ki = kp/Tn = 62.0/52.0, kd = Tv*kp = 11.5*62.0
+     *   POn = 1 (P_ON_E), DIRECT
      */
     g_input    = 22.5;
     g_setpoint = 95.0;
@@ -117,8 +118,8 @@ static void scenario_a_production_pon_e() {
     PID pid(&g_input, &g_output, &g_setpoint, 62.0, 62.0 / 52.0, 11.5 * 62.0, 1, DIRECT);
     configure_production(pid, 62.0, 62.0 / 52.0, 11.5 * 62.0, 1);
 
-    /* The C++ constructor sets lastTime = millis() - SampleTime, so the very
-     * first Compute() at t = 0 already sees a full sample period elapse. */
+    /* The constructor sets lastTime = millis() - SampleTime, so the very first
+     * Compute() at t = 0 already sees a full sample period elapse. */
     compute(pid, 0);
 
     /* Too soon — must not compute. */
@@ -172,8 +173,8 @@ static void scenario_b_brew_detection_pon_m() {
     std::printf("O scenario_b_brew_detection_pon_m\n");
     g_oracle_millis = 0;
 
-    /* Brew-detection tunings, ProcessController::calculateBrewDetectionPIDParameters()
-     * with AGGBKP = 50, AGGBTN = 0 (so aggbKi_ = 0), AGGBTV = 20, P_ON_M. */
+    /* Brew-detection tunings, the `pid.bd.*` defaults: kp = 50, tn = 0 (so
+     * Ki = 0), tv = 20, with P_ON_M. */
     g_input    = 93.0;
     g_setpoint = 95.0;
     g_output   = 0.0;
@@ -188,8 +189,8 @@ static void scenario_b_brew_detection_pon_m() {
         t += 1000;
     }
 
-    /* The firmware switches to P_ON_M mid-run (ProcessController.cpp:214) and
-     * back again, passing the proportional mode explicitly each time. */
+    /* The proportional mode is switched mid-run and back again, passing it
+     * explicitly each time — which is why `SetTunings` takes it. */
     pid.SetTunings(50.0, 0.0, 20.0 * 50.0, P_ON_M);
     compute(pid, t);
     t += 1000;
@@ -218,8 +219,8 @@ static void scenario_c_manual_automatic_and_limits() {
     compute(pid, 0);
     compute(pid, 5000);
 
-    /* Bumpless transfer. The firmware zeroes the output when it switches to
-     * MANUAL (ProcessController.cpp:275-277) and then re-enables AUTOMATIC. */
+    /* Bumpless transfer: the output is zeroed while MANUAL, and the switch back
+     * to AUTOMATIC calls `Initialize()`, which seeds the integrator from it. */
     g_output = 0.0;
     pid.SetMode(AUTOMATIC);
     compute(pid, 6000);
@@ -233,30 +234,29 @@ static void scenario_c_manual_automatic_and_limits() {
     compute(pid, 9000);
     compute(pid, 10000);
 
-    /* A rejected tuning (negative gain) must be ignored entirely
-     * (PID_v1.cpp:146). */
+    /* A rejected tuning (negative gain) is ignored entirely: `SetTunings`
+     * returns before it touches the state. */
     pid.SetTunings(-1.0, 0.5, 0.5, P_ON_E);
     compute(pid, 11000);
     compute(pid, 12000);
 }
 
 /*
- * D-PID-1. `SampleTime < 1000` makes `SampleTime / 1000` zero at
- * PID_v1.cpp:85, so the P_ON_E derivative term is `x / 0` and the output is
- * NaN. P_ON_M is unaffected because it uses the unfiltered
- * `input - lastInput` difference with no time division.
+ * D-PID-1. `SampleTime < 1000` makes the integer `SampleTime / 1000` zero, so the
+ * P_ON_E derivative term is `x / 0` and the output is NaN. P_ON_M is unaffected
+ * because it uses the unfiltered `input - lastInput` difference with no time
+ * division.
  *
- * The shipped firmware never hits this because initializePID() sets the sample
- * time to `processWindowSize()` = 1000 ms, but it is one `SetSampleTime(500)`
- * away, and R1-07 (heater output method) is exactly the task that would
- * introduce a different window.
+ * The firmware is never in this state today: the sample time is the production
+ * window, 1000 ms. It is one `SetSampleTime(500)` away, which is why the
+ * scenario is kept.
  *
- * NOTE: the Rust port FIXES this. `Controller::derivative_seconds_at` divides
- * by the real elapsed time in f64, so the port does not reproduce the NaN. This
- * scenario is retained verbatim as the record of what the C++ does, and
- * `crates/cc-domain/src/pid_parity.rs` measures the divergence against it. Do
- * not "fix" the oracle to agree with the port — that would destroy the only
- * evidence for intentional-diffs.md line 4.
+ * NOTE: the Rust port FIXES this. `Controller::derivative_seconds_at` divides by
+ * the real elapsed time in f64, so the port does not reproduce the NaN. This
+ * scenario is retained verbatim as the record of the divergence, and
+ * `crates/cc-domain/src/pid_parity.rs` measures it. Do not "fix" the oracle to
+ * agree with the port — that would destroy the only evidence for `divergences.md`
+ * §4.
  */
 static void scenario_d_sub_second_sample_time_is_nan() {
     std::printf("O scenario_d_sub_second_sample_time_is_nan\n");
@@ -286,16 +286,16 @@ static void scenario_d_sub_second_sample_time_is_nan() {
 }
 
 /*
- * D-PID-1, second half: at the *shipped* 1000 ms window the C++'s divisor is
+ * D-PID-1, second half: at the production 1000 ms window the divisor is
  * `1000 / 1000` == 1 s, a constant, whatever the real interval between Compute()
  * calls was. This scenario calls Compute() on deliberately ragged timestamps so
  * the recorded vector shows that: the input steps by exactly 2.0 between samples
- * while the C++ reports a dInput that reflects a fixed 1.0 s.
+ * while the library reports a dInput that reflects a fixed 1.0 s.
  *
  * The port divides by the elapsed time, so it reports 2.0 / elapsed there. This
- * is the one place the port can differ from the C++ at the production window,
- * and it is quantified rather than asserted: `pid_parity.rs` replays this
- * sequence and reports the maximum |delta|.
+ * is the one place the port can differ at the production window, and it is
+ * quantified rather than asserted: `pid_parity.rs` replays this sequence and
+ * reports the maximum |delta|.
  */
 static void scenario_e_late_steps_use_the_nominal_window() {
     std::printf("O scenario_e_late_steps_use_the_nominal_window\n");

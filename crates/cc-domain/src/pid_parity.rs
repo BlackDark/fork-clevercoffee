@@ -7,11 +7,12 @@
 //! per step as the IEEE-754 bit pattern of the resulting `double` -- so nothing is lost in
 //! transcription and the two can be compared exactly as well as approximately.
 //!
-//! The tool cannot run here: `tools/pid_oracle/run.sh` names a `lib/` path that does not
-//! exist, and the PID library it compiles is not part of this tree. The tables are
-//! therefore frozen evidence rather than regenerable output. What runs on every `just
-//! test` is this file: the same input sequences replayed against
-//! [`crate::pid::Controller`] and compared with the frozen vectors.
+//! `tools/pid_oracle/run.sh` fetches that library at the pinned commit and replays the
+//! sequences, so the tables are regenerable rather than frozen. One output line is
+//! host-dependent -- the `%.17g` column prints scenario D's NaN with the compiler's own
+//! sign -- and [`assert_scenario`] compares NaN to NaN for that reason. What runs on every
+//! `just test` is this file: the same input sequences replayed against
+//! [`crate::pid::Controller`] and compared with the recorded vectors.
 //!
 //! The five scenarios mirror the oracle's, one for one:
 //!
@@ -444,9 +445,9 @@ fn scenario_d_the_reference_goes_nan_and_this_port_does_not() {
         );
     }
 
-    // The oracle's recorded output at step 0 is NaN and this port's is not. If that ever
-    // stops being true, the fix has been reverted and the frozen evidence is no longer
-    // being honoured.
+    // The recorded output at step 0 is NaN and this port's is not. If that ever stops
+    // being true, the fix has been reverted and the recorded vector is no longer being
+    // honoured.
     let oracle_first = f64::from_bits(SCENARIO_D_ORACLE[0].output_bits);
     assert!(oracle_first.is_nan(), "the oracle recorded a NaN here");
     assert!(

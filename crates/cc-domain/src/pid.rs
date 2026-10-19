@@ -8,13 +8,13 @@
 //! algorithm is reproduced, including its defects, because a controller that behaves
 //! differently is a controller that boils differently.
 //!
-//! Parity is measured, not asserted by inspection. A fixed four-scenario input sequence
+//! Parity is measured, not asserted by inspection. A fixed five-scenario input sequence
 //! was replayed against the reference implementation by
 //! `crates/cc-domain/tools/pid_oracle/pid_oracle.cpp`, and the expected outputs in
 //! `src/pid_parity.rs` -- compiled only under `cfg(test)` -- are that program's output.
-//! The program needs the reference library to compile, and that library is not in this
-//! tree any more, so the vectors are frozen evidence rather than regenerable; see the
-//! program's own header.
+//! `tools/pid_oracle/run.sh` fetches the reference library at the commit the vectors were
+//! taken from and replays it, so the tables can be regenerated; see that program's own
+//! header.
 //!
 //! # Deliberate differences from the reference
 //!

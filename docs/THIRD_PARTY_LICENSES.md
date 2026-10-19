@@ -69,23 +69,23 @@ firmware, so the BSD-2-Clause "no endorsement" clause is satisfied.
 
 ---
 
-## Arduino-PID-Library — MIT
-
-`lib/Arduino-PID-Library/` holds the C++ parity oracle's PID implementation
-(`PID_v1.cpp` / `PID_v1.h`), unchanged. The Rust port in
-`crates/cc-domain/src/pid.rs` was written for this repository and is verified
-against that library by `crates/cc-domain/tools/pid_oracle/`, which
-**executes the original MIT-licensed code** and diffs its output against the
-Rust. The MIT notice travels with the vendored source in `lib/`.
-
----
-
 ## Not vendored
+
+Two third-party trees are **fetched at run time**, by the tool that needs them, and
+are not redistributed here. Their notices travel with the fetched copy; nothing in
+this repository carries their bytes, so nothing here has to carry their licence
+either.
+
+| Project | Licence | Who fetches it | Pinned |
+| --- | --- | --- | --- |
+| `rancilio-pid/Arduino-PID-Library` | MIT | `crates/cc-domain/tools/pid_oracle/run.sh` | a commit; see the script |
+| U8g2 | BSD 2-Clause | `just u8g2` (`target/u8g2`), for `test-display-parity` | tag `2.36.18` |
+
+The exception is the U8g2 **font streams**, which are redistributed: see the section
+above, which is the notice that obligation requires.
+
+Other things fetched rather than vendored:
 
 - **React, the UI toolchain and the browser.** `ui/` builds against published
   npm packages; their licences are in the packages themselves and none of them
   is redistributed here.
-- **The C++ framework.** The parity oracle keeps `src/`, `include/` and `test/`
-  which depend on the Arduino core and PlatformIO libraries. They are **not
-  vendored into this repository** — PlatformIO fetches them at build time — so
-  their notices are not ours to carry.
