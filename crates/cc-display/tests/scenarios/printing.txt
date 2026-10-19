@@ -14,3 +14,12 @@ printf0 0 48 12.0
 printf1 0 60 -7.25
 printi 0 16 42
 printi 0 16 -7
+# The degree sign, both ways the firmware writes it: `printc 176` -- what
+# `print(static_cast<char>(176))` compiles to -- and a raw 0xB0 byte inside a
+# printed string. `fmt::Formatted` builds the same thing as UTF-8 and hands the
+# string to `print`, so this is the oracle's answer for the four temperature
+# fields that used to draw nothing at all.
+cursor 0 44
+printc 176
+printc 67
+str 80 0 "\xb0C"
