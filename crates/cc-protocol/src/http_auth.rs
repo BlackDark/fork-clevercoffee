@@ -624,7 +624,7 @@ mod tests {
     }
 
     #[test]
-    fn the_challenge_is_the_cpp_realm() {
+    fn the_challenge_uses_the_clevercoffee_realm() {
         // The realm this firmware challenges with.
         assert_eq!(WWW_AUTHENTICATE, "Basic realm=\"CleverCoffee\"");
     }

@@ -413,12 +413,12 @@ mod tests {
     }
 
     #[test]
-    fn the_cpp_integer_conversion_differs_only_by_its_own_rounding() {
+    fn the_integer_conversion_differs_only_by_its_rounding() {
         // The integer-shift form `((temp * 250L >> 8) - 499) / 10.0`, pinned so the difference from
         // `Frame::celsius` is quantified rather than asserted.
-        let cpp = |raw: u16| ((u32::from(raw) * 250) >> 8) as f32 / 10.0 - 49.9;
+        let reference = |raw: u16| ((u32::from(raw) * 250) >> 8) as f32 / 10.0 - 49.9;
         // Exactly equal at the top of the range.
-        assert_eq!(cpp(2047), 150.0);
+        assert_eq!(reference(2047), 150.0);
         // And never more than one 0.1 C step away anywhere else, biased low. The two lines have
         // slightly different slopes -- 200/2047 = 0.0977044 against 250/256/10 = 0.09765625 -- and
         // different offsets, so they *cross*: the app note's is lower at the bottom of the range
@@ -426,7 +426,7 @@ mod tests {
         // the two places where the integer form is visibly wrong.
         for raw in 0..=2047u16 {
             let mine = Frame { raw, strobe_us: 62 }.celsius();
-            let theirs = cpp(raw);
+            let theirs = reference(raw);
             assert!(
                 (mine - theirs).abs() <= 0.1 + 1e-4,
                 "raw {raw}: {mine} vs {theirs}"
@@ -439,7 +439,7 @@ mod tests {
                 strobe_us: 62
             }
             .celsius()
-                < cpp(0)
+                < reference(0)
         );
         assert!(
             Frame {
@@ -447,11 +447,11 @@ mod tests {
                 strobe_us: 62
             }
             .celsius()
-                > cpp(43)
+                > reference(43)
         );
         // The floor is where the integer form is visibly wrong: the datasheet says -50.0 and it
         // gives -49.9.
-        assert_eq!(cpp(0), -49.9);
+        assert_eq!(reference(0), -49.9);
         assert_eq!(
             Frame {
                 raw: 0,
