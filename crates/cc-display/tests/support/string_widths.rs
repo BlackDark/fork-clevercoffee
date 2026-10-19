@@ -1,16 +1,18 @@
 //! Multi-character string widths measured from real U8g2 2.36.18.
 //!
-//! `tools/oracle` (`probeS`) prints, for every embedded font and every string
-//! in `STRINGS`, both `U8G2::getStrWidth` (the Latin-1 entry point the firmware
-//! uses) and `U8G2::getUTF8Width`. They agree on every row, which is itself part
-//! of the contract: the firmware's strings are ASCII plus the single Latin-1
-//! byte `0xB0` for the degree sign.
+//! A `probeS` run against real U8g2 measured, for every embedded font and every
+//! string in `STRINGS`, both `U8G2::getStrWidth` (the Latin-1 entry point the
+//! firmware uses) and `U8G2::getUTF8Width`. They agreed on every row, which is
+//! itself part of the contract: the firmware's strings are ASCII plus the single
+//! Latin-1 byte `0xB0` for the degree sign.
 //!
 //! This table is what exercises the two width-loop quirks -- the last-glyph ink
 //! substitution and the balanced first-glyph x-offset. A per-glyph table cannot:
 //! both terms only appear when a string has more than one glyph.
 //!
-//! Regenerate with `./tools/oracle/run.sh`; do not hand-edit.
+//! The probe that measured it is not in the tree, so re-measuring means re-running it
+//! against U8g2 2.36.18; a new or changed font needs exactly that. Do not hand-edit an
+//! existing row: the point of the table is that no row was typed in.
 
 /// The measured strings, in table order. `\u{b0}` is the degree sign.
 pub const STRINGS: [&str; 26] = [

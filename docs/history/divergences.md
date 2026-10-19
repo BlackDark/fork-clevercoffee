@@ -3,12 +3,11 @@
 **Owner:** R1-08 creates this file; R4-09 keeps it current.
 **Seeded:** 2026-09-28, by the R1-07 / safety-gap work.
 
-This file is the answer to one question: **when the Rust firmware's behaviour
-differs from the C++ firmware it replaces, is that a bug or a decision?**
+This file is the answer to one question: **where does the Rust firmware behave
+differently from the C++ it replaced, and was that a bug or a decision?**
 
-Every entry is a place where a parity harness (`scripts/parity/run.sh`, R4-03)
-may legitimately produce a diff. Anything *not* listed here that shows up in a
-diff is a regression, and `run.sh` must exit non-zero on it.
+Every entry is a place where the difference was reviewed and ruled a decision.
+Anything *not* listed here is a bug, not a design choice.
 
 Three things every entry carries:
 
@@ -105,11 +104,6 @@ pump, and **neither** C++ timer covers them. Extending a watchdog's scope is a
 specification change, not a parity fix, so it is recorded here as an open
 follow-up rather than smuggled in.
 
-```ledger
-{"id":"div1","heading":"## 1. Both pump safety timeouts are armed","scenarios":["brew_by_time","brew_aborted_mid_flow","backflush_full_cycle","steam_on_off","water_tank_empty_mid_brew"],
- "matchers":["/effect rust:.*PumpTimeoutFired/","/log .*Pump timeout - stopping for safety/","/log .*Hot water pump timeout - stopping for safety/"]}
-```
-
 ---
 
 ## 2. The steam valve is whitelist-gated 🔴 added {#d02}
@@ -196,11 +190,6 @@ make `may_open_steam` agree with `may_open_water` and quietly re-open S5's hole
 from the other side. Hence the third test above: **the two whitelists must be
 disjoint**, and a test enforces it.
 
-```ledger
-{"id":"div2","heading":"## 2. The steam valve is whitelist-gated","scenarios":[],
- "matchers":["/effect rust:CloseSteamValve/","/effect cpp:.*CloseSteamValve/","/actuator.steam_valve/"]}
-```
-
 ---
 
 ## 3. The water valve is gated on the water tank 🔴 added {#d03}
@@ -235,11 +224,6 @@ S5 whitelist is consulted in the same breath.
 **The heater is deliberately not gated on the tank.** The boiler is a separate
 vessel and `hardware.sensors.watertank.keep_heater_on_empty` is a real
 configuration the machine must honour.
-
-```ledger
-{"id":"div3","heading":"## 3. The water valve is gated on the water tank","scenarios":["water_tank_empty_mid_brew","water_tank_refill","ota_start_from_idle","ota_start_during_brew"],
- "matchers":["/effect rust:.*OpenWaterValve/","/effect cpp:.*OpenWaterValve/","/actuator.water_valve/"]}
-```
 
 ---
 
@@ -276,8 +260,9 @@ trap stays visible rather than being rediscovered from a `NaN` on the bench.
 
 ### Parity, measured
 
-The oracle (`crates/cc-domain/tools/pid_oracle/run.sh`) compiles the **real,
-unmodified** `PID_v1.cpp` and replays the identical sequence.
+The oracle compiled the **real, unmodified** `PID_v1.cpp` and replayed the
+identical sequence. The oracle and the C++ it built were removed with the rest of
+the C++ tooling (`40d46a88`); the numbers below are the recorded result.
 
 | scenario | window | before the fix | after the fix |
 | --- | --- | --- | --- |
@@ -331,14 +316,10 @@ that lands exactly on the window is bit-identical, which the test asserts.
 
 ### The oracle is not to be "fixed"
 
-`scenario_d` in `crates/cc-domain/tools/pid_oracle/pid_oracle.cpp` still produces
-`NaN`, on purpose. It is the only evidence for this entry. **Do not change the
-oracle to agree with the port.**
-
-```ledger
-{"id":"div4","heading":"## 4. The PID derivative is taken over the real elapsed time","scenarios":[],
- "matchers":["/effect rust:SetHeaterDuty/","/effect cpp:SetHeaterDuty/"]}
-```
+`scenario_d` in the oracle still produced `NaN`, on purpose. It is the only
+evidence for this entry, and it is recoverable with
+`git show 40d46a88^:crates/cc-domain/tools/pid_oracle/pid_oracle.cpp`. **Do not
+change the oracle to agree with the port.**
 
 ---
 
@@ -436,9 +417,8 @@ nothing; the design change is not cheap.
 ## Also intentional, from before this file existed
 
 **Deliberately unnumbered**, like the section above it: this is a collection, not
-one divergence. It is read by `cc-parity` all the same, and its ledger entry
-(`ota_gap`) names this heading verbatim, which is why the number is absent rather
-than merely omitted from the index.
+one divergence. That is a decision about the heading, not an omission from the
+index.
 
 Recorded here so the file is complete; each was decided in its own task.
 
@@ -451,11 +431,6 @@ Recorded here so the file is complete; each was decided in its own task.
 | `Duty` is bounded at `0..=1000`, i.e. the PID output is a **millisecond** duty, not `setHeaterPower`'s `uint8_t` percent | The C++ heater path is a PWM window compared against the PID output, and `HardwareManager::setHeaterPower` (`HardwareManager.cpp:305-318`) is a TODO stub | `cc-domain/src/units.rs::tests::duty_bound_is_the_chopper_window` |
 | Blocked steam mode being requested from the C++ test suite (`test_steam_handler`, `test_steam_water_injection`) | 27 `#[ignore]`d records of C++ mock cases with no Rust equivalent, each with a comment saying why | the `#[ignore]` attributes themselves |
 | SSE over WebSocket for the UI's live channel | R1-05; `EspHttpConnection::write` (chunked) and `raw_connection().write_all` both ship in `esp-idf-svc` 0.53 | R1-05 |
-
-```ledger
-{"id":"ota_gap","heading":"## Also intentional, from before this file existed","scenarios":["ota_start_from_idle","ota_start_during_brew"],
- "matchers":["/effect rust:SafeHardwareShutdown/","/effect cpp:.*SafeHardwareShutdown/","/effect rust:EnablePump/","/effect cpp:EnablePump/"]}
-```
 
 ---
 
@@ -1066,12 +1041,11 @@ read a weight, so the equivalent of every one of those settings is inert there.
 pending. Full analysis, including the MQTT and web tare/calibration commands that accept
 input and silently do nothing, is in [09 §23](./cpp-findings.md).
 
-**What this means for the parity harness.** A scenario that exercises the scale has **no
-C++ baseline to diff against** — the C++ produces no weight in any state. R3-17 and R3-18
-are therefore *new functionality*, not divergence, and the diff classifier must not treat a
-Rust weight against a C++ empty as a regression. That is a case the classifier has to
-know about explicitly; a generic "C++ returned nothing" rule would silently swallow real
-regressions elsewhere.
+**What this means for the scenario set.** A scenario that exercises the scale has
+no old-firmware behaviour to compare against — the old firmware produced no weight
+in any state. R3-17 and R3-18 are therefore *new functionality*, not divergence.
+The comparison harness that would have needed a special case was removed in
+`adcb3fd3`; the Rust weight path is covered by its own tests.
 
 **Decided 2026-09-29 by the human who owns the hardware**, explicitly against the
 recommendation this file's sibling sections previously carried: the deadness is a bug on
@@ -1666,7 +1640,7 @@ boot, so `?value=150` was accepted, persisted, and reloaded — and 150 °C defe
 the interlock, because `safety.emergency_temp` defaults to 150 and S1's
 over-temperature test is **strictly greater**. The machine was driven *to* the
 emergency threshold and held there with a debounce that could never count a
-breach. That is the same shape as the steam rule already in this ledger (09 §8),
+breach. That is the same shape as the steam rule already in this file (09 §8),
 extended to the setpoint that is actually used.
 
 The rule lives in `validate_config` rather than at the write path so that **every**
@@ -2369,24 +2343,27 @@ Approved on request, 2026-10-05.
 ## 35 — The port is closed; five decisions, and what each costs 🔴 changed {#d35}
 
 Decided 2026-10-06 by Eduard Marbach, at the close of the migration. **None of
-this changes runtime behaviour**, so unlike the sections above there are no
-`ledger` blocks: `cc-parity` classifies differences the firmware *exhibits*, and
-there are none here. What there is instead is the record of five things that were
-open, what was decided, and what would reverse each decision.
+this changes runtime behaviour**, so unlike the sections above none of it is a
+behavioural divergence: it is the record of five things that were open, what was
+decided, and what would reverse each decision.
 
 ### 35.1 The C++ parity baseline is never captured
 
-`docs/history/baseline/cpp/` holds only `.gitkeep`, and `just parity` reports
-`BASELINE-MISSING` for all 17 scenarios. Capturing one means flashing the
-deleted C++ onto a powered, wired machine — which runs its own control loop.
-The tree is recoverable (`git show 9fa8c834:...`, `AG-REPO-27`) but its
-PlatformIO build is not, so the cost is a reconstruction plus a machine.
+No baseline was ever captured, so there was never a recorded reference to compare
+against. Capturing one means flashing the deleted C++ onto a powered, wired
+machine — which runs its own control loop. The tree is recoverable (`git show
+9fa8c834:...`, `AG-REPO-27`) but its PlatformIO build is not, so the cost is a
+reconstruction plus a machine.
 
 **Decided: abandoned, permanently.** Not deferred — the owner declined the
 capture when it was first offered, and the cost has since gone up rather than
 down. **What "intentional difference" means in `divergences.md` from now on is
 reviewed and reasoned, never measured.** **Reverses if** the C++ is rebuilt from
 `9fa8c834` and a powered machine is available to run it against.
+
+**Superseded 2026-10-19:** the comparison machinery and its baseline were removed
+in `adcb3fd3`. There is no harness left to baseline; this entry remains as the
+record of why none was ever captured.
 
 ### 35.2 The water path is live, and the bring-up inhibit is gone
 
@@ -2517,11 +2494,6 @@ against the pre-fix code and pass against it:
 * `an_empty_tank_drains_the_same_press_and_the_latch_now_does_too` — the
   contrast with R4-04 case 13.3, where `WATER_TANK_EMPTY` already drained the
   same press and the operator watched it happen at the LEDs.
-
-```ledger
-{"id":"div36","heading":"## 36 — The emergency latch drains action requests","scenarios":["overtemp_trip","overtemp_recovery"],
- "matchers":["/effect rust:ClearActionRequests/","/state EMERGENCY_STOP/"]}
-```
 
 ---
 

@@ -1,11 +1,9 @@
 # Standby, and the switch wake.
 #
-# `StandbyCoordinator::update` (`StandbyCoordinator.h:31-74`) recomputes the
-# countdown at most once a second and only when `standby.enabled`; that
-# granularity is preserved, because a port that recomputed every loop would
-# enter standby up to a second earlier. `StandbyState::checkSpecificTransitions`
-# (`SystemStates.cpp:46,52`) wakes on a request flag and resets the MQTT
-# reconnect count on the way out.
+# The standby countdown is recomputed at most once a second and only when
+# `standby.enabled`; that granularity is preserved, because recomputing every
+# tick would enter standby up to a second earlier. The state wakes on a request
+# flag and resets the MQTT reconnect count on the way out.
 name: standby_wake
 title: The power switch takes the machine to STANDBY and back to PID_NORMAL
 mode: dry_run
@@ -19,21 +17,19 @@ why: >
   indefinitely.
 
   The scenario uses the **request** path rather than the timeout, because
-  `standby.time`'s registered minimum is 1 minute (`cc-config`'s schema, from
-  `Config.h`) and a timeout scenario would have to run for a minute to test
-  something the request path reaches immediately. `standby.time` is left at its
-  default here and asserted in neither direction.
+  `standby.time`'s registered minimum is 1 minute (`cc-config`'s schema) and a
+  timeout scenario would have to run for a minute to test something the request
+  path reaches immediately. `standby.time` is left at its default here and
+  asserted in neither direction.
 
-  The wake is the other half and is not free. `StandbyState::onExitImpl`
-  (`SystemStates.cpp:27-34`) does two things beyond leaving the state:
-  `display->setPowerSave(0)`, and **restoring the runtime PID flag from
-  config**. A machine that woke with the runtime PID still off would look awake
-  and never heat again.
+  The wake is the other half and is not free. Leaving `STANDBY` does two things
+  beyond leaving the state: `display->setPowerSave(0)`, and **restoring the
+  runtime PID flag from config**. A machine that woke with the runtime PID still
+  off would look awake and never heat again.
 
-  09 §14 is preserved here rather than fixed: `hasUserActivity()` is a hard
-  `return false` (`MachineStateContext.cpp:419-423`), so the *water* switch
-  cannot wake the machine. A power-switch wake works; a water-switch wake does
-  not, and that is the shipped behaviour.
+  09 §14 is preserved here rather than fixed: the user-activity check is a hard
+  `false`, so the *water* switch cannot wake the machine. A power-switch wake
+  works; a water-switch wake does not, and that is the shipped behaviour.
 
 config:
   set:
@@ -43,10 +39,9 @@ config:
     hardware.sensors.watertank.enabled: true
 
 stimuli:
-  # The `STANDBY` request, which is `PowerHandler::powerOff`'s flag
-  # (`MachineStateContext.h:587`) and what `/api/sleep` and an MQTT request both
-  # set. The momentary power switch is the other door to the same state and is
-  # covered by `cc-parity`'s own `the_power_switch_reaches_standby_from_the_press`.
+  # The `STANDBY` request, which `/api/sleep` and an MQTT request both set. The
+  # momentary power switch is the other door to the same state and is covered by
+  # `cc-parity`'s own `the_power_switch_reaches_standby_from_the_press`.
   - { at_ms: 100, kind: mqtt, command: STANDBY }
   - { at_ms: 500, kind: mqtt, command: NORMAL_OPERATION }
 

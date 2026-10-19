@@ -2,9 +2,9 @@
 #
 # A Wi-Fi connect blocks for up to 10 s and the provisioning portal for up to
 # 60 s. The 5 s TWDT would fire in both cases, so the watchdog is suspended
-# around them (`SystemInitializer.cpp:816-830`). Without the suspension the
-# device reboots in a loop and never joins the network — which is a *liveness*
-# failure, not a safety one, and is why it is easy to leave unhandled.
+# around them. Without the suspension the device reboots in a loop and never
+# joins the network — which is a *liveness* failure, not a safety one, and is why
+# it is easy to leave unhandled.
 #
 # SAFETY: nothing here energises an actuator. The scenario's only interaction
 # with the machine is the HTTP API and the serial log.
@@ -14,9 +14,9 @@ mode: hardware
 covers: [S9, S7]
 
 why: >
-  S9 and S7. `Test_support.h`'s TWDT stub is a host test of the *stub*, not of
-  the firmware, so the only way to know the watchdog is genuinely suspended
-  around the connect is to make the device reconnect and watch it survive.
+  S9 and S7. The host TWDT stub is a test of the *stub*, not of the firmware, so
+  the only way to know the watchdog is genuinely suspended around the connect is
+  to make the device reconnect and watch it survive.
 
   The observable is `/api/health` answering continuously and no
   `task_wdt`/`interrupt wdt` line in the log. ESP-IDF's interrupt watchdog is

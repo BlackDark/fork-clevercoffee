@@ -16,14 +16,9 @@
 //!
 //! # Regenerating
 //!
-//! `tools/fmt_oracle.c` is the C program that produced the file. It is not
-//! built by the test — the file is the artefact, and the C program is kept so
-//! the artefact can be re-derived if the rounding rule is ever in question.
-//!
-//! ```text
-//! cc -O0 -o /tmp/fmt_oracle crates/cc-display/tools/fmt_oracle.c
-//! /tmp/fmt_oracle > crates/cc-display/tests/fmt_oracle.txt
-//! ```
+//! The file is the artefact; the C program that produced it is not in the tree. That
+//! program was `snprintf("%.*f")` over the same values the test walks, so re-deriving the
+//! table means writing it again — worth doing only if the rounding rule is in question.
 
 use cc_display::fmt::format_fixed;
 

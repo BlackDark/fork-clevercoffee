@@ -273,7 +273,7 @@ impl Runner {
         let setpoint = config.brew.setpoint;
 
         let sensors = Sensors::healthy();
-        let obs = Observation::new(&scenario.name, "rust");
+        let obs = Observation::new(&scenario.name);
         let ctx = cc_machine::Context::new(&config, Celsius::new(setpoint as f32));
 
         // The power switch is read before the state machine exists, which yields
@@ -725,8 +725,8 @@ pub fn run(scenario: Scenario) -> Result<Observation, RunError> {
 
 /// Check a scenario's assertions against an observation.
 ///
-/// Split out so the runner's own tests and the `just parity` smoke test can
-/// assert against a hand-built observation.
+/// Split out so the runner's own tests can assert against a hand-built
+/// observation.
 #[must_use]
 pub fn check_assertions(scenario: &Scenario, obs: &Observation) -> Vec<String> {
     let mut failures = Vec::new();
@@ -969,7 +969,7 @@ mod tests {
     /// The tests below deliberately read
     /// `docs/history/scenarios/*.yaml` rather than carrying their own
     /// copies. A duplicated scenario is a scenario that can drift from the one
-    /// `just parity` runs, and a test that passes against a copy while the
+    /// the gate runs, and a test that passes against a copy while the
     /// shipped file is broken is worse than no test. The path is relative to
     /// `CARGO_MANIFEST_DIR` so it does not depend on the working directory.
     fn shipped(name: &str) -> Scenario {
@@ -1049,10 +1049,9 @@ mod tests {
 
     /// Two runs of the same scenario produce byte-identical observations.
     ///
-    /// The committed baseline depends on this. A scenario whose observation
-    /// varied run to run would make every diff meaningless, and the variation
-    /// would be in the harness rather than in the firmware — which is exactly
-    /// the kind of noise a parity gate must not accept.
+    /// A scenario whose observation varied run to run would make its assertions
+    /// flaky, and the variation would be in the harness rather than in the
+    /// firmware.
     #[test]
     fn every_dry_run_scenario_is_deterministic() {
         for name in [

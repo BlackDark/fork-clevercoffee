@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted. Enforced in `cc_machine::states` and `cc_safety`; the C++ names in the
+context are the original history and the files no longer exist.
 
 ## Context
 
@@ -21,6 +22,7 @@ The root cause: the original project controlled hardware directly in procedural 
 ### Hardware control ownership
 
 Each state that requires active hardware (pump, valve) **must**:
+
 - Enable hardware in `onEntryImpl()`
 - Reinforce hardware state in `update()` (defense against safety checks toggling it off)
 - Disable hardware in `onExitImpl()`

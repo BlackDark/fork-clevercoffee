@@ -1,11 +1,10 @@
-# S8 — an OTA session started while the pump is running. **The C++ gap.**
+# S8 — an OTA session started while the pump is running.
 #
-# `LoopManager::update()` returns early while `OTA::isActive()`
-# (`LoopManager.cpp:128-132`), so nothing drives the pump or the valve for the
-# duration of a ~25 s flash. `OTA::beginSession()` calls `disableHeater()` and
-# `disableTimer1()` (`SystemInitializer.cpp:54-59`) and stops there. The design
-# assumes the previous state's `onExit` already cleaned up — which it did, at
-# the moment the *brew* ended, not at the moment the flash began.
+# While an OTA session is active the control loop does not run, so nothing drives
+# the pump or the valve for the duration of a ~25 s flash. Beginning a session
+# disables the heater and nothing else, and the design assumes the previous
+# state's exit already cleaned up — which happened when the *brew* ended, not
+# when the flash began.
 name: ota_start_during_brew
 title: An OTA session during a brew closes the pump and the valve, not just the heater
 mode: dry_run
@@ -14,18 +13,15 @@ covers: [S8, S5]
 duration_ms: 26000
 
 why: >
-  The scenario that makes the gap concrete. On the C++ firmware, a flash started
-  mid-brew leaves the pump and the three-way valve in whatever state the brew
-  left them for the whole transfer. On the Rust port the session performs
+  The scenario that makes the gap concrete. A flash started mid-brew leaves the
+  pump and the three-way valve in whatever state the brew left them for the whole
+  transfer unless the session shuts them down. This firmware performs
   `safe_hardware_shutdown()` — pump, valve and heater — and the state machine is
   not run for the session's duration.
 
-  So the C++ baseline for this scenario records `EnablePump` and `OpenWaterValve`
-  with no `DisablePump` / `CloseWaterValve` after them, and the Rust observation
-  does not. **That diff is the fix working**, and `intentional-diffs.md`'s
-  ledger entry for the OTA gap is what classifies it as expected rather than as a
-  regression. The scenario is the only one in the set whose expected outcome is
-  deliberately *not* the C++'s.
+  The assertion is the fix: the pump and valve were running when the session
+  began, and nothing re-energises them while it is open. `divergences.md` §31
+  records the difference and what pins it.
 
 config:
   set:
@@ -62,9 +58,8 @@ assert:
   - { kind: always, effect: SafeHardwareShutdown }
   # NOT `no_fluid_flow`. The brew was a *manual* one and the brew switch is
   # still held at 20 s, so when the session closes the machine resumes the
-  # interrupted shot and the pump comes back on. That is the C++'s behaviour
-  # too — a flash does not cancel a brew, it suspends the loop — and it is why
-  # the assertions above are windowed rather than absolute. Asserting
-  # `no_fluid_flow` here would be asserting a cancellation that neither firmware
-  # performs.
+  # interrupted shot and the pump comes back on. A flash does not cancel a brew,
+  # it suspends the loop, and it is why the assertions above are windowed rather
+  # than absolute. Asserting `no_fluid_flow` here would be asserting a
+  # cancellation the firmware does not perform.
   - { kind: always, effect: EnterState }

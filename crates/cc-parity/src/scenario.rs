@@ -38,7 +38,7 @@ pub const DEFAULT_TICK_MS: u32 = 10;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Scenario {
-    /// The scenario's identifier. Also the baseline file's stem.
+    /// The scenario's identifier, used in reports and failure messages.
     pub name: String,
     /// A one-line human summary.
     pub title: String,
@@ -487,9 +487,9 @@ impl Scenario {
                     // cannot produce one from the firmware. It **models** one:
                     // `SafeHardwareShutdown`, then the control loop suspended
                     // for the session's duration. The scenario therefore asserts
-                    // the modelled behaviour against a baseline that records none
-                    // of it. Stated here rather than hidden, because the two
-                    // sides are not measuring the same thing.
+                    // the modelled behaviour directly. Stated here rather than
+                    // hidden, because the driver does not execute the real OTA
+                    // path.
                     let _ = action;
                 }
                 StimulusKind::Rest | StimulusKind::Wait { .. } | StimulusKind::Sensor { .. } => {}
@@ -904,8 +904,7 @@ assert:
     #[test]
     fn a_dry_run_ota_begin_is_accepted_because_the_driver_models_it() {
         // The OTA session has no reducer event. The `dry_run` driver models it,
-        // so a scenario may open one and assert the modelled behaviour against a
-        // baseline that records no session at all.
+        // so a scenario may open one and assert the modelled behaviour.
         let text = MINIMAL.replace(
             "- { at_ms: 0, kind: rest }",
             "- { at_ms: 0, kind: ota, action: begin, path: firmware.bin }",

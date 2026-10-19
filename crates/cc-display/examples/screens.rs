@@ -1,7 +1,7 @@
 //! Every screen, in one PNG, so a human can look at all of them at once.
 //!
 //! ```text
-//! cargo run -p cc-display --features scenarios --example screens -- out.png
+//! cargo run -p cc-display --example screens -- out.png
 //! ```
 //!
 //! # Why this exists

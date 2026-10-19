@@ -93,11 +93,9 @@ log.workspace = true
 # drops it.
 #
 # `embedded-io` used to be here too, for the fake reader behind
-# `telnet::pump`'s test. Both went when the read path did: the C++'s `Logger`
-# never reads a line from a telnet client (`Logger.cpp:123-156` only accepts,
-# writes the banner and pumps the heartbeat), so `pump` had no oracle counterpart
-# and no caller in `cc-firmware`. Its removal is why `Read` is no longer imported
-# by `telnet.rs`.
+# `telnet::pump`'s test. Both went when the read path did: `pump` has no caller
+# in `cc-firmware`, so the reader had no purpose. Its removal is why `Read` is no
+# longer imported by `telnet.rs`.
 serde_json.workspace = true
 
 # `cc-protocol` again, with the `device-tests` feature, for THIS crate's own test

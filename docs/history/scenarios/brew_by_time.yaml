@@ -1,9 +1,9 @@
 # The happy path, and the S5 valve fail-safe under it.
 #
-# `BrewHandler::valveSafetyShutdownCheck` (`BrewHandler.h:105-122`) runs on
-# **every** loop, after the state machine, and closes the water valve unless the
-# current state is on the whitelist. It is the reason a state that forgets to
-# close its valve still cannot leave it open: the fail-safe runs regardless.
+# `cc_safety::water_flow_allowed` runs on **every** tick, after the state machine,
+# and closes the water valve unless the current state is on the whitelist. It is
+# the reason a state that forgets to close its valve still cannot leave it open:
+# the fail-safe runs regardless.
 name: brew_by_time
 title: An automatic brew by time runs pre-infusion, pause, flow, and finishes on its own
 mode: dry_run
@@ -16,16 +16,15 @@ duration_ms: 40000
 why: >
   The reference flow, and the one every other brew scenario is a perturbation of.
   `BREW_PREINFUSION` (pump + valve, no heat) → `BREW_PREINFUSION_PAUSE` (valve
-  closed, pump off) → `BREW_RUNNING` (pump + valve) → `BREW_FINISHED`
-  (`BrewStates.cpp`). The shot ends itself because
-  `initTotalTargetBrewTime` (`BrewStates.cpp:53-62`) put a target on the brew
-  timer: pre-infusion base + `brew.by_time.target_time`.
+  closed, pump off) → `BREW_RUNNING` (pump + valve) → `BREW_FINISHED`. The shot
+  ends itself because the brew timer gets a target: pre-infusion base +
+  `brew.by_time.target_time`.
 
-  The `order` assertion is the S5 argument. `valveSafetyShutdownCheck` runs
-  *after* the state machine's `update()` and `onEntry()` in the same loop, so a
-  state that asserts "valve open" and the fail-safe that asserts "valve closed"
-  are both applied in one tick and resolved by the whitelist — not by which call
-  came last. An ordering regression here would leave the valve open in
+  The `order` assertion is the S5 argument. `water_flow_allowed` runs *after* the
+  state machine's `update()` and `onEntry()` in the same tick, so a state that
+  asserts "valve open" and the fail-safe that asserts "valve closed" are both
+  applied in one tick and resolved by the whitelist — not by which call came
+  last. An ordering regression here would leave the valve open in
   `BREW_PREINFUSION_PAUSE`, which is exactly the state whose name says it must
   not be.
 

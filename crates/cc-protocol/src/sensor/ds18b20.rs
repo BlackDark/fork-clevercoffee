@@ -335,8 +335,7 @@ impl Driver {
         });
     }
 
-    /// Decode a scratchpad this driver's device would produce, for tests and
-    /// for the parity harness.
+    /// Decode a scratchpad this driver's device would produce, for tests.
     ///
     /// # Errors
     ///

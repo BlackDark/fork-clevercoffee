@@ -1,9 +1,8 @@
 # S8 — an OTA session from idle.
 #
-# The gap 01 §6 records: while `OTA::isActive()`, `LoopManager::update()`
-# returns early (`LoopManager.cpp:128-132`), so the state machine does not run
-# and the pump and valve are not driven. `OTA::beginSession()` disables the
-# heater and stops timer 1 (`SystemInitializer.cpp:54-59`) and nothing else.
+# The gap 01 §6 records: while an OTA session is active the control loop does not
+# run, so the state machine does not run and the pump and valve are not driven.
+# Beginning a session disables the heater and nothing else.
 name: ota_start_from_idle
 title: An OTA session from idle leaves the heater, pump and valve off for the whole flash
 mode: dry_run
@@ -14,14 +13,14 @@ covers: [S8]
 duration_ms: 26000
 
 why: >
-  S8. From idle the C++'s `disableHeater()` happens to be sufficient, which is
-  why the gap went unnoticed: the gap is only reachable from a state that had
+  S8. From idle, disabling the heater alone happens to be sufficient, which is
+  why the gap went unnoticed: it is only reachable from a state that had
   something running. `ota_start_during_brew` is the scenario that exposes it.
 
-  The port's requirement (01 §6, R3-15) is `safe_hardware_shutdown()` — pump,
-  valve **and** heater — not `disable_heater()`. Asserted here as a negation
-  because the expected Rust answer and the C++'s differ for the reachable case;
-  from idle they agree, and this scenario is the control for that.
+  The requirement (01 §6, R3-15) is a safe hardware shutdown — pump, valve **and**
+  heater — not the heater alone. Asserted here as a negation so the control case
+  and the during-brew case share a shape; from idle the two agree, and this
+  scenario is the control for that.
 
   The assertions are per-actuator rather than `actuator_safe` because the
   session is still open at the end of the run, and the machine is inside it.

@@ -1,7 +1,7 @@
 //! The 18 machine states and their category predicates.
 //!
 //! The discriminants are part of the machine's external contract: `/api/parameters` and
-//! the MQTT payloads report them as integers, and the parity harness diffs them.
+//! the MQTT payloads report them as integers.
 //! **Renumbering a variant is a breaking change.**
 
 /// Every state the machine can be in.
@@ -78,7 +78,7 @@ pub const ALL: [MachineState; 18] = [
 impl MachineState {
     /// The enumerator's own name, e.g. `"BREW_PREINFUSION"`.
     ///
-    /// Used in logs and as the parity harness's comparison key, and deliberately the
+    /// Used in logs and as the scenario runner's comparison key, and deliberately the
     /// `SCREAMING_SNAKE` spelling rather than a `Debug`-derived one for that reason.
     #[must_use]
     pub const fn name(self) -> &'static str {

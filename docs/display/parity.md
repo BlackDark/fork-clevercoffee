@@ -1,55 +1,44 @@
-# Display parity: how it is checked, and what it does and does not prove
+# The display checks: what they cover, and where they stop
 
-`cc-display` claims its pixels are the C++ firmware's pixels. This is how that
-claim is checked, what each check covers, and — the part that matters most —
-where it stops.
+`cc-display` renders every pixel on the panel. This is how that is checked, what
+each check covers, and — the part that matters most — where it stops.
 
-## The three checks
+## The two checks
 
 | Check | Test | Compares against | Catches |
 | --- | --- | --- | --- |
-| Engine parity | `tests/parity.rs` | real U8g2 2.36.18, via `tools/oracle` | a wrong glyph, a wrong clip, a wrong rotation, a wrong primitive |
 | Template goldens | `tests/goldens.rs` | 48 committed P4 images | a wrong y, a swapped label, a stage that stops winning |
-| Metric parity | `tests/glyph_parity.rs`, `tests/fmt_parity.rs` | measured tables, real C `snprintf` | a one-pixel metric error, a formatting difference |
+| Metric tables | `tests/glyph_parity.rs`, `tests/fmt_parity.rs` | advances measured from U8g2 2.36.18, and C's `snprintf` | a one-pixel advance error, a formatting difference |
 
-They are complementary. A scenario typo passes the goldens and fails engine
-parity. A template bug passes engine parity and fails the goldens. Neither
+They are complementary. A template bug passes the metric tables and fails the
+goldens; a wrong RLE header moves text without changing which stage wins. Neither
 subsumes the other.
 
-## Engine parity
+## The metric tables
 
-`crates/cc-display/tools/oracle/display_oracle.cpp` links the **real** U8g2, fetched by
-`just u8g2` into `target/u8g2` at upstream tag `2.36.18`, and replays a scenario
-file through it. `cc_display::scenario` replays the *same file* through
-`Display`. The two 128×64 framebuffers must be **bit identical** — zero
-differing pixels, not "close enough", because one pixel is one wrong glyph
-advance or one off-by-one in a clip.
+`tests/glyph_parity.rs` checks every glyph of every embedded font against
+`tests/support/glyph_widths.rs`, which holds real U8g2 2.36.18's advance for every
+code point 0x20..=0x7E in all ten fonts. `tests/support/string_widths.rs` adds 26
+multi-character strings, which is the only way to reach the two width-loop quirks:
+the last-glyph ink substitution and the balanced first-glyph x-offset.
 
-The oracle's artwork is generated from the firmware's own
-`cc_display::bitmaps::ALL` at build time, so the bytes it compares are the bytes
-that ship.
+This is the narrowest check and the one that has to pass before any golden means
+anything: a single wrong RLE header, signed-field decode or first-code offset moves
+text sideways and shifts every row laid out around it.
 
-```sh
-just test-display-parity     # ~90 s; fetches U8g2 itself on first run
-```
+`tests/fmt_parity.rs` is the same idea for number rendering: 80 000 doubles, each
+compared against what C's `snprintf("%.*f")` printed for it, keyed by the exact
+IEEE-754 bits so the two cannot disagree about which number they meant.
 
-The corpus is `tests/scenarios/`: eleven files covering all ten fonts at both
-font positions, all four rotations, the clip-window edges and degenerate sizes,
-the draw-colour and power-save states, the `print` overloads, every bitmap, the
-`drawStr`/`drawUTF8` and three ref-height modes, and transcriptions of the
-shared offline, OTA and fullscreen-brew stages.
+All three tables are **frozen**. The programs that measured them are not in the
+tree, so a new or changed font means re-measuring against U8g2 2.36.18 by hand;
+each table's header states that. Do not edit a row to make a test pass: the rows
+are an independent measurement.
 
-A scenario is a line-oriented draw-call script and the format is implemented
-**twice**, once in C++ and once in Rust, on purpose. Two independent parsers is
-the point: a disagreement shows up as a failing diff rather than as two copies
-of the same mistake. That is also why the two number-detection rules must match
-exactly — a token is a number only if it is unquoted *and* parses entirely as an
-integer, or `printf1 0 32 93.5` silently becomes `93` with an empty value slot.
+## What the U8g2 comparison established
 
-## What engine parity proved
-
-Findings below were found *by* the oracle, not by reading the C++. Each is a
-place where the obvious port is wrong.
+The host comparison against real U8g2 is gone, but its findings are constraints the
+code still carries. Each is a place where the obvious reading of U8g2 is wrong.
 
 - **`U8G2_BALANCED_STR_WIDTH_CALCULATION` is on by default** (`u8g2.h:175`).
   `getStrWidth` adds the *first* glyph's x-offset back in (issue #1561). Without
@@ -80,8 +69,7 @@ place where the obvious port is wrong.
   `ExtendedText` uses `ascent_para` where `Text` uses `ascent_A` (7 vs 6 in
   `profont10`), and without `pos top` a `y` is a *baseline*, so the Modern
   template's `fub20` readout at y=14 lands at rows −9..13 — clipped off the top
-  of the panel. `Display::prepare_display` now mirrors it; the scenarios
-  deliberately skip it so `Display::new()` and the oracle's bare `U8G2` agree.
+  of the panel. `Display::prepare_display` mirrors it.
 
 ## The goldens
 
@@ -99,21 +87,23 @@ supposed to stay put.
 
 ## What is not proven
 
-Stated plainly, because a parity harness that overstates itself is worse than
+Stated plainly, because a check that overstates itself is worse than
 none:
 
-- **The six normal layouts are not compared against the C++.** The C++ template
-  classes are methods on `UICoordinator` and pull their values through
-  `SystemContext`. Running them off-device means standing up a context graph the
-  C++ has no support for, at which point the oracle is no longer measuring U8g2
-  but a reimplementation of `SystemContext`. The goldens record what the Rust
-  templates *do*, and the unit assertions in
+- **Nothing is compared against a live external renderer.** The per-primitive
+  corpus went with the U8g2 oracle: all ten fonts at both positions, all four
+  rotations, clip-window edges and degenerate sizes, draw-colour and power-save,
+  the `print` overloads, every bitmap, `drawStr`/`drawUTF8` and three ref-height
+  modes. Those paths are checked now only where a golden or a metric table happens
+  to exercise them, so a regression in, say, rotation 3 of a primitive that no
+  template uses would pass.
+- **The templates are not compared against any external reference.** The goldens
+  record what the Rust templates *do*, and the unit assertions in
   `src/templates/modern_layout.rs` pin the row map — but "the Modern layout puts
-  its temperature at y=14" is a claim about `docs/display/layout-rules.md`, not
-  a measured comparison with the C++.
-- **The goldens are only as good as the review that first read the C++.** They
-  record the port's behaviour. Where the port misread the C++, the golden
-  records the misreading and then protects it.
+  its temperature at y=14" is a claim about `docs/display/layout-rules.md`, not a
+  measured comparison.
+- **The goldens are only as good as the review that produced them.** Where the
+  port misread the layout, the golden records the misreading and then protects it.
 - **`embedded-graphics::DrawTarget` is not implemented.** The task called for it;
   the crate implements its own framebuffer instead, on the grounds that
   `cc-display` is `no_std` with no `alloc` and the framebuffer is a fixed
@@ -121,16 +111,12 @@ none:
   decision, not a footnote.
 - **SH1106's 2-column transfer offset** is modelled and documented but there is
   no driver or I2C code here; that is the separate I2C concern.
-- **The oracle builds for the host.** It is U8g2 compiled natively, not
-  cross-compiled for the Xtensa target. The algorithms are the same C, but this
-  is not a claim about ESP32 codegen.
 
-## The remaining work this exposes
+## What the goldens caught
 
-The goldens earned their keep immediately. The first `modern` render showed the
-large temperature clipped off the top of the display — the `prepareDisplay`
-finding above. There is more of the same waiting: the Modern row map, the
-bottom-row bar, and the per-field boxes have been checked against
-`docs/display/layout-rules.md` and against U8g2's metrics, but not against a
-rendered C++ frame. That comparison is Potential ([`../attention.md`](../attention.md)). It needs a
-`SystemContext` stub that is small enough to be obviously faithful.
+The goldens earned their keep immediately: the first `modern` render showed the
+large temperature clipped off the top of the display — the `prepare_display`
+finding above. The Modern row map, the bottom-row bar and the per-field boxes are
+now checked against `docs/display/layout-rules.md` and against U8g2's measured
+metrics. A pixel that no template draws has neither check, which is the ceiling
+above.

@@ -3,7 +3,7 @@
 //! [`docs/history/divergences.md`](../../docs/history/divergences.md) is the record, and each
 //! section there names its pin in this file. The point of the file is that a deliberate difference
 //! from the machine this firmware replaces cannot be read as a bug and quietly reverted: the
-//! behaviour is asserted here and the ledger says why it is the way it is.
+//! behaviour is asserted here and `divergences.md` says why it is the way it is.
 //!
 //! # The other half: what was deliberately *not* changed
 //!
@@ -23,7 +23,7 @@
 //!   [`waking_from_standby_still_works_with_the_pid_disabled`] -- §16 sleep with the PID off.
 //! * [`div39_backflush_fill_and_flush_reassert_their_hardware`] -- §39 fill and flush.
 //!
-//! And the behaviours left alone, which the ledger lists under its preserved ones:
+//! And the behaviours left alone, which `divergences.md` lists under its preserved ones:
 //!
 //! * [`the_emergency_debounce_needs_three_readings`] -- three readings above the threshold.
 //! * [`the_live_emergency_thresholds_are_the_defaults`] -- 150 °C to trip, 100 °C to recover.
@@ -199,8 +199,8 @@ fn div3_the_water_valve_is_tank_gated() {
 /// The consequence is a real exposure rather than a style choice: at the production 400 ms sensor
 /// interval the heater stays permitted for up to about 800 ms while the probe already reads above
 /// the emergency temperature. Tripping on the first reading is the safer behaviour and is not
-/// implemented here, so the ledger records this as an open item rather than as a settled decision:
-/// [`divergences.md`](../../docs/history/divergences.md), the preserved-behaviours table.
+/// implemented here, so `divergences.md` records this as an open item rather than as a settled
+/// decision: the preserved-behaviours table.
 ///
 /// The debounce counts *distinct* samples, which is what `Telemetry::sample_seq` exists to express.
 /// A test that re-used one telemetry value would model one reading seen repeatedly, and the control
@@ -307,8 +307,8 @@ fn the_live_emergency_thresholds_are_the_defaults() {
 /// it stops after five minutes. An unbounded pump run on a machine with a 2 kW boiler is the
 /// failure this prevents.
 ///
-/// The two announcement strings are verbatim: they are the ledger's `matchers` for this divergence,
-/// so the parity harness compares against them.
+/// The two announcement strings are verbatim: they are the strings
+/// `divergences.md` quotes for this divergence.
 #[test]
 fn div1_the_pump_timeouts_are_armed() {
     // The two deadlines, pinned because they are the safety contract.
@@ -369,7 +369,7 @@ fn div1_the_pump_timeouts_are_armed() {
     assert_eq!(
         PumpWatchdog::Brew.message(),
         "Pump timeout - stopping for safety",
-        "verbatim: the ledger's matcher for §1"
+        "verbatim: the string quoted in §1"
     );
     assert!(!fx.contains(&Effect::DisablePump), "{fx:?}");
 
@@ -433,7 +433,7 @@ fn div1_the_pump_timeouts_are_armed() {
     assert_eq!(
         PumpWatchdog::HotWater.message(),
         "Hot water pump timeout - stopping for safety",
-        "verbatim: the ledger's matcher for §1"
+        "verbatim: the string quoted in §1"
     );
 }
 

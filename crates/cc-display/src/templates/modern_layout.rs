@@ -337,8 +337,8 @@ mod tests {
     #[test]
     fn the_probes_are_the_widest_case_in_their_fonts() {
         // Rule 3 depends on the probe being the widest, and the widths are
-        // *measured*, not assumed: each was read out of real U8g2 (`tools/oracle`)
-        // and reproduced here.
+        // *measured*, not assumed: each was read out of real U8g2 and reproduced
+        // here.
         // The 25 px for "100C" is the width of the single Latin-1 byte 0xB0 --
         // two's worth of UTF-8 would measure 30, which is why
         // `font::latin1_of` exists.

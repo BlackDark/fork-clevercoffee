@@ -965,10 +965,9 @@ mod tests {
     }
 
     #[test]
-    fn ink_box_matches_the_oracle_measured_ink() {
-        // Measured numbers: draw at y=20, read the framebuffer, report the ink
-        // extent. `crates/cc-display/tools/oracle/display_oracle.cpp` reproduces
-        // this.
+    fn ink_box_matches_the_measured_ink() {
+        // Measured against real U8g2 once and frozen here: draw at y=20, read the
+        // framebuffer, report the ink extent.
         //
         //   fub20   "100.0" -> y=21..40  (20 rows)
         //   fub20   "Ay"    -> y=21..45  (25 rows, descender of y)

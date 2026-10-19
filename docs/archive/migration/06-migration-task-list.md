@@ -66,7 +66,6 @@ plan means the former, and the latch must not be set by a routine shutdown.
 
 ---
 
-
 ## C++ test-suite coverage map
 
 **33 suites, 340 test cases.** This table gives every suite an owner. A suite with no owner
@@ -219,24 +218,24 @@ Each spike is a **throwaway `examples/` binary in the workspace**, deleted or mo
      `1` 75 %, `0` 25 %), two packets with even parity, `T = DS/2047 · 200 − 50`, and
      **a ≥ 128 kHz sampling rate for acquiring the start bit** (app note; the plan
      previously omitted this, the most concrete timing constraint in the protocol).
-  2. Implement a **falling-edge ISR** that measures `Tstrobe` on the start bit then
+  3. Implement a **falling-edge ISR** that measures `Tstrobe` on the start bit then
      samples after each of the next 9 falling edges. Verify the ISR stays within budget
      (~2.7 ms worst case per the app note).
-  3. Port the **adaptive max-change-rate** logic: 200 °C/sample initially, latching to
+  4. Port the **adaptive max-change-rate** logic: 200 °C/sample initially, latching to
      5 °C/sample after two consecutive in-range readings within 5 °C of each other.
-  4. Port the sentinels: `222` = read failed, `221` = not connected.
-  5. **Port the range reject `temp <= 0.0 || temp >= 180.0`.** This is safety-relevant:
+  5. Port the sentinels: `222` = read failed, `221` = not connected.
+  6. **Port the range reject `temp <= 0.0 || temp >= 180.0`.** This is safety-relevant:
      it exists to stop a −2.9 °C glitch from tripping emergency stop.
-  6. **Do NOT try to read the sensor from both firmwares at once** — there is one
+  7. **Do NOT try to read the sensor from both firmwares at once** — there is one
      TSIC-306 on GPIO 16 and only one chip is flashed at a time. Instead: flash the
      **C++** firmware, record a **10-minute** reference log to
      `docs/history/spikes/tsic-reference.csv`
      (`t_ms, raw_ds, temp_c, accepted, reject_reason`); then flash Rust and record the
      same log; then diff offline.
-  7. Record the deliberate divergence: the app note and this task specify a
+  8. Record the deliberate divergence: the app note and this task specify a
      **falling-edge** ISR, but the production `ZACwire` library times on **rising**
      edges (`ZACwire.cpp:39`). Note it in `intentional-diffs.md`.
-  8. **ISR architecture, reconciled with 04 §2.** 04 requires ISRs to do "nothing
+  9. **ISR architecture, reconciled with 04 §2.** 04 requires ISRs to do "nothing
      beyond one GPIO write". A 2.7 ms bit-sampling ISR violates that. So: the ISR
      **timestamps edges into a fixed-size ring and signals via
      `hal::task::notification`; the decode happens in the control task.** The app
@@ -403,12 +402,12 @@ matches the C++'s contactor duty, which removes the specific worry that motivate
 the 100 Hz design, but three things remain **unmeasured** and are recorded as
 measurements to take rather than assumptions to make:
 
-* the contactor's **minimum on/off time** — the software guarantees it never
+- the contactor's **minimum on/off time** — the software guarantees it never
   requests a pulse narrower than the C++'s own 10 ms step, but whether 10 ms is
   inside the contactor's ratings is a datasheet/measurement question;
-* **whether a hardware-PWM output is acceptable to the coil at all** at 1 Hz, a
+- **whether a hardware-PWM output is acceptable to the coil at all** at 1 Hz, a
   frequency the C++ never *produced* even though its average was 1 Hz;
-* the **realised frequency and duty on the pin** — no scope has been attached;
+- the **realised frequency and duty on the pin** — no scope has been attached;
   and, relatedly, whether 1 Hz is the best point on the
   wear-versus-duty-resolution curve, which is a decision for someone with the
   machine in front of them.
@@ -455,8 +454,14 @@ measurements to take rather than assumptions to make:
 | --- | --- |
 | 1. Scenario format | **done** — [`10-scenario-format.md`](../../history/scenario-format.md), implemented by `crates/cc-parity/src/scenario.rs`. Seven stimulus kinds, a capture spec, and nine assertion kinds. |
 | 2. Scenario set | **done** — 17 scenarios in `docs/history/scenarios/`, covering all twelve named here plus S1's no-debounce path, S4's refill, S7's reboot path, S6's heater bound and S9's watchdog. Every dry_run scenario is **executed and its assertions checked** by `cc-parity`'s own tests, so a broken scenario fails `just parity-test` rather than a phase gate. |
-| 3. C++ baseline | **NOT DONE.** `docs/history/baseline/cpp/` is empty and `just parity` reports every scenario `BASELINE-MISSING` and exits **2**. Not a skip: nothing has been compared with anything. See the reasoning in [`baseline/README.md`](../../history/baseline/README.md) — capturing one means flashing the C++ image and running its control loop against a real boiler, which needs the reviewed safe-test procedure and a human present. **No baseline was fabricated.** |
+| 3. C++ baseline | **NOT DONE.** `docs/history/baseline/cpp/` is empty and `just parity` reports every scenario `BASELINE-MISSING` and exits **2**. Not a skip: nothing has been compared with anything. See the reasoning in [`divergences.md` §35.1](../../history/divergences.md#d35) — capturing one means flashing the C++ image and running its control loop against a real boiler, which needs the reviewed safe-test procedure and a human present. **No baseline was fabricated.** |
 | 4. `intentional-diffs.md` | **done** — the file existed; R1-08 added the five machine-readable `ledger` blocks the runner classifies against, each naming a heading in the same document so the prose and the ledger cannot drift. |
+
+> **Superseded 2026-10-19 — steps 3 and 4 only.** The C++ that step 3 needs, the
+> `docs/history/baseline/` directory it names, the `just parity` recipe and the
+> five `ledger` blocks were removed with the C++ tooling (`40d46a88`,
+> `adcb3fd3`). Every `just parity` reference in this file describes a recipe that
+> no longer exists. The status above is preserved as written on 2026-09-29.
 
 **The safety problem, and how it was solved.** Twelve of the seventeen scenarios would
 energise a pump, a valve or a heater. They are `dry_run`: `cc-parity` drives the **real**
@@ -468,12 +473,12 @@ energised. That is what makes the set runnable with no device attached.
 
 **Two findings the harness produced before any baseline existed**, both now pinned:
 
-* The safety monitor has to run on the **sensor cadence** (400 ms,
+- The safety monitor has to run on the **sensor cadence** (400 ms,
   `constants/Timing.h:42`), not the 10 ms control loop. Running it every tick made
   S1's three-reading debounce trip on one reading repeated 30 times in 300 ms, so the
   most safety-relevant timing constant in the firmware was untestable. `overtemp_trip`
   now trips at 800 ms, on the third reading, as the C++ does.
-* **`OpenSteamValve` is never emitted by the reducer**, because the steam valve is a
+- **`OpenSteamValve` is never emitted by the reducer**, because the steam valve is a
   solenoid the machine cannot open by itself. The S5' whitelist therefore acts in the
   *close* direction, and `steam_on_off` asserts that. Asserting an open would have been
   asserting something neither firmware does.

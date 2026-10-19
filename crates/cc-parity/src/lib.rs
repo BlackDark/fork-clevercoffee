@@ -1,10 +1,9 @@
-//! The parity scenario harness.
+//! The scenario harness.
 //!
 //! # What this is
 //!
-//! `just parity <port> <host>` replays a declarative script against a firmware and
-//! compares what it observes against a recorded reference. The format is
-//! specified in
+//! A scenario is a declarative script — stimuli in, assertions out — and this crate
+//! runs it against the real control loop. The format is specified in
 //! [`docs/history/scenario-format.md`](../../docs/history/scenario-format.md).
 //!
 //! # The safety property, and where it comes from
@@ -22,23 +21,19 @@
 //! they were emitted *and* that the safety ordering around them held, and
 //! nothing is ever connected to anything.
 //!
-//! # The three modules
+//! # The modules
 //!
 //! * [`scenario`] — the file format: parse, validate, and reject.
-//! * [`observe`] — the canonical observation, which is what gets diffed.
-//! * [`diff`] — the diff, and the classification against the divergence ledger.
-//!
-//! [`run`] is the driver: scenario in, observation out.
+//! * [`observe`] — the reduced record the assertions read.
+//! * [`run`] — the driver: scenario in, observation out.
 
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
 
-pub mod diff;
 pub mod observe;
 pub mod run;
 pub mod scenario;
 
-pub use diff::{classify, Classification, DiffLine, Divergence, Ledger, Verdict};
 pub use observe::Observation;
 pub use run::{run, RunError, Runner};
 pub use scenario::{Scenario, ScenarioError, Stimulus, StimulusKind};

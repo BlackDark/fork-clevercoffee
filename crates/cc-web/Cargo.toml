@@ -24,9 +24,9 @@ cc-protocol.workspace = true
 #   type). `cc-machine` already depends on this exact crate for the same reason
 #   (`Effect` is a `heapless::Vec`), so this is not a new edge in the graph.
 # * `log` for the one line `Auth::from_config` warns on when authentication is
-#   enabled with no credentials -- a condition the C++ logs and serves around
-#   (`WebServerManager.cpp:283-294`), and one an operator has to be able to
-#   see. `default-features = false` keeps this crate `no_std`.
+#   enabled with no credentials -- the firmware serves around that condition,
+#   and an operator has to be able to see it. `default-features = false` keeps
+#   this crate `no_std`.
 heapless.workspace = true
 log.workspace = true
 

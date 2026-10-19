@@ -101,8 +101,8 @@ impl TemplateId {
 
     /// The integer `/api/parameters` reports for this template.
     ///
-    /// The order is the reported order: the parity harness diffs the integer, so
-    /// renumbering would show up as a parameter change.
+    /// The order is the reported order, so renumbering a variant would show up as
+    /// a parameter change.
     #[must_use]
     pub const fn as_u8(self) -> u8 {
         match self {

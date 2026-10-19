@@ -1,7 +1,7 @@
 # S5 — aborting while the pump is running.
 #
-# The one-loop window 09 §15 is about is adjacent to this: the state changes and
-# the valve fail-safe runs in the same loop, so the abort path is exactly where
+# The one-tick window 09 §15 is about is adjacent to this: the state changes and
+# the valve fail-safe runs in the same tick, so the abort path is exactly where
 # a valve could be left open for one iteration.
 name: brew_aborted_mid_flow
 title: Releasing the brew switch during the flow phase leaves the pump and valve off
@@ -17,10 +17,10 @@ why: >
 
   The `never: EnablePump after 6000` assertion is the interesting one. Releasing
   the switch sets a request flag; the transition happens on the next
-  `checkTransitions`, and `BREW_RUNNING`'s `onExitImpl` disables the pump
-  (`BrewStates.cpp`). A regression that left the pump on would keep emitting
-  `EnablePump` from `PidNormalState::update` only if the water switch were held,
-  so the assertion is about the machine, not about the harness.
+  `checkTransitions`, and `BREW_RUNNING`'s exit path disables the pump. A
+  regression that left the pump on would keep emitting `EnablePump` from
+  `PidNormalState::update` only if the water switch were held, so the assertion
+  is about the machine, not about the harness.
 
 config:
   set:

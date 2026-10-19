@@ -8,7 +8,7 @@ been deleted; it is recoverable at `git show 9fa8c834:<path>`. This document is 
 
 [`divergences.md`](history/divergences.md) is the **detail**: each entry there has the C++'s
 behaviour, the port's, the reasoning, and what pins it. This page is what you read when you want to
-know "will this surprise me?" — deliberately short, and it says nothing the ledger does not.
+know "will this surprise me?" — deliberately short, and it says nothing the detail does not.
 
 Nothing here is accidental. Where the port is *safer* than the C++, that is stated as plainly as
 where it differs.
@@ -91,25 +91,15 @@ Behaviour is the same; the mechanism is not. Listed so nobody re-investigates th
 
 ---
 
-## How to use this with the parity harness
+## Nothing here is measured
 
-[`cc-parity`](../crates/cc-parity) reads `divergences.md` directly and classifies every scenario
-difference against it.
+**Every row above rests on reading the two codebases, not on running them side by side.** No C++
+baseline was ever captured: that needs the deleted firmware built and running on a powered, wired
+machine, and it was declined permanently ([§35.1](history/divergences.md#d35)). The comparison code
+that would have used a baseline went with the rest of the C++ tooling.
 
-**What that does today: nothing is measured.** `docs/history/baseline/cpp/` holds only
-`.gitkeep`, so all **17** parity scenarios — one file each under
-[`scenarios/`](history/scenarios) — report `BASELINE-MISSING` and no difference is ever compared against
-anything. Every classification on this page rests on reading the two codebases, **not** on running
-them side by side.
-
-**So an undeclared difference does not fail the harness today, and this page is not kept honest by a
-machine.** Two things would have to exist first, and neither does:
-
-1. **A baseline.** Capturing one means running the C++, which runs its own control loop on a powered,
-   wired machine. That was a deliberate decision, not an oversight.
-2. **A matcher per entry.** `divergences.md` carries 5 machine-readable `ledger` blocks against
-   ~30 prose entries, so even with a baseline, most differences documented above would have nothing to
-   classify against and would surface as unexplained rather than as intentional.
+So an undeclared difference does not fail anything, and this page is not kept honest by a machine. It
+is kept honest by review, and by the named test in each `divergences.md` section.
 
 Treat "intentional" in this document as *reviewed and reasoned*, not *measured*.
 
@@ -121,4 +111,4 @@ If a change makes the firmware behave differently from the C++, it needs **both*
    and
 2. a row above, filed under the category that matches how a reader would encounter it.
 
-A ledger entry with no row here means an operator could meet the difference without warning.
+A divergence section with no row here means an operator could meet the difference without warning.

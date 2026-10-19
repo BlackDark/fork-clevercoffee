@@ -1,8 +1,8 @@
 # S4 — refill, and the `keep_heater_on_empty` configuration.
 #
-# `SensorCoordinator` reports the tank full again, the global guard stops
-# excluding `WATER_TANK_EMPTY`, and `pid_state()` returns `PID_NORMAL`
-# (`PidStates.cpp`). The heater keeps running through the empty period only when
+# The tank sensor reports full again, the global guard stops excluding
+# `WATER_TANK_EMPTY`, and the machine returns to `PID_NORMAL`. The heater keeps
+# running through the empty period only when
 # `hardware.sensors.watertank.keep_heater_on_empty` is set — the boiler is a
 # separate vessel — but the pump never runs either way.
 name: water_tank_refill

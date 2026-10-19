@@ -1,14 +1,14 @@
 [package]
 name = "cc-parity"
-description = "The parity scenario harness: run a scenario, observe it, diff against the C++ baseline."
+description = "The scenario harness: run a scenario against the reducer, observe it, assert on the result."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# HOST ONLY. This crate is the `just parity` runner: it drives `cc-machine`'s
-# reducer in process on the build machine, with a recording `Actuators`
+# HOST ONLY. This crate is the scenario harness (`just parity-test`): it drives
+# `cc-machine`'s reducer in process on the build machine, with a recording `Actuators`
 # implementation standing in for the GPIO. It is deliberately NOT a member of
 # `default-members` and NOT in the justfile's `host_crates`, because it is a
 # tool rather than a library the firmware links.

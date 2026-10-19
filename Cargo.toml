@@ -36,11 +36,11 @@ members = [
     # target. It is NEVER flashed as the firmware.
     "crates/cc-device-tests",
     # HOST-ONLY TOOL, deliberately outside `default-members`. This is the
-    # `just parity` runner: it drives `cc-machine`'s reducer in process on the
-    # build machine with a recording `Actuators` standing in for the GPIO. It is
-    # a `std` crate that no device crate depends on, so it can never reach a
-    # pin, and it is not in `host_crates` because `just test` is the firmware's
-    # test suite, not the harness's. Test it with `cargo test -p cc-parity`.
+    # scenario harness: it drives `cc-machine`'s reducer in process on the build
+    # machine with a recording `Actuators` standing in for the GPIO. It is a `std`
+    # crate that no device crate depends on, so it can never reach a pin, and it
+    # is not in `host_crates` because `just test` is the firmware's test suite,
+    # not the harness's. Test it with `just parity-test`.
     "crates/cc-parity",
 ]
 # `cargo test` / `cargo clippy` with no `-p` must not try to build the device

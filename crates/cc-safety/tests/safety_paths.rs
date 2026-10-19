@@ -727,8 +727,7 @@ fn div2_steam_running_is_the_only_state_that_may_flow_steam() {
     assert_eq!(
         allowed,
         [MachineState::SteamRunning],
-        "the steam whitelist is STEAM_RUNNING and nothing else — \
-         SteamStates.cpp:16 is the only setSteamMode(true) in the tree"
+        "the steam whitelist is STEAM_RUNNING and nothing else"
     );
 
     let out = reduce(

@@ -12,8 +12,7 @@
 
 #![no_std]
 
-/// The OLED bitmaps: [`bitmaps_data`] holds the bytes, [`bitmaps`] names them.
-pub mod bitmaps;
+/// The OLED bitmaps, as raw arrays.
 pub mod bitmaps_data;
 pub mod boot;
 pub mod display;
@@ -30,8 +29,6 @@ pub mod layout;
 pub mod leds;
 pub mod model;
 pub mod ota;
-#[cfg(feature = "scenarios")]
-pub mod scenario;
 pub mod system_screens;
 pub mod templates;
 pub mod widgets;

@@ -5,9 +5,6 @@
 //! are different -- those are verbatim U8g2 and carry a BSD-2-Clause notice in
 //! the file header. Both are listed in `docs/THIRD_PARTY_LICENSES.md`.
 //!
-//! These are the raw arrays. The names and dimensions that go *with* them are
-//! in [`crate::bitmaps`], which is what callers should use.
-//!
 //! # Bit order
 //!
 //! A `B00011111` row below is a *big-endian* 1bpp row: bit 7 is the leftmost

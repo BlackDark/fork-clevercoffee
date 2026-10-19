@@ -144,13 +144,13 @@ What works is [`../status.md`](../status.md). Closed findings are [`outstanding-
 | --- | --- |
 | [`feature-inventory.md`](feature-inventory.md) | What the C++ did, feature by feature. The scope the port had to cover. |
 | [`cpp-findings.md`](cpp-findings.md) | Every bug and ambiguity found in the C++, each pinned by a named test. |
-| [`divergences.md`](divergences.md) | Every place this firmware deliberately differs, with reasoning. Read by `cc-parity`. |
+| [`divergences.md`](divergences.md) | Every place this firmware deliberately differs from the C++, with reasoning. |
 | [`target-architecture.md`](target-architecture.md) | The intended crate boundary. Partly superseded; check before trusting it. |
 | [`recovered-oracle.md`](recovered-oracle.md) | **Normative despite living here.** A Rust firmware recovered from a flash dump whose source is gone, and the only surviving derivation of the fail-closed `LOW_TRIGGER` heater rule. |
 | [`dependency-evaluation.md`](dependency-evaluation.md) | Per-crate evidence: licence, MSRV, what was verified and what was not. |
 | [`scenario-format.md`](scenario-format.md) | The scenario file format `cc-parity` parses. |
 | [`review-2026-10-03.md`](review-2026-10-03.md) | An independent review's findings, one per row, with status. |
-| [`scenarios/`](scenarios) · [`baseline/`](baseline) | The scenario set, and the deliberately empty baseline directory. |
+| [`scenarios/`](scenarios) | The scenario set, run by `just parity-test`. |
 
 For the decisions that outlived the port, see [`../adr/`](../adr). For the
 migration's own planning records, see [`../archive/migration/`](../archive/migration).

@@ -54,7 +54,7 @@ and, more importantly, makes the *priority relationship* a testable property.
 | --- | --- | --- |
 | **Heater output** | **LEDC hardware PWM** (preferred) or a **dedicated GPTimer ISR** (fallback) | The only safety-critical timing in the machine. Must be independent of the scheduler, of heap allocation, and of flash erases. Hardware PWM has no CPU involvement at all. A fallback ISR must be the highest-priority ISR on the chip and must do nothing but one GPIO write and a counter increment. |
 | **Control loop** (sensors, state machine, PID, interlocks, MQTT publish) | **One FreeRTOS task**, priority 5, 100 Hz | Needs a hard 10 ms period. Its work is CPU-cheap and highly interdependent — splitting it across tasks would add message passing for no benefit. Sensors are already async (`start_read` / `try_get`), so the loop never blocks. |
-| **Display** (render, flush) | **One FreeRTOS task**, priority 3, 100 ms | 🔴 **Added 2026-10-01, and the only addition to this table.** A 1 KB frame goes out as eight I²C writes — tens of milliseconds of bus time — and it was being paid *inside* the control tick, which is the whole of "the control tick overruns its 10 ms budget in 62 % of ticks" (09 §24). That 62% is this September measurement, not the 1 October 16 ms mean (09 §29). Remeasured 2026-10-09: mean work 1 ms, period 10 ms ([outstanding findings #7](outstanding-findings.md)). It is a slow consumer, which 04 §3.2 already says is the case for a boundary. The hand-off is lock-free (a double buffer), never a queue: see [`intentional-diffs`](divergences.md) and 09 §28 for the two cross-task blocking primitives that assert on this toolchain. |
+| **Display** (render, flush) | **One FreeRTOS task**, priority 3, 100 ms | 🔴 **Added 2026-10-01, and the only addition to this table.** A 1 KB frame goes out as eight I²C writes — tens of milliseconds of bus time — and it was being paid *inside* the control tick, which is the whole of "the control tick overruns its 10 ms budget in 62 % of ticks" (09 §24). That 62% is this September measurement, not the 1 October 16 ms mean (09 §29). Remeasured 2026-10-09: mean work 1 ms, period 10 ms ([outstanding findings #7](outstanding-findings.md)). It is a slow consumer, which 04 §3.2 already says is the case for a boundary. The hand-off is lock-free (a double buffer), never a queue: see [`divergences`](divergences.md) and 09 §28 for the two cross-task blocking primitives that assert on this toolchain. |
 | **Sensors** (DS18B20, switches, ABP2) | **stays on the control task** | Tried and removed. A second task that polls the DS18B20 asserts. Bisect in 09 §28. Recheck 2027-01. |
 | **Network / HTTP** | **FreeRTOS task(s) inside lwIP/esp-idf-svc**, priority 3 | A JSON render, a LittleFS read, or an OTA flash write is unbounded in duration. The C++ code already accepts this (AsyncTCP is a separate task); the fix is that our control loop at priority 5 now *outranks* it, and the network task is explicitly low priority. |
 | **Config / NVS writes** | **Synchronous, inside the control task, rate-limited** | NVS writes are slow (erase + program). The C++ code already does this. Introduce an async writer only if measurement shows it blocks the loop > 5 ms. |
@@ -412,13 +412,13 @@ is the direct translation of `isr.h:96-118`, and the RTL-style test in
 > the C++'s transition rate is *necessary and not sufficient*. Still unknown, and
 > **not guessed here**:
 >
-> * the contactor's **minimum on-time and off-time** — the software guarantees it
+> - the contactor's **minimum on-time and off-time** — the software guarantees it
 >   never requests a pulse narrower than the C++'s own 10 ms step, but whether
 >   10 ms is inside the contactor's ratings is a datasheet/measurement question;
-> * **whether a hardware-PWM output is acceptable to the coil at all** at 1 Hz, a
+> - **whether a hardware-PWM output is acceptable to the coil at all** at 1 Hz, a
 >   frequency the C++ never *produced* even though its average was 1 Hz;
-> * the **realised frequency and duty on the pin** — no scope has been attached;
-> * whether 1 Hz is the *best* point on the wear-versus-resolution curve, which is
+> - the **realised frequency and duty on the pin** — no scope has been attached;
+> - whether 1 Hz is the *best* point on the wear-versus-resolution curve, which is
 >   a decision for someone with the machine.
 >
 > R1-07 steps 1 and 2 (dummy load, scope) are **not run**: no scope is attached, the
@@ -579,6 +579,7 @@ cc-domain  ←  cc-safety  ←  cc-machine  ←  cc-hal-esp32  ←  cc-firmware
 ```
 
 Rules, enforced by CI:
+
 - `cc-domain`, `cc-safety`, `cc-machine`, `cc-display`, `cc-config` must not name
   `esp_idf_svc`, `esp_idf_hal`, or `esp_idf_sys` anywhere. A CI grep enforces this, so a
   hardware dependency cannot leak into portable logic.

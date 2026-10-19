@@ -91,9 +91,10 @@ deliberate difference, and
 [`docs/history/cpp-findings.md`](docs/history/cpp-findings.md) for every bug and
 ambiguity found while porting it.
 
-**Parity with the C++ has never been measured on this machine.** The harness is
-built and its scenarios run, but capturing a baseline means flashing the C++ onto
-a powered, wired machine, and that was declined.
+**The C++ comparison was never measured on this machine.** No baseline was ever
+captured, and the comparison harness has since been removed with the rest of the
+C++ tooling. The scenario tests run the Rust reducer in process and assert its
+behaviour directly.
 [`docs/differences.md`](docs/differences.md) says what that costs.
 
 ## What this fork changed
