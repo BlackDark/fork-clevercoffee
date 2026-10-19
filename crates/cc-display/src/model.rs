@@ -164,8 +164,7 @@ pub struct DisplayInput {
     pub state: MachineState,
 
     // ---- animation
-    /// The ISR counter. `isBlinkPhaseOn()` is `isr_counter < 500`, so a value
-    /// under 500 is the "on" half of the blink.
+    /// The ISR counter. A value under 500 is the "on" half of the blink.
     pub isr_counter: u32,
 
     // ---- network
@@ -257,49 +256,49 @@ impl Default for DisplayInput {
     reason = "a flat copy of the display's feature flags; see the type's doc comment"
 )]
 pub struct Config {
-    /// `hardwareSwitchesBrewEnabled`
+    /// Whether the brew switch is fitted and enabled.
     pub brew_switch_enabled: bool,
-    /// `hardwareSensorsScaleEnabled`
+    /// Whether the scale is fitted and enabled.
     pub scale_enabled: bool,
-    /// `hardwareSensorsScaleType`
+    /// Which scale the machine has.
     pub scale_type: ScaleType,
-    /// `hardwareSensorsPressureEnabled`
+    /// Whether the pressure sensor is fitted and enabled.
     pub pressure_enabled: bool,
-    /// `hardwareOledEnabled`
+    /// Whether the OLED is fitted and enabled.
     pub oled_enabled: bool,
-    /// `displayTemplate`
+    /// Whether the selected template draws in the portrait space.
     pub upright_template: bool,
-    /// `displayInverted`
+    /// Whether the panel is mounted upside down.
     pub inverted: bool,
-    /// `displayLanguage`
+    /// The interface language.
     pub language: Language,
-    /// `displayHeatingLogo` — 0 disables the fullscreen heating logo.
+    /// 0 disables the fullscreen heating logo.
     pub heating_logo: u8,
-    /// `displayPidOffLogo` — 1 enables the PID-off / standby logo screens.
+    /// 1 enables the PID-off / standby logo screens.
     pub pid_off_logo: u8,
-    /// `displayFullscreenBrewTimer`
+    /// Whether the fullscreen brew timer is enabled.
     pub fullscreen_brew_timer: bool,
-    /// `displayFullscreenManualFlushTimer`
+    /// Whether the fullscreen manual-flush timer is enabled.
     pub fullscreen_manual_flush_timer: bool,
-    /// `displayFullscreenHotWaterTimer`
+    /// Whether the fullscreen hot-water timer is enabled.
     pub fullscreen_hot_water_timer: bool,
-    /// `displayPostBrewTimerDuration`, seconds.
+    /// How long the post-brew timer shows, in seconds.
     pub post_brew_timer_duration_s: f64,
-    /// `displayBlinkingDelta`, degrees.
+    /// The setpoint tolerance that blinks the readout, in degrees.
     pub blinking_delta: f64,
-    /// `maintenanceBackflushReminderEnabled`
+    /// Whether the backflush reminder is enabled.
     pub backflush_reminder_enabled: bool,
-    /// `brewMode`
+    /// The brew mode the machine is in.
     pub brew_mode: BrewMode,
-    /// `brewByTimeEnabled`
+    /// Whether the by-time target is in use.
     pub brew_by_time_enabled: bool,
-    /// `brewByWeightEnabled`
+    /// Whether the by-weight target is in use.
     pub brew_by_weight_enabled: bool,
-    /// `brewByWeightTargetWeight`, grams.
+    /// The by-weight target, in grams.
     pub brew_by_weight_target: f64,
-    /// `mqttEnabled`
+    /// Whether MQTT is enabled.
     pub mqtt_enabled: bool,
-    /// `backflushCycles`
+    /// How many backflush cycles run.
     pub backflush_cycles: u8,
 }
 

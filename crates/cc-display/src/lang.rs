@@ -193,7 +193,7 @@ mod tests {
         let f = crate::font::profont11();
         let en = for_language(Language::English);
         assert_eq!(en.current_temp, "Temp:  ", "7 chars including padding");
-        // Measured against the oracle, in profont11.
+        // Measured against U8g2, in profont11.
         assert_eq!(
             f.str_width(en.current_temp),
             42,

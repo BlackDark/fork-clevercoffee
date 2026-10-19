@@ -2,8 +2,8 @@
 //! preempted by. One long `if` chain, in this order:
 //!
 //! 1. the fullscreen heating logo, if the policy allows it;
-//! 2. the PID-disabled screen, if `displayPidOffLogo == 1`;
-//! 3. the standby screen, if `displayPidOffLogo == 1`;
+//! 2. the PID-disabled screen, if `pid_off_logo == 1`;
+//! 3. the standby screen, if `pid_off_logo == 1`;
 //! 4. the steam screen;
 //! 5. the water-tank-empty screen;
 //! 6. the backflush screen;
@@ -15,7 +15,7 @@
 //!
 //! * **The heating logo checks the policy and the PID state, the PID-off logo
 //!   checks only the config.** So a machine in `PidNormal` with
-//!   `displayPidOffLogo == 1` shows neither: the heating logo is state-gated to
+//!   `pid_off_logo == 1` shows neither: the heating logo is state-gated to
 //!   `PidNormal` and the PID-off logo to `PidDisabled`. The chain is
 //!   state-partitioned, and a reordering shows two screens or none.
 //! * **The emergency screen's `isr_counter < 500` guard.** For the first 500 ms
@@ -101,7 +101,7 @@ pub fn draw(
     // 4. The steam screen. Note `draw_xbmp(-1, 12, ...)`: the logo is drawn one
     //    pixel off the left edge, so its rightmost column is clipped. That is
     //    deliberate and reproduced, because "fixing" it would move a column and
-    //    desynchronise the oracle.
+    //    desynchronise the comparison.
     if is_steam_state(state) {
         d.clear_buffer();
         d.draw_xbmp(-1, 12, 40, 40, &bm::STEAM_LOGO);

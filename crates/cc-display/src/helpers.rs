@@ -17,7 +17,7 @@
 //! [`is_heating_logo_condition_met`] is the third: it is `> HEATING_LOGO_THRESHOLD_C`
 //! (5 °C) below setpoint, and it is the *only* place that constant is applied.
 //! It additionally requires the PID to be in `PID_NORMAL` and
-//! `displayHeatingLogo` to be enabled, because during a brew the temperature is
+//! `heating_logo` to be enabled, because during a brew the temperature is
 //! *supposed* to be below setpoint and the logo would otherwise take over the
 //! screen.
 
@@ -25,10 +25,10 @@ use cc_domain::state::MachineState;
 
 use crate::model::{Config, DisplayInput};
 
-/// `Temperature::HEATING_LOGO_THRESHOLD_C`, 5 °C.
+/// The threshold below setpoint at which the heating logo shows, 5 °C.
 pub const HEATING_LOGO_THRESHOLD_C: f32 = 5.0;
 
-/// `Temperature::TEMP_TOLERANCE_STEAM_C`, 5 °C.
+/// The steam-state LED tolerance, 5 °C.
 ///
 /// The same number as the heating threshold, but a different concept: this is
 /// how close the steam setpoint has to be before the LED is allowed to settle.
@@ -61,27 +61,28 @@ pub const fn is_backflush_state(state: MachineState) -> bool {
     )
 }
 
-/// `isNearSetpointForDisplay(temperature, setpoint, delta)` — **strict**.
+/// Whether `temperature` is within `delta` of `setpoint` — **strict**.
 ///
-/// `std::fabs(temperature - setpoint) < delta`.
+/// `(temperature - setpoint).abs() < delta`.
 #[must_use]
 pub fn is_near_setpoint_for_display(temperature: f64, setpoint: f64, delta: f64) -> bool {
     (temperature - setpoint).abs() < delta
 }
 
-/// `isNearSetpointForDisplay(temperature, setpoint)` — the config-driven form.
+/// The config-driven form: `delta` is [`Config::blinking_delta`].
 #[must_use]
 pub fn is_near_setpoint_with_config(temperature: f64, setpoint: f64, config: &Config) -> bool {
     is_near_setpoint_for_display(temperature, setpoint, config.blinking_delta)
 }
 
-/// `getStatusLedTolerance` — steam gets the wider tolerance.
+/// The status LED's tolerance: steam gets the wider one.
 ///
 /// Takes `blinking_delta` rather than the whole [`Config`] because that is the
 /// only field it reads, and the LED rule is evaluated on every 10 ms control
 /// tick: passing a ~40-field struct to read one `f64` out of it would be a
 /// 100 Hz copy of the entire display configuration to obtain a single number.
-/// `displayConfig` is what supplies it at the call site.
+/// The caller passes the `blinking_delta` it already holds, rather than this
+/// function copying the whole configuration to read it.
 #[must_use]
 pub fn status_led_tolerance(state: MachineState, blinking_delta: f64) -> f64 {
     if is_steam_state(state) {
@@ -91,7 +92,7 @@ pub fn status_led_tolerance(state: MachineState, blinking_delta: f64) -> f64 {
     }
 }
 
-/// `isNearSetpointForStatusLed(temperature, setpoint, tolerance)` — **`<=`**.
+/// Whether `temperature` is within `tolerance` of `setpoint` — **`<=`**.
 #[must_use]
 pub fn is_near_setpoint_for_led(temperature: f64, setpoint: f64, tolerance: f64) -> bool {
     (temperature - setpoint).abs() <= tolerance
@@ -106,8 +107,7 @@ pub const fn is_blink_phase_on(input: &DisplayInput) -> bool {
     input.isr_counter < 500
 }
 
-/// `isHeatingLogoConditionMet` — more than 5 °C below setpoint, PID normal, and
-/// the feature enabled.
+/// More than 5 °C below setpoint, PID normal, and the feature enabled.
 #[must_use]
 pub fn is_heating_logo_condition_met(input: &DisplayInput, config: &Config) -> bool {
     if config.heating_logo == 0 {
@@ -119,14 +119,12 @@ pub fn is_heating_logo_condition_met(input: &DisplayInput, config: &Config) -> b
     input.setpoint - input.temperature > f64::from(HEATING_LOGO_THRESHOLD_C)
 }
 
-/// `getCurrentDisplayState` — the state, or `INIT` when there is none.
+/// The state the display should render.
 #[must_use]
 pub const fn current_display_state(input: &DisplayInput) -> MachineState {
     input.state
 }
 
-/// `shouldDisplayHotWaterTimer`.
-///
 /// True while the pump is running *and* the machine is in a state where the
 /// water is going somewhere hot: PID normal (hot water into the group) or steam.
 #[must_use]

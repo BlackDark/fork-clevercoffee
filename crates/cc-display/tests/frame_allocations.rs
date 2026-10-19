@@ -9,7 +9,7 @@
 //! does not mean a slow frame — it means the firmware would not link. Number
 //! formatting goes through `fixed_str::String<24>` (`cc-display/src/fmt.rs`),
 //! hand-matched to C's `printf` rounding and checked against an 80,000-line
-//! oracle generated from the real U8G2. That is why the count is zero: a
+//! reference generated from real U8g2. That is why the count is zero: a
 //! display cannot afford a heap.
 //!
 //! The same review noted that the display bench target this recipe named

@@ -152,7 +152,7 @@ impl TemplateId {
 /// wrong reason is a bug.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stage {
-    /// The OTA screen ran and owns the frame (`drawOtaScreen`).
+    /// The OTA screen ran and owns the frame.
     Ota,
     /// The fullscreen brew timer.
     FullscreenBrew,
@@ -164,7 +164,7 @@ pub enum Stage {
     Offline,
     /// A shared system screen.
     SystemScreen(SystemScreenId),
-    /// The template's own `renderNormalDisplay`.
+    /// The template's normal layout ran.
     Normal,
 }
 
@@ -333,9 +333,9 @@ pub fn step_brew_timer(input: &mut DisplayInput, config: &Config) -> BrewTimerSt
             }
         }
         BrewTimerState::PostBrew => {
-            // `static_cast<uint32_t>(duration * 1000)`. The config field is
-            // bounded to [1, 60] by `displayPostBrewTimerDuration`'s ParamDef,
-            // so the value is 1000..=60000 and the conversion is exact.
+            // `display.post_brew_timer_duration` is bounded to [1, 60] by its
+            // ParamDef, so the value is 1000..=60000 after the conversion to
+            // milliseconds and the result is exact.
             #[allow(
                 clippy::cast_sign_loss,
                 reason = "duration is in seconds and positive; the ParamDef bounds it to [1, 60]"
@@ -352,7 +352,7 @@ pub fn step_brew_timer(input: &mut DisplayInput, config: &Config) -> BrewTimerSt
 
 /// Whether the brew timer is showing anything at all.
 ///
-/// `shouldDisplayBrewTimer` returns `state != Idle`, which is why the post-brew
+/// The timer shows in any state other than `Idle`, which is why the post-brew
 /// screen is a brew-timer state and not a separate one.
 #[must_use]
 pub const fn should_display_brew_timer(state: BrewTimerState) -> bool {

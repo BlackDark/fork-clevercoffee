@@ -158,8 +158,8 @@ pub fn upright(d: &mut Display, input: &DisplayInput, config: &Config) {
 }
 
 /// A 64x4 frame at y=124 — the very bottom of the portrait space — with two
-/// one-pixel lines inside it whose length is `pidOutput / 16.13`. That divisor is
-/// not `100`: it is `(1000 - pidOutput) / 100 * 1.613`-shaped nonsense that
+/// one-pixel lines inside it whose length is `pid_output / 16.13`. That divisor
+/// is not `100`: it is `(1000 - pid_output) / 100 * 1.613`-shaped nonsense that
 /// happens to make a 1000-unit output fill the bar. Reproduced verbatim, with a
 /// test, because "correcting" it to 100 would visibly shorten the bar.
 fn upright_heat_bar(d: &mut Display, input: &DisplayInput) {
@@ -682,7 +682,7 @@ fn modern_brew_footer(d: &mut Display, input: &DisplayInput, config: &Config) {
 
 /// The 40x40 cup at y=2, then the brew time as `SS.s` right-aligned in a
 /// `999.9`-wide box, centred as a block with its `" s"` unit. The block is
-/// centred once — `startX` — and the digits are right-aligned inside it, so
+/// centred once, and the digits are right-aligned inside it, so
 /// `9.8 s` and `99.8 s` produce the same block position and the same unit x.
 fn modern_post_brew(d: &mut Display, input: &DisplayInput) {
     d.clear_buffer();

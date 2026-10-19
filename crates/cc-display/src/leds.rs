@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn the_status_led_uses_the_blink_delta_outside_steam() {
         // 0.3 °C is `display.blinking.delta`, and it is **not** the 5 °C steam
-        // tolerance: `getStatusLedTolerance` only widens for the steam state.
+        // tolerance: the status tolerance only widens for the steam state.
         let input = DisplayInput {
             state: MachineState::PidNormal,
             temperature: 95.5,
@@ -234,8 +234,8 @@ mod tests {
 
     #[test]
     fn the_status_led_widens_to_five_degrees_while_steaming() {
-        // `getStatusLedTolerance` returns `TEMP_TOLERANCE_STEAM_C` for the steam
-        // state, and the steam LED lights in the same state — so while steaming
+        // The status tolerance is `TEMP_TOLERANCE_STEAM_C` while steaming, and the
+        // steam LED lights in the same state — so while steaming
         // both LEDs are on and the status one is not chasing a third of a degree.
         let input = DisplayInput {
             state: MachineState::SteamRunning,
@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn the_status_led_boundary_is_inclusive() {
-        // `isNearSetpointForStatusLed` is `<=`, unlike the display's strict `<`.
+        // The status comparison is `<=`, unlike the display's strict `<`.
         // A `delta` of 0.25 is used rather than the configured 0.3 because
         // `95.0 - 0.3` is not representable and the comparison would be
         // measuring rounding; `helpers.rs`'s boundary test explains why at

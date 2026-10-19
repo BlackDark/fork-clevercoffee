@@ -1,6 +1,6 @@
 //! Golden images for the six templates and every shared stage.
 //!
-//! # What a golden catches that the parity oracle cannot
+//! # What a golden catches that engine parity cannot
 //!
 //! `tests/parity.rs` proves that every draw call in [`cc_display::display`]
 //! produces the U8g2 pixel. It does *not* prove the templates issue the right
@@ -14,19 +14,17 @@
 //! # Why a scenario transcription is not enough either
 //!
 //! Hand-transcribing each template's draw calls into a scenario would make the
-//! two sides agree by construction -- the transcription encodes my reading of
-//! the C++, and a misreading would be invisible. A golden of the *actual* Rust
-//! template has no such problem: it records what the code does, and a change to
-//! the code changes the image.
+//! two sides agree by construction -- the transcription encodes a reading of the
+//! intended layout, and a misreading would be invisible. A golden of the
+//! *actual* Rust template has no such problem: it records what the code does,
+//! and a change to the code changes the image.
 //!
-//! It also means the goldens do not prove the templates match the C++ --
-//! `tests/parity.rs` does that for the shared stages, through the
-//! `shared_*.txt` transcriptions. The six *normal* layouts have no oracle
-//! counterpart, because the C++ template classes are methods on
-//! `UICoordinator` and pull their values through `SystemContext`; running them
-//! off-device would mean reimplementing `SystemContext`, at which point the
-//! oracle would no longer be measuring U8g2. `tests/parity.rs` says the same
-//! thing about its own limits.
+//! It also means the goldens prove stability, not correctness of the layout:
+//! they hold the six *normal* templates to their committed images, not to an
+//! external reference. `tests/parity.rs` covers the shared stages against the
+//! U8g2 engine, through the `shared_*.txt` transcriptions; the six normal
+//! layouts have no such counterpart, because they are composed in this crate
+//! from its own `Input` and `Config`.
 //!
 //! # Each case carries the stage it expects
 //!
@@ -237,13 +235,11 @@ fn cases() -> Vec<Snapshot> {
 
     // ---- Every shared system screen.
     //
-    // The trigger for each is a different field, and the dispatch is the C++'s
-    // ordered `if` chain, so one case per screen is the only way to cover all
-    // nine.
+    // The trigger for each is a different field, and the dispatch is one ordered
+    // `if` chain, so one case per screen is the only way to cover all nine.
     //
-    // The triggers are the C++'s, not guesses. Two of them are gated on a
-    // *config* flag (`pid_off_logo`), so those cases need a config too, which is
-    // why this loop carries one.
+    // Two of the triggers are gated on a *config* flag (`pid_off_logo`), so
+    // those cases need a config too, which is why this loop carries one.
     let pid_off = Config {
         pid_off_logo: 1,
         ..cfg

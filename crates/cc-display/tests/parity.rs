@@ -14,7 +14,7 @@ use std::process::Command;
 use cc_display::display::Framebuffer;
 use cc_display::scenario;
 
-/// The oracle's build script, and the name it puts the binary at.
+/// The U8g2 comparison's build script, and the name it puts the binary at.
 const RUN_SH: &str = "tools/oracle/run.sh";
 
 /// This crate's root, from `CARGO_MANIFEST_DIR`.
@@ -35,7 +35,7 @@ fn scenario_files() -> Vec<PathBuf> {
     files
 }
 
-/// The U8g2 tree the display oracle links, or `None` when it has not been
+/// The U8g2 tree the comparison links, or `None` when it has not been
 /// fetched. `CC_U8G2_DIR` overrides `just u8g2`'s default location.
 fn u8g2_dir() -> Option<PathBuf> {
     let from_env = std::env::var_os("CC_U8G2_DIR").map(PathBuf::from);
@@ -49,7 +49,7 @@ fn work_dir() -> PathBuf {
     dir
 }
 
-/// Run one scenario through the oracle and return the framebuffer it wrote.
+/// Run one scenario through the comparison and return the framebuffer it wrote.
 fn run_oracle(scenario_path: &Path, out: &Path) -> Framebuffer {
     let script = crate_root().join(RUN_SH);
     assert!(
@@ -112,7 +112,7 @@ fn every_scenario_renders_identically_to_u8g2() {
         let d = support::diff(&theirs, &ours);
         if d.differing() != 0 {
             failures.push(format!("  {name}: {}", d.summary()));
-            // Keep the actual render next to the oracle's so the difference can
+            // Keep the actual render next to the reference's so the difference can
             // be looked at rather than only counted.
             std::fs::write(dir.join(format!("{name}.rust.ppm")), support::to_ppm(&ours))
                 .expect("can write the actual render");
@@ -138,7 +138,7 @@ fn every_scenario_renders_identically_to_u8g2() {
 #[ignore = "needs the U8g2 tree; run `just u8g2` first, then with --ignored"]
 fn the_oracle_binary_builds() {
     // The parity test above depends on `run.sh`; if the build breaks, that test
-    // fails with "the oracle failed", which reads like a pixel difference. This
+    // fails with "the comparison failed", which reads like a pixel difference. This
     // one fails with the compiler's message instead.
     u8g2_dir().expect("U8g2 is not under target/u8g2; run `just u8g2`");
     let script = crate_root().join(RUN_SH);

@@ -37,7 +37,8 @@ pub struct Bitmap {
 
 /// Every bitmap the firmware ships.
 ///
-/// The order matches the oracle's `BITMAPS[]` so the two are read side by side.
+/// The order matches the replay tool's `BITMAPS[]` so the two are read side by
+/// side.
 pub const ALL: [Bitmap; 11] = [
     Bitmap {
         name: "antenna_ok",

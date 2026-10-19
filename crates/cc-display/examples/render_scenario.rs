@@ -31,7 +31,7 @@ fn main() {
 }
 
 fn write_ppm(path: &str, fb: &Framebuffer) {
-    // The same 1 = white, big-endian, 8-per-byte P4 the oracle writes, so the
+    // The same 1 = white, big-endian, 8-per-byte P4 the comparison writes, so the
     // two files can be compared with `cmp` as well as by eye.
     let mut out = Vec::with_capacity(cc_display::display::DISPLAY_WIDTH as usize * 8 + 10);
     out.extend_from_slice(b"P4\n128 64\n");

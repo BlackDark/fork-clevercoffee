@@ -136,7 +136,7 @@ impl BarLabelCluster {
     }
 }
 
-/// `layoutBarLabelCluster`.
+/// The bar-and-label cluster layout.
 ///
 /// Horizontally centres `bar_w + gap + label_w` on the physical width, and
 /// vertically centres the bar and the label *independently* within

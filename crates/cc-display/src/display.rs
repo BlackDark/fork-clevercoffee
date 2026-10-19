@@ -45,13 +45,13 @@ pub const STATUS_BAR_Y_POS: i32 = 12;
 /// The display rotation, and with it the logical coordinate space.
 ///
 /// An integer `0..3` selects it, computed as
-/// `displayInverted * 2 + (template is upright)`:
+/// `inverted * 2 + (template is upright)`:
 ///
 /// | rotation | set when | logical space |
 /// |----------|----------|---------------|
 /// | [`R0`](Rotation::R0) | neither | 128 x 64 |
 /// | [`R1`](Rotation::R1) | UPRIGHT template | 64 x 128 |
-/// | [`R2`](Rotation::R2) | `displayInverted` | 128 x 64 |
+/// | [`R2`](Rotation::R2) | inverted | 128 x 64 |
 /// | [`R3`](Rotation::R3) | both | 64 x 128 |
 ///
 /// R1/R3 swap width and height because U8g2's `u8g2_update_dimension_r1`
@@ -590,7 +590,7 @@ impl Display {
     /// The `a > b` repair arm matters. U8g2's callers can pass a negative
     /// start — `drawFrame` with `w == 0` computes `x += w; x--`, and
     /// `u8g2_draw_l90_r1` produces wrapped values — and without the repair the
-    /// subtraction underflows a `u8g2_uint_t`. Ported rather than "cleaned up",
+    /// subtraction underflows a `u8g2_uint_t`. Reproduced rather than "cleaned up",
     /// because the two behaviours differ for exactly those inputs.
     fn clip_intersection2(a: i32, len: i32, c: i32, d: i32) -> Option<(i32, i32)> {
         let mut a = a;
@@ -764,7 +764,7 @@ impl Display {
     /// `drawLine` — Bresenham, with U8g2's axis-swap and its `x2 == 255`
     /// guard.
     ///
-    /// Ported from `u8g2_line.c`. The `x2 == 255` clamp exists because the
+    /// Reproduces `u8g2_line.c`. The `x2 == 255` clamp exists because the
     /// loop condition is `x <= x2` on an 8-bit coordinate and 255 would wrap;
     /// it is reproduced because it changes the last pixel of a line that ends
     /// exactly at the right edge.
@@ -884,7 +884,7 @@ impl Display {
 
     /// `drawDisc` — a filled circle, midpoint algorithm.
     ///
-    /// Ported from `u8g2_circle.c`'s `u8g2_draw_disc`, including the fact that
+    /// Reproduces `u8g2_circle.c`'s `u8g2_draw_disc`, including the fact that
     /// it is built from *vertical* lines of `y+1` and `x+1` — which is what
     /// makes a filled disc solid rather than a ring.
     pub fn draw_disc(&mut self, x0: i32, y0: i32, rad: i32) {
@@ -983,7 +983,7 @@ impl Display {
 
     /// A filled triangle, via U8g2's convex-polygon scanline filler.
     ///
-    /// Ported from `u8g2_polygon.c`. The polygon machinery exists to fill a
+    /// Reproduces `u8g2_polygon.c`. The polygon machinery exists to fill a
     /// triangle with no seams; the Modern layout's heating icon uses it, and
     /// a naive three-edge fill leaves gaps on the shallow side of the flame.
     pub fn draw_triangle(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, x2: i32, y2: i32) {
@@ -992,7 +992,7 @@ impl Display {
 
     /// U8g2's `pg_prepare`/`pg_exec` for a small convex polygon.
     ///
-    /// Ported from `u8g2_polygon.c`. The machinery exists to fill a triangle
+    /// Reproduces `u8g2_polygon.c`. The machinery exists to fill a triangle
     /// with no seams: the Modern layout's heating icon uses it, and filling
     /// from the three edges directly leaves gaps on the shallow side of the
     /// flame, because the two sides step in x at different rates than the
@@ -1110,7 +1110,7 @@ impl Display {
 
     /// A big-endian 1bpp bitmap, `blen` bytes per row. U8g2's `drawXBMP`.
     ///
-    /// Ported from `u8g2_bitmap.c`'s `u8g2_DrawHXBMP` + `u8g2_DrawXBMP`,
+    /// Reproduces `u8g2_DrawHXBMP` and `u8g2_DrawXBMP` from `u8g2_bitmap.c`,
     /// including the run-length form of the inner loop (U8g2 replaced the
     /// per-pixel version) and the fact that unset bits paint the *background*
     /// colour unless transparency is on. Transparency is off, as on the device.
@@ -1132,7 +1132,7 @@ impl Display {
         }
     }
 
-    /// One row of `u8g2_DrawHXBMP`, ported from `u8g2_bitmap.c`.
+    /// One row of `u8g2_DrawHXBMP`, following `u8g2_bitmap.c`.
     ///
     /// U8g2's current form (the `#else` arm, with `#define OLD` commented out)
     /// scans forward over a run of *identical* bits, then draws the run in one
@@ -1587,7 +1587,7 @@ mod tests {
 
     #[test]
     fn the_oled_driver_rotation_rule_is_reproduced() {
-        // prepareDisplay: rotation = displayInverted * 2 + (UPRIGHT ? 1 : 0).
+        // rotation = inverted * 2 + (upright ? 1 : 0).
         for inverted in [false, true] {
             for upright in [false, true] {
                 let mut rotation = 0;
@@ -1657,7 +1657,7 @@ mod tests {
         let mut d = Display::new();
         d.draw_frame(10, 10, 4, 3);
         let outline = d.into_framebuffer();
-        // A 4x3 outline: 2*4 + 2*(3-2) = 10, matching the oracle.
+        // A 4x3 outline: 2*4 + 2*(3-2) = 10, matching U8g2.
         assert_eq!(outline.lit_count(), 10);
         assert!(!outline.pixel(11, 11), "interior must stay clear");
         assert!(outline.pixel(10, 10) && outline.pixel(13, 12));
@@ -1666,7 +1666,7 @@ mod tests {
     #[test]
     fn a_zero_sized_box_draws_nothing() {
         // U8g2 documents "restriction: does not work for w = 0 or h = 0".
-        // Measured against the oracle: `drawBox(5,5,0,4)` and `drawBox(5,5,4,0)`
+        // Measured against U8g2: `draw_box(5, 5, 0, 4)` and `draw_box(5, 5, 4, 0)`
         // both light 0 pixels -- `drawBox`'s loop runs `h` times over a
         // zero-length line, and each of those is dropped by `len == 0`.
         let mut d = Display::new();
@@ -1682,14 +1682,14 @@ mod tests {
         // The mirror image of the `drawBox` case, and a genuine U8g2 quirk
         // rather than a defect in this port. `draw_frame(5,5,0,4)` lights 4
         // pixels: the top and bottom horizontals are zero-length and
-        // vanish, but the two verticals are `drawHVLine(x, y, h-2, 1)` with
+        // vanish, but the two verticals are `draw_hv_line(x, y, h - 2, 1)` with
         // `h-2 == 2`, which are not. The second vertical lands at
         // `x + w - 1 == 4`, i.e. one column LEFT of the requested x, because
         // U8g2 computes it as `x += w; x--` unconditionally.
         //
         // Reproduced rather than guarded, because a caller that passes w == 0
-        // gets what the device gives, and "fixing" it here would desynchronise
-        // the oracle. The overlap check also passes: `intersects(5,5,5,9,...)`
+        // gets what the device gives, and "fixing" it here would desynchronise the
+        // comparison. The overlap check also passes: `intersects(5,5,5,9,...)`
         // is true, so U8g2 proceeds to draw.
         let mut d = Display::new();
         d.draw_frame(5, 5, 0, 4);
@@ -1701,7 +1701,7 @@ mod tests {
 
     #[test]
     fn a_zero_height_frame_draws_its_top_line() {
-        // Oracle: `drawFrame(5,5,4,0)` lights 4 pixels in one row at y=5 --
+        // Measured: `draw_frame(5, 5, 4, 0)` lights 4 pixels in one row at y=5 --
         // the `h >= 2` arm is skipped, so only the top horizontal survives.
         let mut d = Display::new();
         d.draw_frame(5, 5, 4, 0);
@@ -1757,7 +1757,7 @@ mod tests {
         d.draw_str(0, 10, "A");
         // Inside A's box there must now be both ink and cleared background.
         let fb = d.into_framebuffer();
-        // Oracle: drawing "A" at (0,10) over a fully-lit 128x64 leaves 19
+        // Measured: drawing "A" at (0,10) over a fully-lit 128x64 leaves 19
         // pixels dark. That is A's own box: 8173 lit out of 8192.
         assert_eq!(8192 - fb.lit_count(), 19, "A's box must be exactly 19 px");
         let header = font::profont11().glyph_header(u16::from(b'A')).unwrap();
@@ -1775,7 +1775,7 @@ mod tests {
     #[test]
     fn a_control_character_has_no_glyph_and_does_not_advance() {
         // The ten fonts encode 0x20..0x7E plus a symbol block; 0x01..0x1F are
-        // absent from all of them. Verified against the oracle: the whole
+        // absent from all of them. Verified against U8g2: the whole
         // 0x01..0x1F range is missing from every profont and every fub.
         for f in [
             font::profont10(),
@@ -1811,7 +1811,7 @@ mod tests {
     #[test]
     fn the_degree_sign_is_present_wherever_the_templates_draw_it() {
         // Every template draws the degree sign by casting 176 to `char`, i.e.
-        // U+00B0. Enumerated against the oracle: the six profonts all carry it;
+        // U+00B0. Enumerated against U8g2: the six profonts all carry it;
         // the fub faces carry it too. Asserted so that swapping a font in a
         // template cannot silently drop the unit (a missing glyph advances the
         // pen by zero, which jams the digits against the "C").
@@ -1866,7 +1866,7 @@ mod tests {
         // The heating-icon shape: apex at the top, flat base at the bottom.
         // `min_y` is a single vertex, so U8g2's `is_min_y_not_flat` is SET and
         // the fill pre-advances one row -- the first scanline drawn is y=1, not
-        // y=0. Row widths below are the oracle's, pixel for pixel.
+        // y=0. Row widths below are U8g2's, pixel for pixel.
         let mut d = Display::new();
         d.draw_triangle(8, 0, 3, 12, 13, 12);
         let fb = d.into_framebuffer();
@@ -1903,7 +1903,7 @@ mod tests {
     fn a_flat_minimum_y_fills_the_base_row() {
         // The mirror case: base at the top, apex at the bottom. `min_y` is a
         // flat *edge*, so `is_min_y_not_flat` is clear, no pre-advance happens,
-        // and the base row is filled at full width. The oracle's row widths for
+        // and the base row is filled at full width. U8g2's row widths for
         // this shape are 10, 9, 9, 9, 8, 7, 7, 7, 6, 5, 5, 5, 4, 3, 3, 3, 2, 1, 1, 1.
         let mut d = Display::new();
         d.draw_triangle(10, 5, 20, 5, 15, 25);

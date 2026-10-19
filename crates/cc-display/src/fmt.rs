@@ -1,7 +1,7 @@
 //! Number formatting that matches C's `printf("%.Nf")`.
 //!
 //! The panel's digits come from here, so a glyph difference is a golden-image
-//! difference rather than a cosmetic one: the parity oracle renders numbers
+//! difference rather than a cosmetic one: the U8g2 comparison renders numbers
 //! through the real `snprintf` and the Rust side through this module, and the two
 //! frames must match.
 //!
@@ -216,7 +216,7 @@ pub fn format_uint(value: u32) -> Formatted {
     out
 }
 
-/// `%02lu` — a zero-padded unsigned, as `displayUptime` uses.
+/// A zero-padded unsigned, two digits wide, as the uptime field uses.
 #[must_use]
 pub fn format_padded2(value: u32) -> Formatted {
     let mut out = Formatted::new();
@@ -393,7 +393,7 @@ pub mod fixed_str {
 mod tests {
     use super::*;
 
-    /// The oracle's numbers, from `snprintf("%.1f", ...)` and `%.0f` on glibc
+    /// U8g2's numbers, from `snprintf("%.1f", ...)` and `%.0f` on glibc
     /// and on the ESP32's newlib. Both round the exact binary value to
     /// nearest, ties to even.
     #[test]

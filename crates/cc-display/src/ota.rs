@@ -31,7 +31,7 @@ use crate::templates::Stage;
 /// The width budget: `DISPLAY_WIDTH - 4`, i.e. a 2 px margin each side.
 const MAX_WIDTH: i32 = DISPLAY_WIDTH - 4;
 
-/// `drawOtaScreen` — returns `None` when the OTA screen does not apply.
+/// Draw the OTA screen. Returns `None` when it does not apply.
 #[must_use]
 pub fn draw(d: &mut Display, input: &DisplayInput) -> Option<Stage> {
     if !input.ota.show {
@@ -86,7 +86,7 @@ pub fn draw(d: &mut Display, input: &DisplayInput) -> Option<Stage> {
     Some(Stage::Ota)
 }
 
-/// `otaTypeLabel` — `"Filesystem"` or `"Firmware"`.
+/// The label for an OTA kind.
 #[must_use]
 pub const fn kind_label(kind: OtaKind) -> &'static str {
     match kind {

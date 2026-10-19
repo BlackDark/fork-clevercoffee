@@ -59,7 +59,7 @@ pub fn display_thermometer_outline(d: &mut Display, input: &DisplayInput, x: i32
 ///
 /// Integer, truncating, and *not* clamping: `map(150, 0, 100, 53, 23)` returns
 /// `-10`, and the clipping is left to the draw call. Reproduced because the
-/// thermometer tick and `drawTemperaturebar` both depend on the non-clamping
+/// thermometer tick and `draw_temperature_bar` both depend on the non-clamping
 /// behaviour for out-of-range inputs.
 #[must_use]
 pub const fn arduino_map(x: i32, in_min: i32, in_max: i32, out_min: i32, out_max: i32) -> i32 {
@@ -78,10 +78,9 @@ pub const fn constrain(amt: i32, low: i32, high: i32) -> i32 {
     }
 }
 
-/// `drawTemperaturebar`.
-///
-/// Five vertical bars whose heights track the temperature, drawn from a
-/// baseline of `y = 52` upwards. `heightRange` is the full-scale height.
+/// The temperature bar: five vertical bars whose heights track the
+/// temperature, drawn from a baseline of `y = 52` upwards. `height_range` is
+/// the full-scale height.
 pub fn draw_temperature_bar(d: &mut Display, input: &DisplayInput, x: i32, height_range: i32) {
     let width = x + 5;
     let height = arduino_map(truncate_to_i32(input.temperature), 0, 100, 0, height_range);
@@ -114,7 +113,7 @@ pub fn display_temperature(d: &mut Display, input: &DisplayInput, x: i32, y: i32
 }
 
 /// The two-row label/value block every non-Modern template uses. The x
-/// coordinates come from the template's own `getTemperatureCoords`, so the
+/// coordinates come from the template's own `TemperatureCoords`, so the
 /// Upright template can put them in a different place in the portrait space.
 pub fn display_temperature_info(
     d: &mut Display,

@@ -32,7 +32,7 @@
 //! avoids double-drawing overlaps (`u8g2_font_decode_len`, the
 //! `decode->is_transparent == 0` guard). This firmware never enables it:
 //! `u8g2_SetupBuffer` hard-sets `font_decode.is_transparent = 0` (`u8g2_setup.c:93`,
-//! "issue 443") and nothing in the tree calls `setFontMode`. This port therefore
+//! "issue 443") and this firmware never enables it. The decoder therefore
 //! always draws the background run, which is the behaviour the device actually
 //! has. [`Font::decode_into`] takes the flag anyway, so a future caller cannot
 //! get it wrong by accident.
@@ -486,7 +486,7 @@ impl Font {
 
     /// Width of `text` in pixels, matching U8g2's `getStrWidth`.
     ///
-    /// Port of `u8g2_string_width`. Two details in that
+    /// Reproduces `u8g2_string_width`. Two details in that
     /// function are load-bearing and are reproduced rather than "fixed":
     ///
     /// * the last glyph is measured with its *ink width* rather than its
@@ -509,7 +509,7 @@ impl Font {
     /// Same arithmetic as [`Font::str_width`]; the difference is only that a
     /// non-Latin code point is looked up as itself rather than being folded to
     /// `0xFFFF`. Both end at the same result for the ten embedded fonts, since
-    /// they carry no glyph above U+00FF. `displayWrappedMessage` uses this.
+    /// they carry no glyph above U+00FF.
     #[must_use]
     pub fn str_width_utf8(&self, text: &str) -> i32 {
         self.str_width_impl(text.chars().map(code_point_of))
@@ -966,7 +966,7 @@ mod tests {
 
     #[test]
     fn ink_box_matches_the_oracle_measured_ink() {
-        // Oracle numbers: draw at y=20, read the framebuffer, report the ink
+        // Measured numbers: draw at y=20, read the framebuffer, report the ink
         // extent. `crates/cc-display/tools/oracle/display_oracle.cpp` reproduces
         // this.
         //

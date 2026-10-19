@@ -7,8 +7,8 @@
 //!
 //!     cargo run --example emit_bitmaps --target <host> > bitmaps.h
 //!
-//! The C++ oracle's `BITMAPS[]` table became this list, so the mapping is
-//! generated rather than transcribed.
+//! The list is generated rather than transcribed, so a bitmap cannot fall out of
+//! step with the table the oracle reads.
 
 use std::io::{self, Write};
 
