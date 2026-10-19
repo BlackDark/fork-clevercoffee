@@ -1,17 +1,17 @@
-//! What a scenario run produces: a canonical, comparable record.
+//! What a scenario run produces: a reduced record for the assertions to read.
 //!
-//! # Why canonicalise at all
+//! # Why reduce at all
 //!
-//! A raw effect stream is not diffable. `SetHeaterDuty(437.25)` on one run and
-//! `SetHeaterDuty(437.2500001)` on the next is not a behavioural difference, and
-//! a diff tool cannot tell that from one. So an [`Observation`] is a *reduced*
-//! view: names, not values, where a value is not the thing under test.
+//! An observation is not a log. `SetHeaterDuty(437.25)` on one run and
+//! `SetHeaterDuty(437.2500001)` on the next is the same behaviour, and an
+//! assertion that compared the raw value would fail on the difference. So an
+//! [`Observation`] is a *reduced* view: names, not values, where a value is not
+//! the thing under test.
 //!
 //! Three reductions, each with a reason:
 //!
 //! 1. **State names are [`MachineState::name`] strings**, i.e.
-//!    `BREW_PREINFUSION`, because the comparison is string-for-string against a
-//!    captured log.
+//!    `BREW_PREINFUSION`, because a scenario asserts on the sequence of states.
 //! 2. **Effect values are dropped, except for the three that carry the safety
 //!    argument.** `SetHeaterDuty` becomes `SetHeaterDuty` with no number,
 //!    because the duty is a float computed from a live probe and no two runs
@@ -21,9 +21,8 @@
 //!    `divergences.md` §1.
 //! 3. **Timestamps are kept, coarsely.** They are the difference between "the
 //!    pump stopped one loop after the state changed" and "the pump stopped
-//!    immediately", which is a one-loop ordering bug. They are recorded to the
-//!    millisecond because the `dry_run` driver has an exact clock; a hardware
-//!    run rounds to the tick, which the format doc says is 10 ms.
+//!    immediately", which is a one-loop ordering bug. The driver's clock is
+//!    exact to the millisecond.
 
 use std::collections::BTreeMap;
 
@@ -137,15 +136,13 @@ impl Default for Actuators {
 
 /// Everything a run observed.
 ///
-/// Two runs of the same firmware against the same scenario must produce equal
-/// observations. That is the property the baseline is recorded from, and a test
-/// asserts it over every scenario in `docs/history/scenarios/`.
+/// Two runs of the same scenario must produce equal observations: the control loop
+/// is deterministic, and a test asserts that over every scenario in
+/// `docs/history/scenarios/`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Observation {
     /// The scenario this came from.
     pub scenario: String,
-    /// Which side produced the observation.
-    pub firmware: String,
     /// The ordered states entered, deduplicated on consecutive repeats.
     ///
     /// Consecutive repeats are collapsed because the reducer's self-transition
@@ -179,10 +176,9 @@ pub struct Observed {
 impl Observation {
     /// An empty observation for a scenario.
     #[must_use]
-    pub fn new(scenario: &str, firmware: &str) -> Self {
+    pub fn new(scenario: &str) -> Self {
         Self {
             scenario: scenario.to_string(),
-            firmware: firmware.to_string(),
             states: Vec::new(),
             effects: Vec::new(),
             actuators: Actuators::default(),
@@ -273,7 +269,7 @@ mod tests {
 
     #[test]
     fn consecutive_repeat_states_collapse() {
-        let mut o = Observation::new("t", "rust");
+        let mut o = Observation::new("t");
         o.enter_state(MachineState::PidNormal);
         o.enter_state(MachineState::PidNormal);
         assert_eq!(o.states, ["PID_NORMAL"]);
@@ -281,7 +277,7 @@ mod tests {
 
     #[test]
     fn a_re_entered_state_is_kept_twice() {
-        let mut o = Observation::new("t", "rust");
+        let mut o = Observation::new("t");
         o.enter_state(MachineState::PidNormal);
         o.enter_state(MachineState::Standby);
         o.enter_state(MachineState::PidNormal);
@@ -290,7 +286,7 @@ mod tests {
 
     #[test]
     fn occurrences_finds_every_emission_in_order() {
-        let mut o = Observation::new("t", "rust");
+        let mut o = Observation::new("t");
         o.push_effect("EnablePump", &Effect::EnablePump, 0);
         o.push_effect("DisablePump", &Effect::DisablePump, 1);
         o.push_effect("EnablePump", &Effect::EnablePump, 2);
@@ -300,9 +296,9 @@ mod tests {
 
     #[test]
     fn an_observation_round_trips_through_json() {
-        // The baseline is JSON on disk, so this is the property that makes the
-        // committed baseline usable.
-        let mut o = Observation::new("brew_by_time", "cpp");
+        // Observations cross the process boundary as JSON, so the round trip is
+        // what makes the runner output usable.
+        let mut o = Observation::new("brew_by_time");
         o.enter_state(MachineState::BrewPreinfusion);
         o.push_effect("EnablePump", &Effect::EnablePump, 10);
         o.push_effect(

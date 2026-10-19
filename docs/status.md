@@ -5,7 +5,7 @@ owns the wired machine. Re-verify with `git log --oneline -1` and `just gate`
 before trusting a line below.
 
 **The port is closed out as of 2026-10-06.** Five items that were open are now
-settled decisions — the C++ parity baseline, the water-path inhibit, the
+settled decisions — the C++ comparison baseline, the water-path inhibit, the
 configuration hand-off, the R4-04 procedures and the OTA surface. Each carries
 its own entry below with a date, a named owner, the reasoning and its reversal
 condition; the reasoning is in
@@ -50,15 +50,12 @@ page.
   **Layout.** Findings #3–#6 (clipped EEPROM, German sensor, OTA title, 1 px
   row overlap) are fixed in host tests, not on the machine.
   [`history/divergences.md` §40](history/divergences.md#d40).
-- **The display parity oracle still links the real U8g2, and the bitmaps it
-  draws are the firmware's own.** The C++ tree it used to pull artwork from is
-  gone, so `crates/cc-display/examples/emit_bitmaps.rs` generates the oracle's
-  C bitmap header from `cc_display::bitmaps::ALL` at build time — one copy, and
-  it is the copy that ships. U8g2 itself moved from PlatformIO's registry copy
-  (`src/clib/`) to upstream tag `2.36.18` (`csrc/`, `cppsrc/`), fetched by
-  `just u8g2`; it is the same version, a different packaging.
-  `just test-display-parity`: 2 passed. `just snapshot-display`: 1 golden
-  rendered, unchanged.
+- **The display is checked by 48 goldens and three measured tables.** Each
+  template is rendered and compared against a committed P4 image, and every glyph
+  is checked against advances measured from real U8g2 2.36.18
+  (`tests/support/glyph_widths.rs`, `string_widths.rs`, `fmt_oracle.txt`). The
+  host comparison against a live U8g2 went with the C++ tree; what it covered, and
+  what is no longer checked, is [`display/parity.md`](display/parity.md).
 - **The documentation has one map, one architecture page and one glossary.**
   `docs/index.md` is exhaustive again (`AG-REPO-28`): `docs/api/openapi.yaml`
   had been missing from it for the whole port, which is how a 759-line orphan
@@ -66,7 +63,7 @@ page.
   `GLOSSARY.md` pins the words inherited from the deleted C++, and
   `docs/history/README.md` tells the transformation as a narrative rather than as
   a hardware spec. `scripts/check-doc-links.py` and `scripts/check-divergence-refs.py` now
-  also resolve **heading anchors**, not just files: the ledger was renumbered
+  also resolve **heading anchors**, not just files: `divergences.md` was renumbered
   twice and 19 of `differences.md`'s 31 `§N` pointers rotted silently while the
   existence-only check passed. It now also resolves **backticked paths in prose**,
   which markdown link syntax cannot see — that is how a live skill note went on
@@ -174,10 +171,10 @@ page.
   one of them is the deletion.
 - **Every deliberate difference from the C++ is written down.**
   [`docs/differences.md`](differences.md) is the one-page index;
-  [`history/divergences.md`](history/divergences.md) is the detail, holding 34
-  sections and 5 machine-readable `ledger` blocks that `cc-parity` classifies
-  against. Every prose reference into it is anchored and machine-checked by
-  `scripts/check-divergence-refs.py`, so a renumber cannot silently rot one.
+  [`history/divergences.md`](history/divergences.md) is the detail, holding one
+  section per deliberate difference. Every prose reference into it is anchored
+  and machine-checked by `scripts/check-divergence-refs.py`, so a renumber
+  cannot silently rot one.
 
 ---
 
@@ -206,15 +203,13 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
   slot it did *not* come from. **The cost, stated because it is the reason this
   was not done sooner:** with no rollback, a *bad* image in the selected slot is
   unbootable without USB. Before the fix a good update did nothing either.
-- **There is no C++ parity baseline, by decision, permanently.**
-  `docs/history/baseline/cpp/` holds only `.gitkeep`: capturing one means
-  flashing and running the deleted C++ — reconstructible from `9fa8c834`, but
-  only with its PlatformIO build reconstructed too — on a powered, wired
-  machine, while it owns its own control loop. `just parity` reports
-  `BASELINE-MISSING` for all 17 scenarios rather than pretending. **"An
-  intentional difference" in `divergences.md` now means reviewed and reasoned,
+- **There is no C++ comparison baseline, by decision, permanently.** Capturing
+  one means flashing and running the deleted C++ — reconstructible from
+  `9fa8c834`, but only with its PlatformIO build reconstructed too — on a
+  powered, wired machine, while it owns its own control loop. The comparison
+  harness that would have used it was removed with the rest of the C++ tooling.
+  **"An intentional difference" in `divergences.md` means reviewed and reasoned,
   never measured.** [§35.1](history/divergences.md#d35).
-  See [`baseline/README.md`](./history/baseline/README.md).
 - **`/api/ota/url` answers `501`.** The route is registered and says why:
   `cc-hal-esp32/src/web.rs:1917-1934`. The two upload endpoints and
   `/api/ota/status` **are** implemented and stricter than the C++'s — see
@@ -323,12 +318,12 @@ be filed and they are not fixed by the next green gate.
 1. **Device code is type-checked, not executed.** The `CASES` registry is compiled
    by `just lint-esp32` and runs only under `just test-esp32 <port>` on real
    hardware. Two bugs shipped through that gap.
-2. **The parity classification is unmeasured.** Every "intentional difference"
-   rests on reading the two codebases, not on running them side by side. With an
-   empty baseline, an *undeclared* difference does not fail the harness today.
-   And `divergences.md` carries 5 `ledger` blocks against ~30 prose entries,
-   so most differences would surface as unexplained even once a baseline exists.
-   Treat "intentional" as *reviewed and reasoned*, not *measured*.
+2. **Differences are documented, not measured.** Every intentional difference
+   rests on reading the old code and the new code, not on running them side by
+   side. The comparison harness and its baseline are gone; `cc-parity` now runs
+   the Rust reducer against the scenario assertions. An *undeclared* difference
+   therefore does not fail anything today. Treat "intentional" as *reviewed and
+   reasoned*, not *measured*.
 3. **`FrameSlot` is verified by review, not by test.** It lives in `cc-firmware`,
    which `cc-hal-esp32` cannot depend on, so the device-test registry cannot
    reach it. Its fix is verified by caller audit and review.
@@ -380,6 +375,7 @@ be filed and they are not fixed by the next green gate.
    [`divergences.md` [§34](history/divergences.md#d34)](./history/divergences.md) — and it
    is verified only by measurement, because the call site is in `cc-firmware`
    and the device-test registry cannot reach it.
+
 ---
 
 ## How to keep this true

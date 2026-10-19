@@ -26,7 +26,7 @@ still ugly, it is recorded here so nobody "fixes" it by accident.
 The C++ had bugs. Reproducing one is a decision with a cost, and it is recorded
 here so the decision is visible rather than inherited by accident.
 
-| Behaviour | Why it is kept | Ledger |
+| Behaviour | Why it is kept | Record |
 | --- | --- | --- |
 | A reboot boots to `PID_DISABLED` when the power switch is a toggle reading off | Kept for a configured switch. `hardware.switches.power.enabled=false` follows `pid.enabled`. | [`outstanding-findings.md`](outstanding-findings.md) #11 |
 | Error strings used to clip off the panel | No longer kept. | [`divergences.md` §40](divergences.md#d40) |
@@ -53,6 +53,6 @@ worth doing, and each one closes a real gap in the original.
 
 When you change a behaviour and the C++'s answer is part of the reasoning, add a
 row. When the change is a divergence, it belongs in
-[`divergences.md`](divergences.md) instead, with a ledger block — and this page
+[`divergences.md`](divergences.md) instead, with a section — and this page
 should link to it rather than restate it. The two files must not drift into
 telling the same story twice.

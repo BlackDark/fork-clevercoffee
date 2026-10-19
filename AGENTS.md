@@ -225,9 +225,9 @@ link cleanup and it is the reason this rule now has an explicit exemption: the
 paths that name this directory are resolved by code and by CI, not only by
 prose.
 
-- `crates/cc-parity/tests/runner.rs` reads `history/divergences.md` at a
-  hard-coded path.
-- `scripts/parity/run.sh` and `scripts/size-record.py` take it as input.
+- `scripts/check-divergence-refs.py` resolves it at a hard-coded path
+  (`LEDGER`) and rewrites the `§N` pointers into it.
+- `scripts/size-record.py` takes it as input.
 - `just/size.just` reads `size-baseline.json` and appends to
   `size-records.jsonl`; `rust.yml` uploads the latter.
 - Rust doc comments link into it with rustdoc link syntax, and `just doc` runs
@@ -236,13 +236,9 @@ prose.
   both. `AG-RUST-1` lists them as two steps for that reason.)
 
 **Amending it means changing those paths in the same commit**, and the amendment
-must be dated in this rule. `divergences.md` is additionally *parsed* by
-`cc-parity`: its fenced `ledger` blocks live inside the prose on purpose, so the
-reasoning and the machine-readable declarations cannot drift apart. Do not split
-them out, and do not renumber a section without updating the `heading` field of
-the ledger entry that names it — `cc-parity` checks that the heading still
-appears in the prose, so a renumber that misses one fails the harness rather than
-passing quietly.
+must be dated in this rule. Renumbering a section breaks every `§N` pointer to
+it: `scripts/check-divergence-refs.py` rewrites them and fails on a pointer to a
+section that no longer exists.
 
 **AG-REPO-31.** **`docs/api/openapi.yaml` is checked against the routes the
 firmware serves.** `scripts/check-openapi.py` compares it against the `ROUTES`

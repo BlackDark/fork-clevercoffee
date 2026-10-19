@@ -7,7 +7,7 @@ measured from a real run; the run ids are in the commit history.
 ## The shape
 
 ```
-rust.yml        host      (42 s)   fmt, clippy -D warnings, rustdoc, 1074 tests, parity, device-test audit, UI
+rust.yml        host      (42 s)   fmt, clippy -D warnings, rustdoc, tests, scenarios, device, UI
                 device   (370 s)   esp toolchain, device clippy, release build, image size budget
                 invariants(15 s)   four cross-cutting greps and scripts
 frontend.yml    frontend    (26 s)  the React UI: lint, types, tests, build
@@ -20,7 +20,7 @@ release.yml     release       --   on a v* tag only; builds the Rust image and p
 the time a contributor waits is `device`, and everything else is runner-minutes.
 
 | | wall clock | runner-minutes |
-|---|---|---|
+| --- | --- | --- |
 | before the C++ removal | 599 s (device job) | 988 s across 3 jobs — and the C++ workflows never ran on a PR to `rewrite/rust` |
 | now | **370 s** | **~450 s across 4 jobs** |
 
@@ -55,7 +55,7 @@ Three things forced this apart, each learned the hard way:
 ## The device job, step by step
 
 | step | cold | warm | what it is |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | restore `.embuild` + `target/xtensa-esp32-espidf` | miss | **19 s** | the ESP-IDF clone, tools, python env, and the built archives |
 | restore `~/.rustup/toolchains/esp` | miss | fast | 1.9 GB of Xtensa rustc + GCC + LLVM |
 | restore `~/.cargo/registry` | miss | fast | 407 crates that were otherwise re-downloaded |
@@ -165,7 +165,7 @@ Found by CI on a commit that was locally green, and now covered in-repo.
 ## Measured and rejected
 
 | idea | why not |
-|---|---|
+| --- | --- |
 | `lint-esp32 --profile release`, to share one ESP-IDF `OUT_DIR` | −63 s cold, ~0 warm once cached, and it changes the lint gate's `cfg` surface |
 | split the device job in two | ~30 s, at ~170 runner-s |
 | cache the host `target/` | 5.8 GB, 3.2 GB of it `debug/incremental`, ~20 s on a non-bottleneck |
@@ -240,12 +240,10 @@ firmware. `rust-toolchain.toml` already resolves both, `rustup` reads it, and
 `just doctor` asserts the pins. A third mechanism that installs `stable` on top
 would reintroduce exactly the ambiguity this branch spent a day removing.
 
-**`--all-features`.** It would enable `cc-display/scenarios` and
-`cc-hal-esp32/device-tests` in the *same* clippy pass as the shipped build, so the
-device-tests code would be linted under a different `cfg` from the one it ships
-in. The gate is deliberately narrower than `--all-features`: `--all-targets`
-without it, with `--features cc-display/scenarios` only on `just test`, which is
-the one place that genuinely needs it.
+**`--all-features`.** It would enable `cc-hal-esp32/device-tests` in the *same*
+clippy pass as the shipped build, so the device-tests code would be linted under a
+different `cfg` from the one it ships in. The gate is deliberately narrower than
+`--all-features`: `--all-targets` without it.
 
 **`actions/checkout@v4` by tag.** The repository's action SHAs are pinned, and
 Renovate owns them — `.github/renovate.json5` extends `config:best-practices`

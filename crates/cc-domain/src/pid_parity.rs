@@ -1,19 +1,20 @@
-//! Parity harness for [`crate::pid::Controller`]: the expected heater outputs, and the
+//! Frozen reference vectors for [`crate::pid::Controller`]: the expected heater outputs, and the
 //! evidence that this controller reproduces the reference implementation bit for bit.
 //!
-//! The expected values in the tables below are **generated**, never typed by hand. They
-//! come from `crates/cc-domain/tools/pid_oracle/`, which compiles the reference PID
-//! library against a hand-driven clock, replays a fixed input sequence and prints one line
-//! per step as the IEEE-754 bit pattern of the resulting `double` -- so nothing is lost in
-//! transcription and the two can be compared exactly as well as approximately.
+//! The expected values in the tables below were **generated, never typed by hand**. A
+//! small program compiled the reference PID library against a hand-driven clock, replayed
+//! a fixed input sequence and printed one line per step as the IEEE-754 bit pattern of the
+//! resulting `double`, so nothing was lost in transcription and the two can be compared
+//! exactly as well as approximately.
 //!
-//! The tool cannot run here: `tools/pid_oracle/run.sh` names a `lib/` path that does not
-//! exist, and the PID library it compiles is not part of this tree. The tables are
-//! therefore frozen evidence rather than regenerable output. What runs on every `just
-//! test` is this file: the same input sequences replayed against
+//! **The tables are frozen.** That program and the reference library it compiled are not in
+//! this tree, so the vectors cannot be regenerated here; they are the record of what the
+//! reference did, kept because a controller's arithmetic has to be checked against something
+//! other than itself. Re-deriving them means rebuilding that program. What runs on every
+//! `just test` is this file: the same input sequences replayed against
 //! [`crate::pid::Controller`] and compared with the frozen vectors.
 //!
-//! The five scenarios mirror the oracle's, one for one:
+//! The five scenarios are the reference's, one for one:
 //!
 //! * **A** -- the production `P_ON_E` configuration and a boiler warm-up, including
 //!   output saturation in both directions, integrator limiting, recovery, and a `u32`

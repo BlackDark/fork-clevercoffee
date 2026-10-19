@@ -18,19 +18,17 @@ so a reader who only ever opens one source file still sees the obligation.
 | --- | --- |
 | `crates/cc-display/src/font/data.rs` | 2,807 lines of **verbatim** U8g2 RLE font streams (10 fonts: `profont10/11/12/15/17/22`, `fub17/20/25/30`) |
 | `crates/cc-display/src/font/mod.rs` | A hand-written decoder for that RLE stream, written for this repository. **Original work, not U8g2 code** — no notice obligation, but listed so the boundary is explicit. |
-| `crates/cc-display/tools/oracle/U8g2Shim.cpp` | A shim that lets the *real* U8g2 library run on the host, used by `just test-display-parity`. |
 
 **How the bytes got here**
 
 `crates/cc-display/tools/extract_fonts.py` reads `u8g2_fonts.c` from **U8g2
 upstream tag `2.36.18`** — commit `d66b49af`, the version the firmware was built
 against — and emits the arrays byte-for-byte. Fetch the tree with `just u8g2`
-(it lands in `target/u8g2`); the tag this repository pinned while the C++ build
-existed is recoverable at `git show 213be5ee^:platformio.ini`. Regenerate with:
+(it lands in `target/u8g2`). Regenerate with:
 
 ```sh
-crates/cc-display/tools/oracle/run.sh          # rebuild data.rs
-crates/cc-display/tools/oracle/run.sh --check  # fail if data.rs has drifted
+crates/cc-display/tools/extract_fonts.py extract   # rebuild data.rs
+crates/cc-display/tools/extract_fonts.py check     # fail if data.rs has drifted
 ```
 
 `extract_fonts.py` emits this notice in the generated header, so a regeneration
@@ -69,23 +67,8 @@ firmware, so the BSD-2-Clause "no endorsement" clause is satisfied.
 
 ---
 
-## Arduino-PID-Library — MIT
-
-`lib/Arduino-PID-Library/` holds the C++ parity oracle's PID implementation
-(`PID_v1.cpp` / `PID_v1.h`), unchanged. The Rust port in
-`crates/cc-domain/src/pid.rs` was written for this repository and is verified
-against that library by `crates/cc-domain/tools/pid_oracle/`, which
-**executes the original MIT-licensed code** and diffs its output against the
-Rust. The MIT notice travels with the vendored source in `lib/`.
-
----
-
 ## Not vendored
 
 - **React, the UI toolchain and the browser.** `ui/` builds against published
   npm packages; their licences are in the packages themselves and none of them
   is redistributed here.
-- **The C++ framework.** The parity oracle keeps `src/`, `include/` and `test/`
-  which depend on the Arduino core and PlatformIO libraries. They are **not
-  vendored into this repository** — PlatformIO fetches them at build time — so
-  their notices are not ours to carry.

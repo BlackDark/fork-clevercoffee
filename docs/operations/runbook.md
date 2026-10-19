@@ -26,7 +26,7 @@ failed.
 ## 1. Build & Unit Tests
 
 - [ ] `just check` — fmt, clippy (pedantic, `-D warnings`), rustdoc, the host test
-      suite, the parity harness, the device-test audit, and the markdown links
+      suite, the scenario tests, the device-test audit, and the markdown links
 - [ ] `just gate` — the above plus device clippy, the Xtensa release build and
       the image-size budget
 - [ ] `just size-check` — the image still fits `app0` and inside the growth limit
@@ -325,7 +325,7 @@ and obvious to a browser. It must be done at the socket level.
 - [ ] Bytes keep arriving for **minutes** (a 200 s capture is enough) — the connection must
       not close and must not go quiet
 - [ ] The first frame is `event: hello` / `data: {"connected":true}`
-      (`WebServerManager.cpp:308-317`)
+      (`Sse::frame("hello", ...)` in `cc-hal-esp32/src/web.rs`)
 - [ ] A browser opens the UI and the console shows **no** "cannot connect" / "connection
       lost while the page was loading"
 - [ ] With one `/events` client open, `GET /api/parameters?filter=all` still answers in
@@ -465,7 +465,6 @@ If the full checklist is too heavy for a minor change, at least verify:
 4. `/api/parameters?filter=all` returns full JSON
 5. No crash when loading UI with telnet connected
 
-
 ## Added 2026-10-01 — from the nine defects fixed on the board
 
 Each of these is a check that would have caught one of the reported defects, and
@@ -497,12 +496,12 @@ order after any change to the control loop, the display task or the HTTP layer.
 
 ### Display
 
-4. **The startup screen appears, twice.** In the serial log, within the first
+1. **The startup screen appears, twice.** In the serial log, within the first
    second: `display: boot screen — <version>` and then, once the radio has an
    address, `display: wifi screen — <ip>`. An address of `0.0.0.0` is a *failed*
    check, not a pass: it means the screen was drawn before DHCP finished.
 
-5. **The standby screen survives.** `POST /api/sleep`, then read the panel's
+2. **The standby screen survives.** `POST /api/sleep`, then read the panel's
    periodic report:
 
    ```
@@ -514,7 +513,7 @@ order after any change to the control loop, the display task or the HTTP layer.
    must still be drawing the standby screen until then. `frames` must keep
    advancing.
 
-6. **The right edge is inside the frame.** The header's uptime and the `°C` unit
+3. **The right edge is inside the frame.** The header's uptime and the `°C` unit
    are the two fields that used to clip. The goldens
    (`just snapshot-display`, then *read the diff*) pin them, and
    `widgets::tests::a_long_uptime_is_right_aligned_rather_than_clipped` is the
@@ -523,18 +522,18 @@ order after any change to the control loop, the display task or the HTTP layer.
 
 ### HTTP
 
-7. **`GET /api/history` answers 200 with three arrays of equal length**, oldest
+1. **`GET /api/history` answers 200 with three arrays of equal length**, oldest
    point first, and one point per three seconds. An empty ring answers three
    empty arrays; a 501 or a timeout is a failure. A **timeout or a device reset**
    here means a large value is on a task stack — see finding 8.
 
-8. **No response-sized value lives on a task stack.** The ring is 7.2 KB, the
+2. **No response-sized value lives on a task stack.** The ring is 7.2 KB, the
    framebuffer is 1 KB, and the httpd task has 8 KB. Three separate device resets
    came from this during 2026-10-01 (a 7.2 KB ring inside a by-value `Shared`, a
    7.2 KB return value from `history_json`, and a 1 KB `Display` on the display
    task). If a new field is a fixed-size array, it is a `Box`.
 
-9. **`POST /api/parameters` reads back what it wrote.** Save a value and read it
+3. **`POST /api/parameters` reads back what it wrote.** Save a value and read it
    back *in the same breath*, with no sleep:
 
    ```
@@ -548,12 +547,12 @@ order after any change to the control loop, the display task or the HTTP layer.
    within the ack timeout — that is the handler being honest, and the UI should
    keep the typed value.
 
-10. **`/api/status` reports a real backflush threshold.**
+4. **`/api/status` reports a real backflush threshold.**
     `backflushReminderThreshold` must be the configured value (50 by default), not
     `0`. A `0` means the value is not being published, which is a bug, not a
     setting.
 
-12. **`POST /api/config/upload` round-trips a downloaded configuration.** The UI
+5. **`POST /api/config/upload` round-trips a downloaded configuration.** The UI
     button at `SystemPage.tsx:182` is the operator's path; before this route
     existed it was a live `404`.
 
@@ -570,7 +569,7 @@ order after any change to the control loop, the display task or the HTTP layer.
     must give `400 "JSON body must be a top-level object"`, and that is correct
     behaviour, not a bug.
 
-13. **The upload is refused, not truncated, when it is too large.**
+6. **The upload is refused, not truncated, when it is too large.**
 
     ```
     python3 -c "print('{"system":{"hostname":"' + 'x'*20000 + '"}}}')" \
@@ -584,7 +583,7 @@ order after any change to the control loop, the display task or the HTTP layer.
     configuration — a new PID gain with the old emergency cut-off — on a machine
     that may be brewing.
 
-14. **An upload is all-or-nothing.** One out-of-range value anywhere rejects the
+7. **An upload is all-or-nothing.** One out-of-range value anywhere rejects the
     whole document and changes nothing:
 
     ```
@@ -596,7 +595,7 @@ order after any change to the control loop, the display task or the HTTP layer.
     `400`, and `brew.setpoint` must still be what it was. A `200` here means a
     partial apply.
 
-15. **`system.auth.*` is not inert — and it fails OPEN on empty credentials.**
+8. **`system.auth.*` is not inert — and it fails OPEN on empty credentials.**
     With `system.auth.enabled` unset the API is open, which is the default. Set
     it and reboot:
 
@@ -613,10 +612,11 @@ order after any change to the control loop, the display task or the HTTP layer.
     decides it; the `401` must carry `WWW-Authenticate: Basic realm="CleverCoffee"`;
     and **no** `Authorization` header may appear in the telnet log. Now clear the
     username or the password and reboot again: the API is **open**, with a boot
-    warning. That is the C++'s behaviour (`WebServerManager.cpp:290-294`) and it
-    is deliberate — see [`divergences.md` #23](../history/divergences.md#d23).
+    warning. That is deliberate: `Auth::from_config` warns and serves around it
+    (`crates/cc-web/src/auth.rs`) — see
+    [`divergences.md` #23](../history/divergences.md#d23).
 
-16. **The UI logs in without a code change.** With auth on, open `http://<device>/ui/`
+9. **The UI logs in without a code change.** With auth on, open `http://<device>/ui/`
     in a browser: it must raise the native credential prompt, and after that the
     live `/events` stream and every `fetch` must work **without** a reload. If
     the temperature display freezes while the rest of the page works, the browser
@@ -624,7 +624,7 @@ order after any change to the control loop, the display task or the HTTP layer.
     `GET /events` response code in devtools to tell a `401` from a stream that
     simply stopped.
 
-17. **`/api/status` reports `steamMode`, and it is the steam flag.** While the
+10. **`/api/status` reports `steamMode`, and it is the steam flag.** While the
     steam state is entered and left, `steamMode` must follow it and `brewing`
     must stay `false`:
 
@@ -635,7 +635,7 @@ order after any change to the control loop, the display task or the HTTP layer.
     Before this work the route emitted a *brew-state* value under the name
     `steamMode`; the two are different facts ([`divergences.md` #24](../history/divergences.md#d24)).
 
-18. **A CORS preflight answers.** `OPTIONS` on any `/api` route must be `204`
+11. **A CORS preflight answers.** `OPTIONS` on any `/api` route must be `204`
     with `Access-Control-Allow-Origin` — and must **not** be challenged, because a
     browser sends a preflight with no credentials:
 
@@ -645,7 +645,7 @@ order after any change to the control loop, the display task or the HTTP layer.
 
 ### The kernel defect, so nobody re-derives it
 
-11. **Do not move the DS18B20 onto another task.** If a sensor task is ever
+ 1. **Do not move the DS18B20 onto another task.** If a sensor task is ever
     reintroduced, flash it and read the log: `assert failed:
     xTaskRemoveFromEventList` or a `LoadProhibited` in the lwIP `tcpip_thread`
     means the bit-bang is on a second task and the kernel is being corrupted. The
@@ -656,19 +656,18 @@ order after any change to the control loop, the display task or the HTTP layer.
     2027-01 before trying a second task again: on 2026-10-09 `esp-idf-hal` 0.47.0
     was still current and `interrupt::free` was still one global lock.
 
-
 ### The host-side screen verifier (added 2026-10-01)
 
 Before flashing anything, two checks that need no hardware:
 
-13. **`just test` runs `crates/cc-display/tests/screen_matrix.rs`**, which renders
+ 1. **`just test` runs `crates/cc-display/tests/screen_matrix.rs`**, which renders
     every template against ~40 extreme inputs and asserts: nothing inks outside
     128x64; every system screen is reachable from some input; and **every
     `DisplayInput` field changes what is drawn** — a caller cannot leave a field
     at its default forever without the picture proving it. That last one is what
     catches "the firmware never sets this field", which is how the missing brew
     timer, the missing `brew_active` and the missing `now_ms` all survived.
-14. **`just screens`** writes `/tmp/cc-screens.png`: every template against every
+ 2. **`just screens`** writes `/tmp/cc-screens.png`: every template against every
     case, labelled, in one sheet. **Read it.** It is the only check that catches
     a screen which renders but is *wrong* — the clipped `°C`, the cut-off uptime
     `m` and the missing brew timer all passed every assertion and were found by
@@ -676,8 +675,7 @@ Before flashing anything, two checks that need no hardware:
 
 Findings #3–#6 closed, host only. [`divergences.md` §40](../history/divergences.md#d40).
 
-
-### Measured layout overruns (2026-10-01, third pass — all C++ behaviour unless noted)
+### Measured layout overruns (2026-10-01, third pass — shipped labels)
 
 Every number is `Font::str_width` in the font the screen uses, and every one is
 pinned by `crates/cc-display/tests/languages.rs` so a *new* overrun fails the
@@ -685,11 +683,12 @@ build.
 
 | where | line | width | panel | note |
 | --- | --- | --- | --- | --- |
-| Scale, English | `Pressure: ` | 60 | 50 | runs into the value column |
-| Scale, Spanish | `Pressure: ` | 54 | 50 | |
-| Scale, German | `Weight: `, `Flush: ` | 54 | 50 | |
+| Scale, English | `Pressure:` | 60 | 50 | runs into the value column |
+| Scale, Spanish | `Pressure:` | 54 | 50 | |
+| Scale, German | `Weight:`, `Flush:` | 54 | 50 | |
 
-The Scale value column is 50 px (`kValueColumnOffset`, `DisplayWidgets.h:170`),
+The Scale value column is 50 px (`VALUE_COLUMN_OFFSET` in
+`crates/cc-display/src/widgets.rs`),
 which is also where the **brew row and the setpoint row collide** — see §"the
 Scale row map" below. Both are the same layout defect wearing two hats, and
 neither is visible on the Standard template this machine is configured for.
@@ -699,9 +698,8 @@ not the advance) and `Display::clip_window()` (rotation-aware, 64x128 in
 portrait) and neither was used for fitting anywhere. The test now uses
 `str_width` against the rotation-aware width, which is the same class of check
 one layer up, and it deliberately does **not** add a runtime "refuse to draw"
-primitive: that would change four screens that currently match the C++, in
-exchange for hiding a defect the baseline also has.
-
+primitive: that would change four screens that currently reproduce the measured
+layout, in exchange for hiding a defect the layout check already knows about.
 
 ## Added 2026-10-05 — from a bench ESP32 (original, rev 3.0), Rust firmware
 
@@ -791,7 +789,7 @@ just screens        # writes /tmp/cc-screens.png
 ```
 
 `just screens` runs
-`cargo run -p cc-display --features scenarios --example screens`, which renders
+`cargo run -p cc-display --example screens`, which renders
 **every template against every case into one labelled PNG** — 172 tiles, written
 by a hand-rolled dependency-free PNG encoder inside the example. It needs no
 hardware and no browser.
@@ -803,17 +801,17 @@ numbers) passed every assertion and was found by looking at a panel or a sheet.
 
 The automated half is `just test`, which runs
 `crates/cc-display/tests/{screen_matrix,languages,text_safety}.rs`:
-* `screen_matrix.rs` — every template × ~40 extreme inputs × on/off configs:
+
+- `screen_matrix.rs` — every template × ~40 extreme inputs × on/off configs:
   nothing leaves the frame, every system screen is reachable, every rendering
   flag changes a frame, two cases in different stages never render the same
   pixels, and every stage a policy permits is reached;
-* `languages.rs` — every template × every state × all three languages: fit,
+- `languages.rs` — every template × every state × all three languages: fit,
   label columns, message lines (landscape **and** the 64 px portrait panel), the
   `°C` arithmetic, and a glyph for every translated character;
-* `text_safety.rs` — a hostile string corpus (emoji, CJK, NUL, 400 characters)
+- `text_safety.rs` — a hostile string corpus (emoji, CJK, NUL, 400 characters)
   across twelve fonts: no panic, and a missing glyph measures zero and draws
   zero.
-
 
 ### Wi-Fi: four checks, in the order to run them (2026-10-01)
 
@@ -867,7 +865,6 @@ checks exist so that the next one costs ten minutes instead of an afternoon.
    machine otherwise perfectly healthy. That is a *separate* fault and the log
    names it (`driver = Tsic306 ... but the probe measured on this board is
    DallasDs18b20`).
-
 
 ### The 16 ms tick mean is not this image
 
@@ -992,7 +989,7 @@ boiler". Two things stop that:
 
 - [ ] `POST /api/parameters safety.emergency_temp=<value>` → `200`
 - [ ] Restart; `GET /api/parameters` reports the new value, and the boot log says
-      `the boot decision was `Stored`` — **not** `DiscardedUnsafe`.
+      `the boot decision was`Stored`` — **not** `DiscardedUnsafe`.
 - [ ] Warm the probe past the threshold. S1 needs **three consecutive** readings
       above it (`DEBOUNCE_COUNT`, 3), so allow three poll intervals.
 - [ ] `GET /api/status` → `machineState` reaches `EMERGENCY_STOP`.

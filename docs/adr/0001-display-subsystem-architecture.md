@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted (2026-05-22)
+Accepted (2026-05-22). Reimplemented in `crates/cc-display`; the C++ file names
+below are the original context and the paths no longer exist.
 
 ## Context
 
@@ -42,7 +43,7 @@ State lives on `UICoordinator`. Single function `shouldDisplayBrewTimer()` in `D
 ### 5. Manager roles narrowed
 
 | Component | Role |
-|-----------|------|
+| ----------- | ------ |
 | DisplayManager | Hardware init only |
 | OledDriver | `prepareDisplay()` + `forceUpdate()` + buffer flags |
 | UICoordinator | Coordination flags + brew-timer FSM state |

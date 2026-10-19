@@ -187,9 +187,8 @@ pub enum PumpWatchdog {
 impl PumpWatchdog {
     /// The operator-facing line for a trip.
     ///
-    /// The strings are part of the parity contract: the `ledger` matchers for divergence §1
-    /// in `docs/history/divergences.md` search the source for exactly these lines, so
-    /// re-wording one would stop the harness matching the behaviour it audits.
+    /// It is the only place that says *which* watchdog fired, so re-wording one
+    /// changes what the log shows.
     #[must_use]
     pub const fn message(self) -> &'static str {
         match self {
@@ -429,8 +428,8 @@ impl fmt::Debug for Effects {
     /// Formats as the bare list, not as a struct.
     ///
     /// The `Vec<Effect>` this replaced printed `[DisablePump, CloseWaterValve]`,
-    /// and every test failure message in this crate and the parity harness quotes
-    /// that form. `[.., dropped: 2]` would be more informative when something has
+    /// and every test failure message in this crate quotes that form.
+    /// `[.., dropped: 2]` would be more informative when something has
     /// gone wrong and unreadable when it has not; the count has its own accessor
     /// and its own assertion, so the common case wins.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

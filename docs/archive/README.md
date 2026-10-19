@@ -67,17 +67,15 @@ only reachable in git history now, and its behaviour is recorded in
   works. Dated, owned, and updated in the same commit as any behaviour change
   (`AG-REPO-4`, `AG-REPO-20`).
 - **[`docs/history/`](../history/)** — deliberately left in place.
-  Rust doc comments link into it with rustdoc link syntax and `just lint` runs
+  Rust doc comments link into it with rustdoc link syntax and `just doc` runs
   `rustdoc -D warnings`, so moving any of those documents is a **build break**,
-  not a link cleanup. That includes `intentional-diffs.md`, which `cc-parity`
-  also *reads* as a path argument.
+  not a link cleanup.
 - **The machine-read fixtures** — `size-baseline.json`, `size-records.jsonl`,
   `scenarios/*.yaml`, [`../example_config.json`](../example_config.json) and
   [`../THIRD_PARTY_LICENSES.md`](../THIRD_PARTY_LICENSES.md). These are not
   documentation; code and CI open them by path.
-- **[`docs/history/baseline/`](../history/baseline/)** — an
-  *empty* directory with a README explaining that empty is the honest state.
-  Capturing a C++ baseline means flashing the C++ onto a powered, wired machine,
-  which the C++'s own freeze forbade and which is now impossible: the tree is
-  deleted. Cleaning this up would destroy a deliberate honesty signal, so it
-  stays empty and stays visible.
+- **`docs/history/baseline/`** — removed on 2026-10-19 with the rest of the C++
+  tooling. It was an *empty* directory with a README explaining that empty was the
+  honest state, because capturing a C++ baseline meant flashing the C++ onto a
+  powered, wired machine, which the C++'s own freeze forbade. The decision it
+  recorded is now prose: `divergences.md` §35.1.

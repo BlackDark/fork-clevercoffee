@@ -5,9 +5,9 @@
 //! single wrong signed-field decode or a single wrong first-code offset moves
 //! text sideways and shifts every row that was laid out around it.
 //!
-//! The widths are measured, not asserted from a comment. Regenerate
-//! `tests/support/glyph_widths.rs` with `tools/oracle` when the font set
-//! changes.
+//! The widths are measured, not asserted from a comment: `tests/support/glyph_widths.rs`
+//! holds what real U8g2 measured, and the probe that produced it is not in the tree. A
+//! changed font set means re-measuring with that probe; see the file.
 
 mod support;
 

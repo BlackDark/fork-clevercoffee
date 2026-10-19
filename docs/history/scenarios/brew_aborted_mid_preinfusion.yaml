@@ -7,11 +7,9 @@ covers: [S5, S11]
 duration_ms: 10000
 
 why: >
-  `BrewHandler::processSwitchInput` (`BrewHandler.h:165-252`) sets
-  `requestBrewStop_` on the release, and `BaseState::checkBrewStopRequest`
-  (`BaseState.h:103-111`) consumes it *before* the state-specific rules. The
-  request is therefore honoured from `BREW_PREINFUSION` exactly as it is from
-  `BREW_RUNNING`.
+  A brew-switch release sets the stop request, and the reducer consumes it
+  *before* the state-specific rules. The request is therefore honoured from
+  `BREW_PREINFUSION` exactly as it is from `BREW_RUNNING`.
 
   S11 is the other half: `PID_DISABLED` drains the action requests it cannot
   act on, and `BREW_FINISHED`'s entry does the same, so a stop request that

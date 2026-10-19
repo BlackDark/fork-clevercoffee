@@ -19,11 +19,10 @@ why: >
 
   What is covered is the part that *is* safe to check on hardware and is the
   precondition for the trip mattering: with `pid.enabled: false` the machine
-  lands in `PID_DISABLED`, `shouldPIDBeEnabled`
-  (`ProcessController.cpp:246-248`) is false, and the heater command is zero —
-  before, during and after any of this. A regression that let a duty through
-  with the PID disabled would show up here as a non-zero `heaterPower` in
-  `/api/status`, which is the observable.
+  lands in `PID_DISABLED`, `should_pid_be_enabled` is false for that state, and
+  the heater command is zero — before, during and after any of this. A regression
+  that let a duty through with the PID disabled would show up here as a non-zero
+  `heaterPower` in `/api/status`, which is the observable.
 
   S6's arithmetic (the counter wrap and the 10 ms quantisation) is a property of
   `cc_domain::heater`'s reference state machine, not of the reducer, and is

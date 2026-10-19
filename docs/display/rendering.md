@@ -58,12 +58,11 @@ earlier version counted the whole process, so libtest's own allocations landed i
 the measurement window and the gate failed 62 of 80 runs under CPU load. Nothing
 in `cc-display` was allocating; the instrument was.
 
-## The bitmap table
+## The bitmaps
 
-`cc_display::bitmaps::ALL` names each bitmap and gives its dimensions;
-`cc_display::bitmaps_data` holds the bytes. The display parity oracle builds its
-own C header from that table at test time rather than carrying a second copy, so
-the artwork the oracle draws is the artwork the firmware ships.
+`cc_display::bitmaps_data` holds the artwork as raw arrays, each in the
+big-endian 1bpp layout `Display::draw_xbmp` expects. A call site passes the width
+and height with the bytes; there is no name table.
 
 There are two traps in the artwork worth knowing, both recorded in
 [`../hardware/pins.md`](../hardware/pins.md): the steam LED is on GPIO1, which is

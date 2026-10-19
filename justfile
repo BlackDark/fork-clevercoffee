@@ -458,13 +458,8 @@ lint-esp32c6:
 
 # Host tests for every portable crate. NOT --workspace: the device crates do not
 # compile for a host target.
-# DEVIATION D2: `--features cc-display/scenarios`, see the header. The display
-# crate is `no_std` with no `alloc`, so the scenario runner behind the parity
-# oracle and the goldens sits behind an off-by-default feature. Naming it as
-# `cc-display/scenarios` rather than plain `scenarios` keeps this working for the
-# whole host crate list.
 test:
-    cargo test --locked {{host_crates}} --features cc-display/scenarios --target {{host_target}}
+    cargo test --locked {{host_crates}} --target {{host_target}}
 
 # THE RECURRENCE GUARD. Fails if any device-crate test exists that the on-target
 # runner cannot execute: a bare `#[test]` (the compiler deletes it unless the
@@ -573,26 +568,21 @@ doc-links:
 # cannot be -- it shows what a person would see, which is how the clipped `°C`,
 # the cut-off uptime `m` and the missing brew timer were found.
 screens:
-    cargo run --locked -p cc-display --features scenarios --target {{host_target}} \
+    cargo run --locked -p cc-display --target {{host_target}} \
         --example screens -- /tmp/cc-screens.png
     @echo "wrote /tmp/cc-screens.png -- open it"
 
 # Regenerate OLED golden images (host).
 #
-# `--features scenarios` is required: `cc-display` is `no_std` with no `alloc`, and
-# the scenario runner that backs the parity oracle needs both. The feature is off
-# by default and is not enabled for the device build, so `cargo build -p
-# cc-firmware` still cannot pull a heap into the display crate.
-#
 # Read the diff before committing a regenerated golden: every pixel is supposed to
 # stay put.
 snapshot-display:
-    cargo test --locked -p cc-display --features scenarios --target {{host_target}} -- --ignored render_goldens
+    cargo test --locked -p cc-display --target {{host_target}} -- --ignored render_goldens
 
-# The U8g2 tree the display oracle and `extract_fonts.py` read, pinned at the
-# same upstream tag the firmware linked before the C++ tree was removed. Fetched
-# into `target/`, never vendored: it is third-party source the oracle links, not
-# something the firmware ships.
+# The U8g2 tree `extract_fonts.py` reads, pinned at the same upstream tag the
+# firmware linked before the C++ tree was removed. Fetched into `target/`, never
+# vendored: the font streams it produces are what the firmware ships, and this is
+# how they are re-derived.
 U8G2_REPO := "https://github.com/olikraus/u8g2.git"
 U8G2_TAG := "2.36.18"
 
@@ -608,11 +598,6 @@ u8g2:
     fi
     git clone --quiet --depth 1 --branch {{U8G2_TAG}} {{U8G2_REPO}} target/u8g2
     echo "U8g2 {{U8G2_TAG}} fetched into target/u8g2"
-
-# Display parity against the real U8g2 the firmware links. `just u8g2` fetches
-# that tree; `CC_U8G2_DIR` points the oracle at a checkout you already have.
-test-display-parity: u8g2
-    cargo test --locked -p cc-display --features scenarios --target {{host_target}} --test parity -- --ignored
 
 # ---------------------------------------------------------------------- build
 
@@ -883,20 +868,11 @@ mon-headless port seconds="20":
 logs host:
     telnet {{host}} 23
 
-# --------------------------------------------------------------------- parity
+# ------------------------------------------------------------------- scenarios
 
-# The parity scenario runner (06 R1-08). DEVIATION from the original recipe: the
-# host target is passed explicitly, for the same reason as `lint`/`test` — see D1
-# in the header. `scripts/parity/run.sh` passes it through.
-parity port host:
-    ./scripts/parity/run.sh {{port}} {{host}}
-
-# The harness's own tests. NOT part of `just test`: `cc-parity` is the migration's
-# measuring instrument, not firmware, and its tests are the thing that decides
-# whether a phase gate can be claimed. They read `docs/rust-migration/scenarios/`
-# and the real `intentional-diffs.md`, so they also check that the scenario set
-# loads, that every dry_run scenario meets its own assertions, that S1-S11 are all
-# covered, and that a synthetic *undeclared* diff fails the runner.
+# The harness's own tests. A separate recipe because `cc-parity` is not in
+# `host_crates`: these are the binary contract (`list`/`run`) and the whole
+# scenario set in `docs/history/scenarios/`, run in process with no device.
 parity-test:
     cargo test --locked -p cc-parity --target {{host_target}}
 
@@ -924,11 +900,6 @@ bench:
 
 # Control-loop timing. The host approximation is the `allocations` bench above
 # (`just bench`); the device number is captured with `just mon-noreset`.
-#
-# It used to be `./scripts/parity/loop-timer.sh {{mcu}}`, and **that script does
-# not exist** — `scripts/parity/` contains only `run.sh`. So the recipe failed
-# with "No such file or directory" every time anyone tried the one thing that
-# would answer "does the control tick fit its budget?" (fixed by `284ad17a`).
 #
 # Control-loop timing has no recipe of its own: the host approximation is the
 # `allocations` bench (`just bench`), and the number that actually counts is the

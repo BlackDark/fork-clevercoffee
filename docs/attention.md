@@ -23,7 +23,6 @@ None.
 - **Contactor timing.** The contactor's minimum on/off time and the realised heater-pin duty have never been measured.
 - **HX711.** The code is in. No scale is fitted.
 - **Steam LED.** The rule is tested. No pin is free: GPIO 1 is the UART console, GPIO 32 is the scale data line. Find another pin, or leave it. [`history/divergences.md` §30](history/divergences.md#d30).
-- **Modern layout against a C++ frame.** Checked against the layout rules, not against a rendered C++ frame. [`display/parity.md`](display/parity.md).
 
 ## Later
 

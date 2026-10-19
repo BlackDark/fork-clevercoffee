@@ -1,9 +1,8 @@
 //! Scratch probe: dump a small region of a framebuffer as ASCII art.
 //!
-//! Not a test. `cargo run --example probe -p cc-display -- <op>` is how the draw
-//! primitives are compared against real U8g2 pixel by pixel. Kept because
-//! re-running that comparison is the first thing to do when a primitive's
-//! behaviour is in doubt.
+//! Not a test. `cargo run --example probe -p cc-display -- <op>` is the first thing to
+//! reach for when a primitive's output is in doubt, and it is what produced the panic
+//! transcripts quoted in `tests/text_safety.rs` and in `font::glyph_header`.
 use cc_display::display::{Display, Framebuffer};
 use cc_display::font;
 

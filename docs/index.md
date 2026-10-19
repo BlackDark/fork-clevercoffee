@@ -31,7 +31,7 @@ this page, not in your question.
 | Document | What it is for | Read it if |
 | --- | --- | --- |
 | [`docs/differences.md`](differences.md) | **The one-page answer to "will this surprise me?"** Every behavioural difference from the C++, filed by how a reader would meet it. | Anything looks wrong and you need to know whether it is intentional. |
-| [`docs/history/divergences.md`](history/divergences.md) | The ledger in full: for each divergence, the C++'s behaviour, the port's, the reasoning, and what pins it. **Read by `cc-parity` at a hard-coded path — do not move it or split out its `ledger` blocks.** | You are justifying a behaviour change and need the reasoning, not the summary. |
+| [`docs/history/divergences.md`](history/divergences.md) | The divergence record in full: for each divergence, the C++'s behaviour, the port's, the reasoning, and what pins it. **Read by `scripts/check-divergence-refs.py` at a hard-coded path — do not move it.** | You are justifying a behaviour change and need the reasoning, not the summary. |
 | [`docs/config/reference.md`](config/reference.md) | Every configuration key, its type, range, default and bounds. | You need a parameter name or what it may be set to. |
 
 ## Architecture decisions
@@ -41,9 +41,9 @@ rejected.
 
 | Document | What it is for | Read it if |
 | --- | --- | --- |
-| [`docs/adr/0001-display-subsystem-architecture.md`](adr/0001-display-subsystem-architecture.md) | Accepted: one render pipeline, shared defaults with template overrides, one source of truth for thresholds. | You want the *why* behind the display structure. |
+| [`docs/adr/0001-display-subsystem-architecture.md`](adr/0001-display-subsystem-architecture.md) | Accepted (2026-05-22), reimplemented in `cc-display`: one render pipeline, shared defaults with template overrides, one source of truth for thresholds. | You want the *why* behind the display structure. |
 | [`docs/adr/0002-wifi-logging-ota-memory-architecture.md`](adr/0002-wifi-logging-ota-memory-architecture.md) | Accepted: Wi-Fi logging, OTA admission, and the memory budget. | You are touching networking, OTA, or the heap. |
-| [`docs/adr/0003-state-machine-hardware-control-contract.md`](adr/0003-state-machine-hardware-control-contract.md) | Accepted: the pump, valve and heater ownership contract. Energise on entry, reinforce on update, release on exit. | **Adding a state, or touching anything that moves water.** |
+| [`docs/adr/0003-state-machine-hardware-control-contract.md`](adr/0003-state-machine-hardware-control-contract.md) | Accepted: the pump, valve and heater ownership contract, enforced in `cc-machine` and `cc-safety`. Energise on entry, reinforce on update, release on exit. | **Adding a state, or touching anything that moves water.** |
 
 ## By subsystem
 
@@ -105,7 +105,7 @@ else in that folder is the detail behind it.
 | [`docs/history/cpp-findings.md`](history/cpp-findings.md) | Every bug and ambiguity found in the C++ while porting it, each pinned by a named parity test. Duplicate section numbers are evidence a finding was corrected — do not renumber. | You are auditing a feature and want the traps. |
 | [`docs/history/target-architecture.md`](history/target-architecture.md) | The intended crate boundary and startup contract. Partly superseded — check what it says before trusting it. | You want the intended shape, not the shipped one. |
 | [`docs/history/recovered-oracle.md`](history/recovered-oracle.md) | The only surviving record of a Rust firmware that ran on this board. **The derivation** for the fail-closed `LOW_TRIGGER` rule; the rule itself is enforced by `cc_safety::validate_config`. | You touch heater-relay pin selection. |
-| [`docs/history/scenario-format.md`](history/scenario-format.md) | The scenario-file format `cc-parity` parses, written twice on purpose. | You add a parity scenario. |
+| [`docs/history/scenario-format.md`](history/scenario-format.md) | The scenario-file format `cc-parity` parses. | You add a parity scenario. |
 | [`docs/history/review-2026-10-03.md`](history/review-2026-10-03.md) | An independent review's findings, one per row, with status. The most recent hard-eyed record. | You want to know what has already been looked at and found wanting. |
 | [`docs/history/cpp-behaviour-comparisons.md`](history/cpp-behaviour-comparisons.md) | Every "the C++ answered X, this firmware answers Y", in one place: parity that was **chosen**, and where this firmware is safer than the original. | You are about to change a behaviour and need to know what the C++ did first. |
 | [`docs/history/outstanding-findings.md`](history/outstanding-findings.md) | Closed bring-up findings. Not a task list. | You think something is broken and want to know whether it was already closed. |
@@ -125,12 +125,11 @@ is moved there, never deleted, and never merged into a live document.
 
 Moving any of these is a build or CI break, not a link cleanup (`AG-REPO-30`,
 `AG-REPO-31`). `history/divergences.md` is in this category and has its own row
-above; `history/scenarios/` and `history/baseline/` likewise have rows in the
-history table. Nothing below is linked twice.
+above; `history/scenarios/` likewise has a row in the history table. Nothing below
+is linked twice.
 
 | Path | Who reads it |
 | --- | --- |
 | [`docs/example_config.json`](example_config.json) | A working configuration, imported unchanged by `cc-config`'s test. |
-| [`docs/history/scenarios/`](history/scenarios) | The scenario set, read by `cc-parity`. |
-| [`docs/history/baseline/`](history/baseline) | Where a C++ baseline would go. **Deliberately empty**; the README says why. |
+| [`docs/history/scenarios/`](history/scenarios) | The scenario set `just parity-test` runs. |
 | [`docs/history/size-baseline.json`](history/size-baseline.json) · [`size-records.jsonl`](history/size-records.jsonl) | The image-size budget, read by `just/size.just`. Never read these by eye. |

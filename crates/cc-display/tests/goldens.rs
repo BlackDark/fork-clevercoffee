@@ -1,30 +1,20 @@
 //! Golden images for the six templates and every shared stage.
 //!
-//! # What a golden catches that engine parity cannot
+//! # What a golden catches
 //!
-//! `tests/parity.rs` proves that every draw call in [`cc_display::display`]
-//! produces the U8g2 pixel. It does *not* prove the templates issue the right
-//! calls: a template that draws its temperature row at y=41 instead of y=14
-//! passes engine parity perfectly and shows a wrong screen on the panel.
+//! Each template is driven directly, with nothing in between, and the frame is
+//! compared against a committed P4 image. That covers template *logic*: a
+//! template that draws its temperature row at y=41 instead of y=14 renders a
+//! wrong screen, and the image changes.
 //!
-//! So the templates are driven here directly, with no scenario in between, and
-//! the frame is compared against a committed P4 image. That is the check that
-//! covers template *logic*.
+//! A hand-written expectation would not do the same job. Writing one means
+//! reading the intended layout and transcribing it, and a misreading is then
+//! reproduced on both sides. A golden of the *actual* Rust template records what
+//! the code does.
 //!
-//! # Why a scenario transcription is not enough either
-//!
-//! Hand-transcribing each template's draw calls into a scenario would make the
-//! two sides agree by construction -- the transcription encodes a reading of the
-//! intended layout, and a misreading would be invisible. A golden of the
-//! *actual* Rust template has no such problem: it records what the code does,
-//! and a change to the code changes the image.
-//!
-//! It also means the goldens prove stability, not correctness of the layout:
-//! they hold the six *normal* templates to their committed images, not to an
-//! external reference. `tests/parity.rs` covers the shared stages against the
-//! U8g2 engine, through the `shared_*.txt` transcriptions; the six normal
-//! layouts have no such counterpart, because they are composed in this crate
-//! from its own `Input` and `Config`.
+//! The trade is that the goldens prove stability, not correctness of the layout:
+//! they hold every template and every shared stage to their committed images,
+//! not to an external reference.
 //!
 //! # Each case carries the stage it expects
 //!
@@ -44,10 +34,6 @@
 //! **Read the diff before committing a regenerated golden.** Every pixel is
 //! supposed to stay put; a change is either a deliberate layout fix or a bug,
 //! and the image is the only way to tell.
-//!
-//! Compiled out without the `scenarios` feature, for the reason given in
-//! `tests/parity.rs`.
-#![cfg(feature = "scenarios")]
 
 mod support;
 
@@ -137,7 +123,7 @@ fn snapshot(
         input,
         config: *config,
         stage,
-        stage_value: rendered.stage.clone(),
+        stage_value: rendered.stage,
         frame: rendered.display.into_framebuffer(),
     }
 }
@@ -147,6 +133,10 @@ fn snapshot(
 ///
 /// A case added here without a committed golden fails; a golden with no case
 /// behind it is reported as stale.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the 48 cases are one list on purpose: the comparison and the generator read this function alone, so a case cannot be added to one path and missed by the other"
+)]
 fn cases() -> Vec<Snapshot> {
     let cfg = config();
     let mut out = Vec::new();
@@ -176,7 +166,7 @@ fn cases() -> Vec<Snapshot> {
             &format!("{}_heating", template_name(t)),
             "Normal",
             t,
-            heating.clone(),
+            heating,
             &cfg,
         ));
     }

@@ -5,8 +5,7 @@
 //! This is the *wire*. It owns the I²C address, the controller's power state,
 //! the transfer of 1024 bytes to the panel, and the 100 ms refresh cadence. It
 //! does **not** decide what is on the screen: every template,
-//! glyph, bar and label is [`cc_display`]'s, host-tested against 48 goldens and
-//! pixel-for-pixel against the real U8g2 (`just test-display-parity`). This
+//! glyph, bar and label is [`cc_display`]'s, host-tested against 48 goldens. This
 //! crate therefore never names `cc-display` — [`Oled::flush`] takes
 //! `&[u8; FRAMEBUFFER_LEN]`, and `cc_display::Framebuffer::as_bytes()`
 //! satisfies that at the call site with no new dependency and no conversion.

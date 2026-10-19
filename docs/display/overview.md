@@ -12,7 +12,7 @@ rather than advisory.
 | --- | --- | --- |
 | [`layout-rules.md`](layout-rules.md) | **The rules.** The 128×64 constraint, the U8G2 font→pixel-height mapping, the fixed-width numeric fields, the row maps, the bar-and-label pairing. | You are moving anything on the screen. Start here. |
 | [`rendering.md`](rendering.md) | **How the Rust renderer works.** Component roles, the frame lifecycle, the I²C chunking, shared-vs-template ownership. | You need to know *when* a frame is actually pushed to the panel. |
-| [`parity.md`](parity.md) | **What is proven, and what is not.** The three checks (engine parity against real U8g2, template goldens, metric parity), what each caught, and — the part that matters — where the checking stops. | You are about to claim the display is correct, or you are regenerating a golden. |
+| [`parity.md`](parity.md) | **What is proven, and what is not.** The two checks (template goldens, metric tables), what each caught, and — the part that matters — where the checking stops. | You are about to claim the display is correct, or you are regenerating a golden. |
 
 ## The rules, condensed
 
@@ -37,12 +37,11 @@ and are binding under `AG-DISPLAY-1` … `AG-DISPLAY-6`:
 ## The honest caveat
 
 [`parity.md`](parity.md) § "What is not proven" says it plainly
-and it is worth reading before you trust any of this: **the six normal layouts
-are not compared against the C++.** The goldens record what the Rust templates
-*do*, and where the port misread the C++, a golden will happily protect the
-misreading. "The Modern layout puts its temperature at y=14" is a claim about
-[`layout-rules.md`](layout-rules.md), not a measured
-comparison with the C++.
+and it is worth reading before you trust any of this: **nothing is compared
+against a live external renderer any more.** The goldens record what the Rust
+templates *do*, and where a template misread the layout, a golden will happily
+protect the misreading. "The Modern layout puts its temperature at y=14" is a
+claim about [`layout-rules.md`](layout-rules.md), not a measured comparison.
 
 ## Related
 

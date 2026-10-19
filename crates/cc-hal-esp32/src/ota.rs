@@ -818,7 +818,7 @@ pub mod tests {
         assert_eq!(
             session.status().progress,
             90,
-            "the C++ reaches 90 % at 256 KiB for a filesystem image (`ota.cpp:234`)"
+            "filesystem progress is 90 % at 256 KiB of 393,216"
         );
         // And the firmware floor would have read 45 for the same byte count, so
         // the two kinds are distinguishable through this session.

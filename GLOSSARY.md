@@ -48,30 +48,32 @@ from the C++. "Deliberately" is the operative word. Each one is recorded in
 [`docs/history/divergences.md`](docs/history/divergences.md) with the C++'s
 behaviour, this one's, and the reasoning.
 
-**Ledger** — the machine-readable half of the divergence record: 6 `ledger` fenced blocks
-inside `divergences.md`, each declaration naming the prose section it belongs to
-and the diff lines it explains. It lives *inside* the prose rather than beside
-it, so it cannot drift from the reasoning it claims to encode. `cc-parity` reads
-it; with an empty baseline there is nothing yet for it to classify.
+**Ledger** — the name `divergences.md` carried while it also held machine-readable
+declarations: 6 `ledger` fenced blocks that `cc-parity` parsed to classify diff
+lines. Both the blocks and the parser are gone; the prose is the record, and
+`scripts/check-divergence-refs.py` still keeps its `§N` pointers resolving.
 
-**Parity** — equivalence with the C++ on a committed set of scenarios. **It has
-never been demonstrated on this machine.** Capturing a baseline means flashing
-the C++ onto a powered, wired machine, and the owner declined; `docs/history/baseline/cpp/`
-is deliberately empty. The scenarios run and the ledger is readable, but an
-undeclared difference does **not** fail anything today, because there is no
-reference to differ from. See
+**Parity** — equivalence with the C++ on a committed set of scenarios. **It was
+never demonstrated on this machine**, and there is no longer a harness to
+demonstrate it with: capturing a baseline meant flashing the C++ onto a powered,
+wired machine, the owner declined, and the comparison code and the baseline
+directory went with the rest of the C++ tooling. The scenarios still run, and they
+assert the firmware's own behaviour, but nothing compares them to a reference. See
 [`docs/differences.md`](docs/differences.md) for what that costs.
 
 **Scenario** — one named, reproducible situation fed to the reducer: a cold
 boot, a sensor read, a heater-gate check. Each records one *observation*, a
 short structured description of what the machine did.
 
-**Oracle** — historically, the frozen C++ tree that new behaviour was compared
-against. The C++ is gone, so the word survives in two places, neither of them
-that: the *display oracle*, a C++ harness that links the real U8g2 so the Rust
-renderer can be checked against it, and
-[`docs/history/recovered-oracle.md`](docs/history/recovered-oracle.md), a
-different Rust firmware recovered from a flash dump whose source never existed.
+**Oracle** — a reference whose recorded output is the expected value a test asserts
+against, rather than a second implementation checked in the same run. The programs
+that produced the recorded output are not in this tree; what remains is the output,
+frozen in `crates/cc-domain/src/pid_parity.rs`,
+`crates/cc-display/tests/fmt_oracle.txt` and
+`crates/cc-display/tests/support/*_widths.rs`.
+[`docs/history/recovered-oracle.md`](docs/history/recovered-oracle.md) uses the word
+in a narrower sense: a Rust firmware recovered from a flash dump, whose source never
+existed.
 
 ## The safety layer
 

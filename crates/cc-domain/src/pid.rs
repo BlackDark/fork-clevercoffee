@@ -9,12 +9,11 @@
 //! differently is a controller that boils differently.
 //!
 //! Parity is measured, not asserted by inspection. A fixed four-scenario input sequence
-//! was replayed against the reference implementation by
-//! `crates/cc-domain/tools/pid_oracle/pid_oracle.cpp`, and the expected outputs in
-//! `src/pid_parity.rs` -- compiled only under `cfg(test)` -- are that program's output.
-//! The program needs the reference library to compile, and that library is not in this
-//! tree any more, so the vectors are frozen evidence rather than regenerable; see the
-//! program's own header.
+//! was replayed against the reference implementation, and the expected outputs in
+//! `src/pid_parity.rs` -- compiled only under `cfg(test)` -- are that run's output. The
+//! program and the reference library it compiled are not in this tree, so the vectors are
+//! frozen evidence rather than regenerable output; `src/pid_parity.rs` records what that
+//! means.
 //!
 //! # Deliberate differences from the reference
 //!

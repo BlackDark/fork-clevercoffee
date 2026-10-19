@@ -1,10 +1,9 @@
 # S3 — emergency-stop recovery.
 #
 # The latch clears only when the reading is both valid AND at or below
-# `EMERGENCY_SAFE_TEMP_C` (100 °C), and `EmergencyStopState::onExitImpl` restores
-# the runtime PID flag from config so recovery resumes heating rather than
-# leaving the machine stuck in PID_DISABLED
-# (`EmergencyStopState.cpp:24-31`).
+# `EMERGENCY_SAFE_TEMP_C` (100 °C), and leaving `EMERGENCY_STOP` restores the
+# runtime PID flag from config so recovery resumes heating rather than leaving
+# the machine stuck in `PID_DISABLED`.
 name: overtemp_recovery
 title: Emergency stop clears below 100 C and the runtime PID is restored from config
 mode: dry_run
@@ -13,16 +12,15 @@ covers: [S1, S2, S3]
 duration_ms: 8000
 
 why: >
-  S3. `EmergencyStopManager::isEmergencyCleared`
-  (`EmergencyStopManager.cpp:71-90`) requires the reading to be plausible and
-  `<= 100.0`; the comparison is `>`, so exactly 100.0 °C clears. Between
+  S3. The clear requires the reading to be plausible and `<= 100.0`; the
+  comparison is `>`, so exactly 100.0 °C clears. Between
   `emergency_temp - hysteresis` and 100 °C the counter is left alone, which is
   the hysteresis band that stops the machine oscillating around the threshold.
 
   Asserted here: 120 °C is *not* enough to clear (it is in the band and above
-  the safe temperature), and 95 °C is. The recovery path matters because
-  `onExitImpl` has to restore the runtime PID or a machine that tripped once
-  would never heat again.
+  the safe temperature), and 95 °C is. The recovery path matters because the
+  exit has to restore the runtime PID or a machine that tripped once would never
+  heat again.
 
 config:
   set:
