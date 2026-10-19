@@ -7,10 +7,11 @@
 //! per step as the IEEE-754 bit pattern of the resulting `double` -- so nothing is lost in
 //! transcription and the two can be compared exactly as well as approximately.
 //!
-//! That library is no longer in this tree, so the tables are frozen evidence rather than
-//! regenerable output: `tools/pid_oracle/run.sh` still names a path under `lib/` that
-//! does not exist. What runs on every `just test` is this file: the same input sequences
-//! replayed against [`crate::pid::Controller`] and compared with the frozen vectors.
+//! The tool cannot run here: `tools/pid_oracle/run.sh` names a `lib/` path that does not
+//! exist, and the PID library it compiles is not part of this tree. The tables are
+//! therefore frozen evidence rather than regenerable output. What runs on every `just
+//! test` is this file: the same input sequences replayed against
+//! [`crate::pid::Controller`] and compared with the frozen vectors.
 //!
 //! The five scenarios mirror the oracle's, one for one:
 //!
