@@ -49,8 +49,7 @@ did not stop a 2 kW machine from being pumped.
 
 The float switch is also the thing most likely to be a lie. It is a mechanical
 float in a tank with moving water, so the port treats it as advisory in one place
-and authoritative in another, and the reasoning is in
-[`../history/divergences.md`](../history/divergences.md).
+and authoritative in another.
 
 ## Adding a protocol
 
@@ -63,6 +62,4 @@ and authoritative in another, and the reasoning is in
    decides policy is a protocol crate that cannot be tested against a byte array.
 
 For which crates are portable and why, see
-[`../architecture.md`](../architecture.md). For the dependency evidence behind
-the choice of crates, see
-[`../history/dependency-evaluation.md`](../history/dependency-evaluation.md).
+[`../architecture.md`](../architecture.md).

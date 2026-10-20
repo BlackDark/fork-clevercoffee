@@ -519,7 +519,7 @@ fn s4_empty_tank_does_not_block_the_heater() {
 
 #[test]
 fn div1_s4_empty_tank_blocks_the_water_valve_too() {
-    // **A deliberate widening, recorded in `divergences.md` §3.** The water tank
+    // **A deliberate widening.** The water tank
     // gates the pump and the pump pressure; the water valve was gated only on
     // emergency mode. This verdict refuses the valve as well.
     let out = reduce(
@@ -693,7 +693,7 @@ fn s5_a_water_flow_state_permits_the_water_valve() {
 // The steam valve has its own whitelist, because it is the *same physical relay*
 // as the water valve: opening it in a state that is not steaming would flow water
 // with the pump off, and no water-level or emergency guard would catch that on
-// its own. Recorded in `divergences.md` §2.
+// its own.
 
 #[test]
 fn div2_the_steam_valve_is_whitelist_gated() {

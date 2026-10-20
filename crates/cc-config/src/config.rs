@@ -673,9 +673,8 @@ pub struct HardwareSwitchesBrew {
     /// Enable physical brew switch.
     ///
     /// **Defaults to `true`.** The human owns this machine, asked for the four
-    /// operator switches to work, and found them all disabled. Recorded as §14 of
-    /// `docs/history/divergences.md`, which also records the floating-input risk of
-    /// an enabled switch on an unwired input-only pin.
+    /// operator switches to work, and found them all disabled. The floating-input
+    /// risk of an enabled switch on an unwired input-only pin is the trade-off.
     pub enabled: bool,
     /// `hardware.switches.brew.type` - Brew Switch Type
     ///
@@ -822,9 +821,7 @@ impl Default for HardwareSensorsTemperature {
     /// the type it asked for — a visible failure rather than a silent one.
     ///
     /// The DS18B20 probe on the development machine is a fact about that machine, not
-    /// a reason to change the default for every machine. §7 of
-    /// `docs/history/divergences.md` records the decision and the two sensor drivers
-    /// behind it.
+    /// a reason to change the default for every machine.
     fn default() -> Self {
         Self {
             r#type: TemperatureSensorType::Tsic306,
@@ -1387,8 +1384,7 @@ impl Config {
     /// the honest translation, and it is the expression this codebase already uses
     /// for "no integral action": it is what a `Tn` of 0 gives, and
     /// `Controller::set_tunings` pins the accumulator to zero for it, so the
-    /// integral term cannot contribute at all. §28 of
-    /// `docs/history/divergences.md` records the decision.
+    /// integral term cannot contribute at all.
     #[must_use]
     pub fn pid_tunings(&self) -> (f64, f64, f64) {
         let kp = self.pid.regular.kp;
@@ -1512,8 +1508,7 @@ const REPAIR_STEP_LIMIT: usize = 9;
 /// at a time, so the loop follows whatever it returns next. [`REPAIR_ESCALATION_KEYS`]
 /// apply one key at a time, and only when those keys make no progress. At most
 /// one step per key [`revert_key`] knows. Unresolved: caller uses full defaults
-/// plus the Wi-Fi credential. §38 of `docs/history/divergences.md` records the
-/// bench measurement behind the boot line.
+/// plus the Wi-Fi credential.
 pub fn repair_unsafe(
     config: &mut Config,
     validate: impl Fn(&Config) -> Option<&'static [&'static str]>,

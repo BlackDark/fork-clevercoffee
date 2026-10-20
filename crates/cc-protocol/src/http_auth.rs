@@ -14,8 +14,7 @@
 //!
 //! # The two decisions the caller has to know about
 //!
-//! Both are deliberate, and both are recorded in
-//! [`divergences.md`](../../../docs/history/divergences.md):
+//! Both are deliberate:
 //!
 //! * **Authentication is armed once, at web-server start.** Enabling
 //!   `system.auth.enabled` therefore protects nothing until the next boot, and

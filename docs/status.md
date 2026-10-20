@@ -8,8 +8,7 @@ before trusting a line below.
 settled decisions — the C++ comparison baseline, the water-path inhibit, the
 configuration hand-off, the R4-04 procedures and the OTA surface. Each carries
 its own entry below with a date, a named owner, the reasoning and its reversal
-condition; the reasoning is in
-[`history/divergences.md` §35](history/divergences.md#d35), and the four claim
+condition. The four claim
 states this page uses are defined in [`GLOSSARY.md`](../GLOSSARY.md) under
 "How a claim ends". **Closing the port found two hardware defects** — a flash
 path that never wrote the partition table, and an OTA that never booted what it
@@ -49,7 +48,6 @@ page.
 
   **Layout.** Findings #3–#6 (clipped EEPROM, German sensor, OTA title, 1 px
   row overlap) are fixed in host tests, not on the machine.
-  [`history/divergences.md` §40](history/divergences.md#d40).
 - **The display is checked by 48 goldens and three measured tables.** Each
   template is rendered and compared against a committed P4 image, and every glyph
   is checked against advances measured from real U8g2 2.36.18
@@ -57,25 +55,19 @@ page.
   host comparison against a live U8g2 went with the C++ tree; what it covered, and
   what is no longer checked, is [`display/parity.md`](display/parity.md).
 - **The documentation has one map, one architecture page and one glossary.**
-  `docs/index.md` is exhaustive again (`AG-REPO-28`): `docs/api/openapi.yaml`
+  `docs/index.md` is exhaustive (`AG-REPO-28`): `docs/api/openapi.yaml`
   had been missing from it for the whole port, which is how a 759-line orphan
   survived. `docs/architecture.md` answers "what is this thing" in one page,
-  `GLOSSARY.md` pins the words inherited from the deleted C++, and
-  `docs/history/README.md` tells the transformation as a narrative rather than as
-  a hardware spec. `scripts/check-doc-links.py` and `scripts/check-divergence-refs.py` now
-  also resolve **heading anchors**, not just files: `divergences.md` was renumbered
-  twice and 19 of `differences.md`'s 31 `§N` pointers rotted silently while the
-  existence-only check passed. It now also resolves **backticked paths in prose**,
-  which markdown link syntax cannot see — that is how a live skill note went on
-  citing a deleted script with every gate green. 4,241 paths and 136 anchors,
-  none broken. `docs/archive/` and `docs/history/` are excluded from the prose
-  check: their job is to record what was true then (`AG-REPO-29`, `AG-REPO-30`).
+  `GLOSSARY.md` pins the repository's vocabulary, and
+  `scripts/check-doc-links.py` resolves **heading anchors** as well as files, and
+  **backticked paths in prose**, which markdown link syntax cannot see — that is
+  how a live skill note went on citing a deleted script with every gate green.
 - **The API spec is now checked against the routes.** `scripts/check-openapi.py`
   diffs `docs/api/openapi.yaml` against the `ROUTES` table in
   `cc-hal-esp32/src/web.rs` in both directions and runs in `just check` and CI
   (`AG-REPO-31`). The spec had drifted: it covered 24 of 28 routes and omitted
   `/api/sleep`, `/api/wake` and `/events`, which are exactly the three carrying
-  deliberate divergences. All 28 are now present.
+  deliberate behaviour differences. All 28 are now present.
 - **`extract_fonts.py check` passes again.** It compared the whole of
   `font/data.rs`, licence header included, against generator output that never
   emitted that header — so it could not pass, and had not been run since the
@@ -109,7 +101,7 @@ page.
   `cc_web::telnet::tests::the_predecessor_boot_lines_are_not_truncated_on_the_wire`,
   against the real formatter rather than a copied byte count.
   **Verified by test and by reading the code; the line has not been seen on a
-  board.** [`divergences.md` [§32](history/divergences.md#d32)](./history/divergences.md).
+  board.**
 - **The web UI is served from flash and renders.** `cc-hal-esp32/build.rs` embeds
   the gzip bundle with `include_bytes!`, which is why a 199,270 B bundle costs
   0 B of RAM. A deep link to a client-side route (`/ui/config/behavior`) boots the
@@ -143,7 +135,6 @@ page.
   `/api/sleep` move the machine. Three were broken and are fixed — a truncated
   setpoint, a backflush mode that could not be turned off, and an unknown
   `/api/` path answered `405` instead of the C++'s JSON `404`.
-  [`divergences.md` [§33](history/divergences.md#d33)](./history/divergences.md).
 - **Wi-Fi provisioning over the UART console is exercised.** `just
   wifi-provision /dev/cu.usbserial-224140` stores the credential from `.env`,
   the machine reboots, associates at `10.0.1.168` and serves the API. The
@@ -151,8 +142,8 @@ page.
   `credential from the console was stored` line does not reach UART0 — see the
   open item below.
 - **The gate is green.** `just gate`: fmt-check, clippy (host and
-  device) with `-D warnings`, rustdoc `-D warnings`, the host suite, the parity
-  harness, the device-test audit, the Xtensa release build, and the size budget.
+  device) with `-D warnings`, rustdoc `-D warnings`, the host suite, the scenario
+  tests, the device-test audit, the Xtensa release build, and the size budget.
   **1,720,176 B**, which fits the 1,835,008 B app0 slot with +114,832 B to spare.
   Re-recorded 2026-10-08 as `ui-bundle-2026-10-08`. The 2026-09-30 baseline
   (1,559,520 B) was passed at +10.29 % by the rebuilt web bundle. The 10 %
@@ -165,16 +156,10 @@ page.
   2026-10-06 flash log printed `App/part. size: 1,701,296/1,835,008`.
 - **The C++ tree was frozen while the port ran, and then deleted.** It stood
   unchanged from branch point `2006b710` until it was removed on 2026-10-06
-  (`a36ebc50`, 248 files). That the deletion is what changed it is checkable:
+  (`213be5ee`, 249 files). That the deletion is what changed it is checkable:
   `git diff --stat 2006b710..HEAD -- src/ include/ lib/ platformio.ini
   partitions_4M.csv` reports **153 files changed, 29,023 deletions**, and every
   one of them is the deletion.
-- **Every deliberate difference from the C++ is written down.**
-  [`docs/differences.md`](differences.md) is the one-page index;
-  [`history/divergences.md`](history/divergences.md) is the detail, holding one
-  section per deliberate difference. Every prose reference into it is anchored
-  and machine-checked by `scripts/check-divergence-refs.py`, so a renumber
-  cannot silently rot one.
 
 ---
 
@@ -184,7 +169,7 @@ Accurate as of the date above, and each taken from code or a findings document
 rather than from memory. **The four states are defined in
 [`GLOSSARY.md`](../GLOSSARY.md) under "How a claim ends"** — done, closed by
 decision, residual risk, not started. The close-out decisions of 2026-10-06 are
-[`history/divergences.md` §35](history/divergences.md#d35).
+recorded below.
 
 - **An OTA writes the new image and does not boot it. Measured 2026-10-06,
   fixed 2026-10-07 (`83b3c419`), verified on hardware.** On a bench ESP32
@@ -205,15 +190,13 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
   unbootable without USB. Before the fix a good update did nothing either.
 - **There is no C++ comparison baseline, by decision, permanently.** Capturing
   one means flashing and running the deleted C++ — reconstructible from
-  `9fa8c834`, but only with its PlatformIO build reconstructed too — on a
+  `213be5ee^`, but only with its PlatformIO build reconstructed too — on a
   powered, wired machine, while it owns its own control loop. The comparison
   harness that would have used it was removed with the rest of the C++ tooling.
-  **"An intentional difference" in `divergences.md` means reviewed and reasoned,
-  never measured.** [§35.1](history/divergences.md#d35).
+  **An intentional difference means reviewed and reasoned, never measured.**
 - **`/api/ota/url` answers `501`.** The route is registered and says why:
   `cc-hal-esp32/src/web.rs:1917-1934`. The two upload endpoints and
-  `/api/ota/status` **are** implemented and stricter than the C++'s — see
-  [`divergences.md` [§31](history/divergences.md#d31)](./history/divergences.md). The URL
+  `/api/ota/status` **are** implemented and stricter than the C++'s. The URL
   route needs an HTTP client and a second long-lived task, for something a
   browser upload already reaches.
 - **A brew pressed during the emergency latch fired when the latch cleared.
@@ -225,7 +208,7 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
   2026-10-07:** threshold 30 °C on a bench build, probe warmed by hand, the
   machine tripped, the press during the latch did nothing, and **when the probe
   cooled and the latch cleared by itself no brew started** and the heater
-  returned. [`divergences.md` §36](history/divergences.md#d36).
+  returned.
 - **Four of the six R4-04 safety cases have bench procedures, and all four have
   been run on a bench ESP32** (2026-10-07): 13.1 over-temp trip **passed**,
   13.4 OTA actuator-off **passed**, 13.2 latch **half-passed**, 13.3 tank interlock
@@ -245,17 +228,16 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
   `PID_NORMAL` with no brew left pending. The tick timing of the drop is
   unmeasured. The bench profile it needs is in
   [`hardware/bench-setup.md`](hardware/bench-setup.md). The watchdog reboot needs a debug
-  route this port does not have (the oracle's `/debug/hang-supervisor` was not
-  ported). Tank-empty pump *kill* and valve fail-safe are about a real float, a real pump and a real valve. Not an agent task. Owner: Eduard Marbach. [§35.4](history/divergences.md#d35),
-  [`outstanding-findings.md` #12–#14](history/outstanding-findings.md).
+  route this port does not have (the recovered firmware's `/debug/hang-supervisor`
+  was not ported). Tank-empty pump *kill* and valve fail-safe are about a real
+  float, a real pump and a real valve. Not an agent task. Owner: Eduard Marbach.
 - **There is no bootloader rollback.**
   `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is absent from this build's sdkconfig,
   so a new image that boots and misbehaves stays selected. The C++ behaves
   identically.
-- **The steam LED is unwired.** GPIO1 is the UART console TX. GPIO32 is the scale data line. Whether another pin is worth a solder joint is Potential. [`attention.md`](attention.md). [`divergences.md` §30](history/divergences.md#d30).
+- **The steam LED is unwired.** GPIO1 is the UART console TX. GPIO32 is the scale data line. Whether another pin is worth a solder joint is Potential. [`attention.md`](attention.md).
 - **The Acaia BLE scale is out of scope.** It was measured and does not fit; it
-  needs a decision. Open in [`history/divergences.md`](history/divergences.md#d12)
-  (R3-18); the original task is [`archive/migration/06-migration-task-list.md`](archive/migration/06-migration-task-list.md).
+  needs a decision (R3-18).
   The HX711 **is** implemented, and no scale is fitted to the board.
 - **`just flash <port>` now writes both app slots, so it always wins** — the
   defect it fixes (#16) is that it used to write only `app0` while `otadata` kept
@@ -282,7 +264,7 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
   the rest of that tree; there is no rollback image in this repository.
 - **The Rust release pipeline ran.** `v2.0.0-alpha.1` on `b2151ecd`, run `37925778055`. `firmware.bin` is 4,194,304 bytes. That file has not been flashed from the release asset onto the board. `just flash <port>` is the path that has.
 - **An admitted OTA skips the probe and re-applies the shutdown until the session ends.** Measured 2026-10-08. [`operations/runbook.md` §13.4](operations/runbook.md).
-- **Backflush fill and flush re-assert their pins each tick.** An empty tank still leaves the state. [`divergences.md` §39](history/divergences.md#d39).
+- **Backflush fill and flush re-assert their pins each tick.** An empty tank still leaves the state.
 - **There is no configuration upgrade path from a C++-flashed machine.** The two
   firmwares use different NVS namespaces (`config`, `defaults.h:13`, against this
   port's `cc`), so nothing is lost and nothing is deleted — the previous
@@ -292,7 +274,7 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
   saying so, naming both namespaces and telling the operator to re-enter the
   SSID and password** (`cc_config::predecessor::startup_notice` for the words,
   `cc_hal_esp32::nvs::probe_predecessor` for the check). A deliberate migration
-  was declined: see [`divergences.md` [§32](history/divergences.md#d32)](./history/divergences.md).
+  was declined.
   **The re-provisioning itself has now been exercised on hardware** (2026-10-05,
   a bench ESP32): `just wifi-provision` stores the credential, the machine
   reboots onto the network and serves the API. What is still unexercised is the
@@ -302,11 +284,10 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
   downloads `config.json` from the C++ UI and uploads it here. It works because
   the export and import key names are the C++'s own dotted names, and
   `every_cxx_config_key_is_still_a_key_the_schema_knows` holds the C++'s 96
-  keys — recovered from `getAllConfigParams()` at `9fa8c834:src/Config.cpp:438`
+  keys — recovered from `getAllConfigParams()` at `213be5ee^:src/Config.cpp:438`
   — and fails on a rename. The procedure is
   [`operations/runbook.md` §12](operations/runbook.md), and it says plainly
   that the downloaded file holds the Wi-Fi and MQTT passwords in cleartext.
-  [§35.3](history/divergences.md#d35).
 
 ---
 
@@ -335,9 +316,9 @@ be filed and they are not fixed by the next green gate.
    against real hardware.** Decided 2026-10-06 by Eduard Marbach: R4-01's
    bring-up inhibit (`TEST_ONLY_INHIBIT`, which held the pump and valve off
    while the heater stayed live) is deleted, because the C++ and the recovered
-   oracle both moved water — `recovered-oracle.md:92` records "pump on GPIO27,
-   valve on GPIO17, both asserted off" as a *boot* state, and its debug surface
-   includes `/debug/brew/start` and `/debug/hotwater/on` (`:209`) — so a build
+   firmware both moved water: the recovered boot state has "pump on GPIO27,
+   valve on GPIO17, both asserted off", and its debug surface includes
+   `/debug/brew/start` and `/debug/hotwater/on` — so a build
    that cannot brew is a bring-up artifact, not parity. `Actuators` defaults to
    `Inhibit::NONE`, and the HAL keeps the `Inhibit` type and its device test for
    a future build that wants water held off.
@@ -346,8 +327,7 @@ be filed and they are not fixed by the next green gate.
    and an OTA upload takes all three dark for the whole write and restores them
    after the reboot — [`operations/runbook.md` §13.4](operations/runbook.md).
    **2026-10-09 the pin is the accepted proof** (the bullet above). A reservoir,
-   a float and a valve coil are not an open task. Three findings came out of the 2026-10-07 bench —
-   [`history/outstanding-findings.md` #12–#14](history/outstanding-findings.md).
+   a float and a valve coil are not an open task. Three findings came out of the 2026-10-07 bench.
    Finding #12 refuses the write and repairs implicated keys on boot.
    Measured 2026-10-08: unsafe blob repaired `safety.emergency_temp` only;
    all 98 parameters matched the pre-plant snapshot; repeat POST answered `400`.
@@ -369,10 +349,9 @@ be filed and they are not fixed by the next green gate.
 10. **A retired claim, kept because it was wrong twice.** The bench session on
    2026-10-05 recorded a PID-tuning write as a defect in this port. It is not:
    `ProcessController.cpp:170` gates the retune on a **state** change in the
-   C++ too, so the behaviour was parity. I checked the oracle before changing
+   C++ too, so the behaviour was parity. I checked the recovered firmware before changing
    it, which is the only reason this is item 10 and not a divergence nobody
-   noticed. It is now a divergence **on request** — see
-   [`divergences.md` [§34](history/divergences.md#d34)](./history/divergences.md) — and it
+   noticed. It is now a divergence **on request**, and it
    is verified only by measurement, because the call site is in `cc-firmware`
    and the device-test registry cannot reach it.
 

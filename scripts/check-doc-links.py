@@ -20,18 +20,12 @@ syntax; they cannot see `` `scripts/foo.py` `` in prose. That is how a live skil
 note went on citing a deleted script with every gate green. Only paths under the
 repository's own directories are checked, and only when they look like a real
 path: a `git show <rev>:<path>` form, or anything with an ellipsis, is a citation
-of history rather than a pointer at the working tree. `docs/archive/` and
-`docs/history/` are excluded entirely — their whole job is to record what was
-true when, and AG-REPO-29 and AG-REPO-30 say so.
+of history rather than a pointer at the working tree.
 
-FRAGMENTS ARE NOW CHECKED. Existence alone was not enough: the divergence ledger
-is renumbered as the port finds more divergences, and 143 references into it were
-`§N` prose pointing at a section number. Renumbering made 19 of
-`differences.md`'s 31 pointers wrong, and this check passed throughout, because it
-stripped the fragment and never looked. It now resolves `#anchor` against the
-target file's headings and fails if there is no such heading, which is what makes
-the anchored links `scripts/check-divergence-refs.py` writes actually mean
-something.
+FRAGMENTS ARE NOW CHECKED. Existence alone was not enough: section numbers and
+heading anchors rot when a document is renumbered, and a check that strips the
+fragment never notices. It resolves `#anchor` against the target file's headings
+and fails if there is no such heading.
 """
 
 from __future__ import annotations
@@ -41,19 +35,21 @@ import re
 import sys
 
 SKIP_DIRS = {
-    ".git", "node_modules", "target", ".pio", ".embuild", "lib", "ui",
-    ".venv", "__pycache__",
+    ".git",
+    "node_modules",
+    "target",
+    ".pio",
+    ".embuild",
+    "lib",
+    "ui",
+    ".venv",
+    "__pycache__",
 }
 # `[text](target)` — the target is the first group; angle brackets and titles are
 # handled by the two cleanups below.
 LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 SCHEMES = ("http://", "https://", "mailto:", "tel:", "#")
 HEADING = re.compile(r"^#{1,6}\s+(.*)$", re.MULTILINE)
-# Directories whose documents cite history by design (AG-REPO-29, AG-REPO-30).
-# A path named in an archived document is evidence of what was true then, not a
-# pointer at the working tree, so the prose check does not apply there.
-HISTORY_DIRS = (os.path.join("docs", "archive"), os.path.join("docs", "history"))
-
 # A backticked path into the repository's own tree.
 CODE_PATH = re.compile(
     r"`((?:scripts|crates|just|docs|ui|tools|\.agents|\.github)/[\w./-]+"
@@ -125,9 +121,6 @@ def main() -> int:
                     # `git show <rev>:<path>` and truncated forms cite history.
                     if ":" in cp or ".." in cp or cp.endswith("/"):
                         continue
-                    rel_from_root = os.path.relpath(path, root)
-                    if rel_from_root.startswith(HISTORY_DIRS):
-                        continue
                     checked += 1
                     # A backticked path is written the way a human says it, so
                     # it resolves against the repository root even when the file
@@ -149,13 +142,18 @@ def main() -> int:
                         anchor_cache[resolved] = anchors_in(resolved)
                     if fragment.lower() not in anchor_cache[resolved]:
                         bad_fragment.append(
-                            (os.path.relpath(path, root), fragment,
-                             os.path.relpath(resolved, root))
+                            (
+                                os.path.relpath(path, root),
+                                fragment,
+                                os.path.relpath(resolved, root),
+                            )
                         )
 
     if broken or bad_fragment or bad_path:
         if broken:
-            print(f"FAIL: {len(broken)} broken relative markdown link(s) of {checked} checked")
+            print(
+                f"FAIL: {len(broken)} broken relative markdown link(s) of {checked} checked"
+            )
             for source, target in sorted(set(broken)):
                 print(f"  {source} -> {target}")
         if bad_fragment:

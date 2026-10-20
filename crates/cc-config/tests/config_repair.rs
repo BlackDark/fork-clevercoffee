@@ -2,7 +2,7 @@
 //!
 //! Dropping the whole configuration instead would lose all 98 parameters to fix
 //! one, so the loop reverts the keys `cc_safety::validate_config` names and leaves
-//! the rest alone (§38 of `docs/history/divergences.md`).
+//! the rest alone.
 //!
 //! One pass is not enough: `steam.setpoint` 140 plus `safety.emergency_hysteresis`
 //! 15 exceeds the 150 default of `safety.emergency_temp`. See [`repair_unsafe`].

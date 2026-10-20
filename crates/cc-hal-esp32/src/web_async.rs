@@ -518,8 +518,7 @@ extern "C" fn sse_handler(req: *mut httpd_req_t) -> esp_idf_sys::esp_err_t {
 
 /// Register the JSON `404` for `/api/` paths that matched no route.
 ///
-/// [review-2026-10-03.md
-/// §3](../../../docs/history/review-2026-10-03.md) item 3.8: this firmware served
+/// This firmware served
 /// ESP-IDF's default plain-text 404 for an `/api/` path, so a client that parses
 /// JSON got a parse error rather than an answer it could read.
 ///

@@ -460,7 +460,6 @@ impl Client {
     /// Published when a pass starts. **Retained**: it costs one write per pass,
     /// matches the retained `offline` last will on the same topic, and removes
     /// the window in which a broker restart leaves every entity unavailable.
-    /// Recorded in [divergences.md §11](../../../docs/history/divergences.md).
     ///
     /// # Errors
     ///

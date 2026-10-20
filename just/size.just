@@ -1,6 +1,7 @@
 # Image-size reporting for the Rust firmware.
 #
-# Normative policy: docs/archive/migration/07-image-size-budget.md
+# Policy: growth over 10 % against the baseline requires justification; see
+# `docs/operations/ci.md`.
 # Driven by the root justfile (`just size`, `just size-check`, `just size-record`).
 # Every phase gate must run `just size` and paste the output into the gate record.
 
@@ -19,7 +20,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 mcu := "esp32"
 
-# The single binary is named `firmware` (04 §6), so the artifact is
+# The single binary is named `firmware`, so the artifact is
 # `target/<triple>/release/firmware` — NOT `.../cc-firmware`.
 tgt := "xtensa-esp32-espidf"
 elf := "target/" + tgt + "/release/firmware"
@@ -46,8 +47,8 @@ _require_esp32 mcu:
 # recipes do need the cargo-aware one. A 2026-10 review called them duplicates
 # and removed one; that was wrong, and it broke `just size-check` in CI.
 part_table := "rust/partitions_4M.csv"
-baseline := "docs/history/size-baseline.json"
-records := "docs/history/size-records.jsonl"
+baseline := "docs/operations/image-size/size-baseline.json"
+records := "docs/operations/image-size/size-records.jsonl"
 
 # Report image size, per-section breakdown and headroom.
 [script]
@@ -77,7 +78,7 @@ size: (_require_esp32 "esp32")
     echo
 
     # 3. Per-section split, so code growth is distinguishable from embedded
-    #    asset growth (07 §4). The Xtensa `size` is whichever toolchain is
+    #    asset growth. The Xtensa `size` is whichever toolchain is
     #    installed: prefer the ESP-IDF one (it is the compiler that built the
     #    archives), fall back to the espup one.
     size_bin=""
@@ -113,7 +114,7 @@ size: (_require_esp32 "esp32")
     fi
 
 # CI gate: the image must fit the slot, and must not have grown >10 % without a
-# recorded justification (07 §4/§5).
+# recorded justification.
 [script]
 check: (_require_esp32 "esp32")
     export LC_ALL=C
@@ -126,7 +127,7 @@ check: (_require_esp32 "esp32")
     slot=$((slot_hex))
     fail=0
     if [ "$image" -gt "$slot" ]; then
-        echo "FAIL: image $image B exceeds the app0 slot $slot B by $((image-slot)) B (07 §3 drop order applies)"
+        echo "FAIL: image $image B exceeds the app0 slot $slot B by $((image-slot)) B"
         fail=1
     else
         echo "PASS: image $image B fits the app0 slot $slot B (+$((slot-image)) B)"
@@ -135,7 +136,7 @@ check: (_require_esp32 "esp32")
         prev="$(python3 -c 'import json;print(json.load(open("{{baseline}}"))["image_bytes"])')"
         growth="$(awk -v a="$image" -v b="$prev" 'BEGIN{ if (b==0) {print 0} else {printf "%.2f", (a-b)*100.0/b} }')"
         if awk -v g="$growth" 'BEGIN{exit !(g>10.0)}'; then
-            echo "FAIL: image grew $growth % vs {{baseline}} (>10 %). Justify in docs/archive/migration/07-image-size-budget.md and re-record."
+            echo "FAIL: image grew $growth % vs {{baseline}} (>10 %). Justify in the pull request and re-record."
             fail=1
         else
             echo "PASS: growth $growth % vs {{baseline}} (limit 10 %)"
@@ -143,7 +144,7 @@ check: (_require_esp32 "esp32")
     fi
     exit $fail
 
-# Record a phase-gate datapoint (07 §4). `just size-record esp32 gate-1`
+# Record a phase-gate datapoint. `just size-record esp32 gate-1`
 [script]
 record mcu="esp32" label="": (_require_esp32 mcu)
     export LC_ALL=C

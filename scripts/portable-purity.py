@@ -29,7 +29,7 @@ import pathlib
 import re
 import sys
 
-# The crates 04 §6 calls portable, and the one grep they all share.
+# The portable crates, and the one grep they all share.
 PORTABLE = (
     "cc-domain",
     "cc-protocol",
@@ -98,7 +98,9 @@ def main(argv: list[str]) -> int:
             print(f"no crates/{crate}/src under {root}", file=sys.stderr)
             return 2
         for path in sorted(src.rglob("*.rs")):
-            code = strip_comments_and_strings(path.read_text(encoding="utf-8", errors="replace"))
+            code = strip_comments_and_strings(
+                path.read_text(encoding="utf-8", errors="replace")
+            )
             for lineno, line in enumerate(code.splitlines(), start=1):
                 if BANNED.search(line):
                     offenders.append(

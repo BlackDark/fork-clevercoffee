@@ -1,7 +1,7 @@
 # CleverCoffee — Rust workspace cargo configuration.
 #
 # Keep the build knobs here in sync with the `justfile` module-level variables
-# (05 §4) and the `firmware` CI job env (05 §6). `just doctor` asserts them.
+# and the `firmware` CI job env. `just doctor` asserts them.
 
 [build]
 # NO `target = ...` HERE, ON PURPOSE. It used to pin every cargo invocation in
@@ -59,7 +59,7 @@ linker = "ldproxy"
 # produce addresses. `backtrace-trace-only` makes
 # `std::sys::backtrace::_print_fmt` walk the frames and print the raw PCs
 # instead, which drops addr2line/object/miniz_oxide from the link. The PCs are
-# resolved host-side with `just diag-addr2line`. 07-image-size-budget.md §9.
+# resolved host-side with `just diag-addr2line`.
 build-std-features = ["std/backtrace-trace-only"]
 
 [idf]

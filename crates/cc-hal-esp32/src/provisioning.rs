@@ -319,11 +319,9 @@ impl core::fmt::Debug for Pending {
 
 /// The provisioning session: the parser, the pending credential, and the mute.
 ///
-/// One per task, and the task exists only while there are no stored credentials
-/// ([target-architecture.md
-/// §3](../../../docs/history/target-architecture.md): *"The provisioning task is
-/// **only** spawned when no valid credentials exist, and it exits after
-/// success"*). It is not a permanent task.
+/// One per task, and the task exists only while there are no stored credentials:
+/// it is **only** spawned when no valid credentials exist, and it exits after
+/// success. It is not a permanent task.
 pub struct Session {
     parser: Parser,
     reader: LineReader,

@@ -49,7 +49,7 @@ pub enum Effect {
     CloseWaterValve,
     /// Open the steam valve.
     ///
-    /// **Gated, deliberately: §2 of `docs/history/divergences.md`.**
+    /// **Gated, deliberately.**
     ///
     /// `cc_safety::steam_flow_allowed` admits `STEAM_RUNNING` and nothing else, and it is
     /// consulted in two places: the reducer's tail closes the valve in every other state,
@@ -157,7 +157,7 @@ pub enum Effect {
     RequestReboot,
     /// A pump watchdog expired.
     ///
-    /// §1 of `docs/history/divergences.md` records that arming this watchdog is deliberate,
+    /// Arming this watchdog is deliberate,
     /// which is what makes this effect reachable at all. It exists *so the trip is visible
     /// in the field log*, rather than being a silent hardware change: without a log line, a
     /// machine that stops mid-shot looks like a fault rather than a limit.

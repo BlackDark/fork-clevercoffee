@@ -7,7 +7,7 @@
 //! They are already in the operator's documentation, and inventing a `cc.` prefix
 //! would buy nothing and cost every operator who has memorised a key. The cost of
 //! keeping them is that an NVS written by another firmware is not readable, and
-//! that is already accepted (§32 of `docs/history/divergences.md`).
+//! that is already accepted.
 //!
 //! # The count, and why it is 98
 //!
@@ -69,7 +69,7 @@ pub const MAX_KEY_LEN: usize = 64;
 /// The value is a default, not a constant: an operator who wants the product name
 /// back sets `system.hostname` in the configuration. Nothing else depends on it,
 /// and `docs/example_config.json` is kept in step with it because an import test
-/// parses that file. §13 of `docs/history/divergences.md` carries the full reasoning.
+/// parses that file.
 pub const DEFAULT_HOSTNAME: &str = "test-cc-rust";
 
 /// The number of parameters this crate registers.
@@ -1260,8 +1260,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         "hardware.switches.brew.enabled",
         "Enable physical brew switch",
         ParamKind::Bool,
-        // `true`, not `false`: see `HardwareSwitchesBrew::enabled` and §14 of
-        // `docs/history/divergences.md`.
+        // `true`, not `false`: see `HardwareSwitchesBrew::enabled`.
         ParamValue::Bool(true),
         None,
         None,
@@ -1428,8 +1427,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamKind::Enum,
         // TSIC_306. The schema default and the struct default must agree, or
         // `Config::default()` and `schema::SCHEMA` diverge and the export test
-        // fails. See `HardwareSensorsTemperature`'s `Default` impl, and §7 of
-        // `docs/history/divergences.md`.
+        // fails. See `HardwareSensorsTemperature`'s `Default` impl.
         ParamValue::Enum(TemperatureSensorType::Tsic306 as i8),
         None,
         None,

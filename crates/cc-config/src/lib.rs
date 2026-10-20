@@ -43,7 +43,7 @@
 //! | 3 | A bad value rejects the whole import | a warn-and-continue import answers `success` and leaves the machine on defaults |
 //! | 4 | Text parameters have one storage-length bound | one bound the writer enforces beats eight constants nothing checks. See [`json`]. |
 //! | 5 | Credentials redact in `Debug`/`Display` | a credential in a log line or a panic message is a disclosure with no local symptom |
-//! | 6 | An NVS written by another firmware is ignored, not migrated — but a boot that finds one says so | §32 of `docs/history/divergences.md`; see [`predecessor`] |
+//! | 6 | An NVS written by another firmware is ignored, not migrated — but a boot that finds one says so | see [`predecessor`] |
 //!
 //! Cross-parameter safety validation lives in `cc-safety`
 //! (`validate_config` / `load_or_default`), not here, because `cc-config` may

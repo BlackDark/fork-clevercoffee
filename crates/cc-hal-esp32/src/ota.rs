@@ -45,9 +45,7 @@
 //! # What happens to the watchdog
 //!
 //! **Nothing, and that is a decision.** The flash write happens on the **httpd**
-//! task and the watchdog is subscribed to the **control** task only
-//! ([target-architecture.md
-//! §2](../../../docs/history/target-architecture.md)). The control task keeps
+//! task and the watchdog is subscribed to the **control** task only. The control task keeps
 //! ticking and keeps feeding while the httpd task erases, so the watchdog stays
 //! armed and a genuinely wedged flash still resets the chip. Suspending it for
 //! the upload would remove the fail-safe for the exact window that most wants

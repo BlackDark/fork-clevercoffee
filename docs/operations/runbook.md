@@ -3,12 +3,8 @@
 **Everything you do at the machine before a release.** Every item must pass
 before merging to `main` or tagging.
 
-This is a procedure, not a reference. Where a check exists because the C++
-firmware behaved a certain way, the comparison lives in
-[`../history/cpp-behaviour-comparisons.md`](../history/cpp-behaviour-comparisons.md)
-and this file just says "see the comparison". Findings that were recorded and
-deliberately not fixed are in
-[`../history/outstanding-findings.md`](../history/outstanding-findings.md).
+This is a procedure, not a reference. It does not restate the reasoning behind a
+check; the code and its tests hold that.
 
 Run the sections in order and stop at the first failure. Diagnose before
 continuing; a later section's result means nothing once an earlier one has
@@ -66,8 +62,7 @@ curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/firmware \
 > write only `app0` while `otadata` selected whichever slot the last update chose,
 > so on a board that had taken an OTA the flash reported success and the old
 > image kept running. Check the boot log's `Loaded app from partition at offset …`
-> when you need to know which slot ran. Recorded and fixed as
-> [`../history/outstanding-findings.md` #16](../history/outstanding-findings.md).
+> when you need to know which slot ran. Recorded and fixed as finding #16.
 
 ### 2c. URL-based update (`/api/ota/url`)
 
@@ -93,7 +88,7 @@ Deferred. `POST /api/ota/url` answers `501`. Not an agent task.
   `wifi set <ssid>` + `wifi apply` over the serial console (`ADR-0002` / `just
   wifi-provision <port>`) restores it. **No line** should appear on a boot
   where the `cc` namespace already holds a configuration. **Not yet run on
-  hardware** — see [`divergences.md` [§32](../history/divergences.md#d32)](../history/divergences.md).
+  hardware.**
 
 The serial node is `/dev/cu.usbserial-*` on macOS and `/dev/ttyUSB*` on Linux. The device's
 bridge is a **WCH CH340** (`iProduct` = `"USB Serial"`, VID `0x1A86` / PID `0x7523`), not a
@@ -107,7 +102,7 @@ from the deleted root `DEBUG_GUIDE.md`, which was the only document that
 described a healthy C++ boot, because it is the reference for *what the machine
 used to print* and a surprising line in a Rust boot log is best judged against
 it. The C++ source it quotes is recoverable with
-`git show 9fa8c834:src/...`.
+`git show 213be5ee^:src/...`.
 
 The items above it in this section, and `docs/status.md`, are the runnable
 record for the Rust firmware.
@@ -147,7 +142,7 @@ record for the Rust firmware.
       Read it against the ISR counters in `cc-hal-esp32`'s heater module
       (`isr_enabled`, `isr_call_count`, `isr_relay_on_count`, `isr_relay_off_count`).
       The C++ originals were in `include/clevercoffee/isr.h` — `git show
-      9fa8c834:include/clevercoffee/isr.h` — and are gone:
+      213be5ee^:include/clevercoffee/isr.h` — and are gone:
 
       - `ISR enabled=1`, and `ISR calls` **rising between successive lines** — the only proof
         the 10 ms timer ISR is running. A frozen count with `enabled=1` is a stopped timer.
@@ -156,9 +151,8 @@ record for the Rust firmware.
         (`isr.h` null-checks `hardwareContext().heaterRelay()` and returns early if absent).
       - `temp` changing over minutes, never pinned to its last value. A frozen `temp` is a
         sensor problem, not a loop problem — see the "Temperature reading never changes"
-        section of this checklist's history, and `docs/history/cpp-findings.md` for
-        the probe-selection trap (a TSIC306 driver driving a fitted DS18B20 logs an error
-        and reports nothing).
+        section of this checklist for the probe-selection trap (a TSIC306 driver
+        driving a fitted DS18B20 logs an error and reports nothing).
       - `setpoint` > 0. A `0` is a configuration read failure, not a setting.
 - [ ] When the state machine is in `PID_MODE` (state 4), the PID logs `updateProcessControl:`
       with a **changing** `pidOutput`. A `pidOutput` pinned at 0 in `PID_MODE` means the
@@ -171,13 +165,6 @@ just mon-headless <port> 60 > boot.log
 grep -E 'ERROR|FATAL' boot.log          # anything here is a real clue
 grep -E 'LOOP STATUS|State transition' boot.log
 ```
-
-### 3b. ~~DEBUG level on the C++ firmware~~
-
-The C++ takes its log level over **telnet** (port 23 — `ADR-0002`), not over USB: USB is the
-transcript you are reading, so it cannot carry the instruction that changes its own verbosity.
-Connect a telnet client, raise the level to `DEBUG`, then read the transcript over USB.
-`docs/history/feature-inventory.md` §9 records this as the telnet story's origin.
 
 ## 4. WiFi Telnet Logging
 
@@ -227,7 +214,7 @@ body each:
 
 - [ ] An **unknown key** → `400 {"error":"Some parameter updates failed"}`, nothing written
 - [ ] A value that **does not parse** (`pid.regular.kp=hello`) → `400`. The C++ writes
-      **0** here and answers `200`; see `09-cpp-findings.md` [§25](../history/cpp-findings.md#cf25)
+      **0** here and answers `200`
 - [ ] A value **out of range** (`standby.time=1234.5`, bounds 1..120) → `400`
 - [ ] A request naming **no** parameter, or only valueless fields → `200
       {"success":true,"message":"No parameters updated"}`
@@ -271,8 +258,7 @@ both encodings are accepted and the body wins if both are present.
 ### 5c. The operator switches
 
 ⚠ **`hardware.switches.*.enabled` now defaults to `true` in the Rust firmware and `false`
-in the C++** (`Config.h:985,1004,1023,1042`). Changed on request 2026-09-30; the reasoning
-and the risk are in `divergences.md` [§14](../history/divergences.md#d14). The short version: the human pressed the
+in the C++** (`Config.h:985,1004,1023,1042`). Changed on request 2026-09-30. The short version: the human pressed the
 switches and nothing happened, because a disabled switch's edges are read and discarded.
 
 ⚠ **GPIO 34/35/36/39 are input-only with no internal pull** (`switches.rs` has the full
@@ -483,7 +469,7 @@ order after any change to the control loop, the display task or the HTTP layer.
    Measured 2026-10-09: `W` = 1, `P` = 10. `N` stayed at the baseline (62 ms,
    inside the first 1000 ticks). After that, `K` grew by about 5% of ticks.
    A mean near 15 ms, or a period above 10 ms, is the old fault. Do not relax
-   the budget. [`../history/outstanding-findings.md`](../history/outstanding-findings.md) #7.
+   the budget. Finding #7.
 
 2. **A 400 ms period is itself a failure.** If a change reintroduces a period
    longer than 10 ms, the machine is back to reacting in half a second, which is
@@ -613,8 +599,7 @@ order after any change to the control loop, the display task or the HTTP layer.
     and **no** `Authorization` header may appear in the telnet log. Now clear the
     username or the password and reboot again: the API is **open**, with a boot
     warning. That is deliberate: `Auth::from_config` warns and serves around it
-    (`crates/cc-web/src/auth.rs`) — see
-    [`divergences.md` #23](../history/divergences.md#d23).
+    (`crates/cc-web/src/auth.rs`).
 
 9. **The UI logs in without a code change.** With auth on, open `http://<device>/ui/`
     in a browser: it must raise the native credential prompt, and after that the
@@ -633,7 +618,7 @@ order after any change to the control loop, the display task or the HTTP layer.
     ```
 
     Before this work the route emitted a *brew-state* value under the name
-    `steamMode`; the two are different facts ([`divergences.md` #24](../history/divergences.md#d24)).
+    `steamMode`; the two are different facts.
 
 11. **A CORS preflight answers.** `OPTIONS` on any `/api` route must be `204`
     with `Access-Control-Allow-Origin` — and must **not** be challenged, because a
@@ -649,7 +634,7 @@ order after any change to the control loop, the display task or the HTTP layer.
     reintroduced, flash it and read the log: `assert failed:
     xTaskRemoveFromEventList` or a `LoadProhibited` in the lwIP `tcpip_thread`
     means the bit-bang is on a second task and the kernel is being corrupted. The
-    bisect is in 09 §28 and in `crates/cc-firmware/src/sensor_task.rs`. The same
+    bisect is recorded in `crates/cc-firmware/src/sensor_task.rs`. The same
     applies to every cross-task *blocking* hand-off: a `Queue` with a blocking
     receive, a `std::sync::Mutex`, and an ESP-IDF task notification were each
     measured to assert. Non-blocking `CommandQueue::try_send` does not. Recheck
@@ -673,7 +658,7 @@ Before flashing anything, two checks that need no hardware:
     `m` and the missing brew timer all passed every assertion and were found by
     looking.
 
-Findings #3–#6 closed, host only. [`divergences.md` §40](../history/divergences.md#d40).
+Findings #3–#6 closed, host only.
 
 ### Measured layout overruns (2026-10-01, third pass — shipped labels)
 
@@ -744,7 +729,6 @@ finding loses the only record of what the bench is for.
       status from the route table. After: `GET /api/nope` → `404`
       `application/json`, `POST /api/status` → `405` `application/json`,
       `GET /nope` → ESP-IDF's `text/html` `404`. Verified on the bench.
-      [`divergences.md` [§33](../history/divergences.md#d33)](../history/divergences.md).
 
 - [x] **A PID tuning written over HTTP did not reach the running PID.** With
       `pid.regular.kp` at `62` restored by `POST`, `/api/parameters` reported
@@ -755,7 +739,6 @@ finding loses the only record of what the bench is for.
       It is now a divergence **on request**: a gain write re-chooses the gains
       on the next tick. After: `kp=10` → duty 43.79 %, `kp=62` → 100 %, with
       no state change in between. Verified on the bench.
-      [`divergences.md` [§34](../history/divergences.md#d34)](../history/divergences.md).
 
 ### Two more found in the same pass — also fixed
 
@@ -765,14 +748,12 @@ finding loses the only record of what the bench is for.
       (`WebServerManager.cpp:394-396`); this port cast to `i32`. Now `88.5`,
       `91.2` and `60.75` all land exactly. This is almost certainly what "the
       setpoint control does nothing" looked like from the UI.
-      [`divergences.md` [§33](../history/divergences.md#d33)](../history/divergences.md).
 
 - [x] **Backflush mode could not be turned off.** Four presses in a row —
       including the explicit `?on=0` — all answered `{"backflushOn":true}` and
       the machine stayed in `BACKFLUSH_IDLE`, because the toggle fed
       `BackflushStop`, which stops a cycle without clearing the mode flag. Now
       on → off → on, verified on the bench.
-      [`divergences.md` [§33](../history/divergences.md#d33)](../history/divergences.md).
 
 ### Closed 2026-10-08
 
@@ -870,18 +851,15 @@ checks exist so that the next one costs ten minutes instead of an afternoon.
 
 Remeasured 2026-10-09: mean work 1 ms, achieved period 10 ms. The 1 October
 applier split (~12 ms) is not this image. Do not split that span.
-[`cpp-findings.md` §29](../history/cpp-findings.md#cf29),
-[§31](../history/cpp-findings.md#cf31).
 
 ---
 
 ## 12. Moving configuration off the C++ firmware
 
 **Decided 2026-10-06 by Eduard Marbach.** The two firmwares use different NVS
-namespaces — `config` (`9fa8c834:include/clevercoffee/defaults.h:13`) against
+namespaces — `config` (`213be5ee^:include/clevercoffee/defaults.h:13`) against
 this port's `cc` — so nothing is lost and nothing is deleted: the old settings are
-still on the chip, unread. There is deliberately **no migration**; the reasoning is
-in [`../history/divergences.md` §32](../history/divergences.md#d32).
+still on the chip, unread. There is deliberately **no migration**.
 
 The operator's path is the one both UIs already have: **download `config.json`
 from the C++ firmware's web UI, upload it to this firmware's web UI.** It works
@@ -925,7 +903,7 @@ renamed, that test fails here rather than on a machine.
       but never registered* — `Config.h:813` and `:822`, read by
       `EmergencyStopManager.cpp:18-19` and absent from
       `getAllConfigParams()` (`Config.cpp:438`) — two of the **37** parameters it
-      declared and never registered (`feature-inventory.md` F27). The C++
+      declared and never registered. The C++
       therefore never wrote them to NVS, and an operator who lowered the
       threshold there got it back after the next power cycle. **98 keys here against the C++'s 96, and the
       difference is the pair that was broken.** Both come up at their
@@ -972,7 +950,7 @@ boiler". Two things stop that:
   nvs: the boot decision was `DiscardedUnsafe(EmergencyTempTooLowForSteam { ... })`
   ```
 
-  `DiscardedUnsafe` is the blob as loaded. Repair already ran. Old discard reset `hardware.sensors.temperature.type` to TSIC-306 and left `SENSOR_ERROR` / `NaN`. [`../history/outstanding-findings.md` #12](../history/outstanding-findings.md).
+  `DiscardedUnsafe` is the blob as loaded. Repair already ran. Old discard reset `hardware.sensors.temperature.type` to TSIC-306 and left `SENSOR_ERROR` / `NaN`.
 
 - [x] **Finding #12 — PASSED 2026-10-08.** Boot lines above. All 98 parameters matched the pre-plant snapshot, including `hardware.sensors.temperature.type=1`. Repeat POST `400` naming `safety.emergency_temp`. Probe 20.62 °C, `PID_NORMAL`.
 
@@ -1002,9 +980,8 @@ boiler". Two things stop that:
   **Result, bench ESP32, `just bench-flash`, 2026-10-07.** Threshold written at
   30 °C with room temperature 22.9 °C — 7 K of headroom — and the probe warmed
   by hand. It tripped: the PID stopped, the heater LED went dark and stayed
-  dark, and a brew press during the latch was refused. See
-  [`../history/outstanding-findings.md` #15](../history/outstanding-findings.md)
-  for the two things the trip exposed, one of them a real defect.
+  dark, and a brew press during the latch was refused. The trip exposed two
+  things, one of them a real defect.
 
 ### 13.2 Emergency latch and recovery — half-passed 2026-10-07
 
@@ -1034,8 +1011,7 @@ emergency stop, so it cannot be exercised without tripping it for real.
   it fired when the latch cleared.** That is finding #15, it was a real defect,
   and it is what the recovery half is actually testing.
 
-  **Re-run after the fix, same day.** Finding #15 was fixed — see
-  [`../history/divergences.md` §36](../history/divergences.md#d36) — by having
+  **Re-run after the fix, same day.** Finding #15 was fixed by having
   the latch drain action requests on entry and on every latched tick. Bench
   re-run 2026-10-07: the trip is unchanged, the press during the latch does
   nothing, and **when the probe cooled and the latch cleared on its own, no brew
@@ -1119,8 +1095,7 @@ Wiring: LED + 330 Ω (220 Ω on the valve LED, which is blue and visibly dim at
   **And one thing nobody expected:** 9 s into the write the machine went
   `PID_NORMAL -> SENSOR_ERROR` and stayed there until the reboot. The heater was
   already off, so nothing overheated, but the state machine declared a sensor
-  fault while the flash was being written. Recorded as
-  [`../history/outstanding-findings.md` #13](../history/outstanding-findings.md).
+  fault while the flash was being written. Recorded as finding #13.
 
   **Re-run, 2026-10-08, `10.0.1.168`.** Upload `200` in 14.1 s. From admission to
   `Firmware update complete` (12.8 s): no `temperature:` line, no `SENSOR_ERROR`.
@@ -1141,5 +1116,4 @@ when the last two table rows in 13.5 become runnable. That step is not an agent 
 
 **Do not push a parameter you are unsure of.** A refused write stays refused
 (HTTP 400). An already-unsafe blob repairs implicated keys on boot. Measured
-2026-10-08: §13.1 above and
-[`../history/outstanding-findings.md` #12](../history/outstanding-findings.md).
+2026-10-08: §13.1 above.

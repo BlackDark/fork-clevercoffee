@@ -4,9 +4,9 @@ Hardware: **128×64** monochrome OLED, U8G2 with **`setFontPosTop()`**.
 
 The constants live in `cc-display/src/templates/modern_layout.rs`. The C++ file
 they were transcribed from is gone; recover it with
-`git show 9fa8c834:include/clevercoffee/display/templates/ModernTemplate.h`,
+`git show 213be5ee^:include/clevercoffee/display/templates/ModernTemplate.h`,
 and the layout helpers with
-`git show 9fa8c834:include/clevercoffee/display/DisplayLayoutUtils.h`. Where a
+`git show 213be5ee^:include/clevercoffee/display/DisplayLayoutUtils.h`. Where a
 number here and a number there disagree, the Rust file is right.
 
 ## U8G2 font → pixel mapping
@@ -14,7 +14,7 @@ number here and a number there disagree, the Rust file is right.
 With **`setFontPosTop()`**, `drawStr(x, y, …)` uses **y as the top edge** of the glyph bounding box. Layout uses **bbox height** (not the number in the font name).
 
 | Font | Bbox height (px) | Used for |
-|------|------------------|----------|
+| ------ | ------------------ | ---------- |
 | `u8g2_font_fub20_tf` | 23 | Idle main temperature digits |
 | `u8g2_font_profont17_tf` | 15 | Idle °C unit; brew time/temp fields |
 | `u8g2_font_profont11_tf` | 11 | Status bar; HEATING/READY label |

@@ -3,8 +3,7 @@
 //! # Source, and what "as the app note states them" excludes
 //!
 //! Everything in this file is transcribed from `ATTSic_E2.3.0.pdf` §1.1-§1.4
-//! (summarised in [dependency-evaluation.md
-//! §6](../../../docs/history/dependency-evaluation.md)) and cross-read against the
+//! and cross-read against the
 //! app note's own worked example, which is the only published ground truth for the
 //! frame's *content*.
 //!
@@ -161,7 +160,7 @@ pub const ACCEPT_MAX_C: f32 = 180.0;
 /// 250 ms is long enough that a single missed or corrupted frame cannot be mistaken for a missing
 /// probe, and short enough that a genuinely unplugged probe is still reported inside the
 /// temperature path's own 400 ms cadence (`Timing::TEMPERATURE_SENSOR_INTERVAL_MS`) plus S1's
-/// ten-read debounce. Recorded in [`divergences.md` §7](../../../docs/history/divergences.md#d07).
+/// ten-read debounce.
 pub const NO_SIGNAL_TIMEOUT_US: u32 = 250_000;
 
 /// The sensor's own update period, in microseconds. 10 Hz (app note §1.4).

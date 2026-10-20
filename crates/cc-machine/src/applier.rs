@@ -57,7 +57,7 @@ pub trait Actuators {
     fn close_water_valve(&mut self);
     /// Open the steam valve.
     ///
-    /// **Gated, deliberately: §2 of `docs/history/divergences.md`.** The gate is
+    /// **Gated, deliberately.** The gate is
     /// `cc_safety::steam_flow_allowed`, enforced in the reducer's tail (`CloseSteamValve`
     /// outside `STEAM_RUNNING`) and again in the device implementation's `may_open_steam`
     /// check. The method exists because the machine has to be able to express the action even
@@ -135,8 +135,8 @@ pub trait MachineChannels {
 /// Five methods, and every one of them earns its place by having an implementation:
 /// `on_enter_state` and `on_exit_state` are the state-transition lines, `on_pid_runtime` and
 /// `on_steam_mode` mirror two flags, and `on_log` is where [`Effect::PumpTimeoutFired`]
-/// reaches the field log. §1 of `docs/history/divergences.md` is a claim about a *log line*,
-/// so a method nobody implements would make that record false.
+/// reaches the field log. The trip is a claim about a *log line*,
+/// so a method nobody implements would make that claim false.
 pub trait Diagnostics {
     /// The state was left.
     fn on_exit_state(&mut self, _state: MachineState) {}

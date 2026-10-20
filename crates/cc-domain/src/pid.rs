@@ -63,8 +63,7 @@
 //!   scenarios (A, B and C) match the reference's bit patterns on every step, maximum
 //!   |delta| **0.0**. This controller can only differ when a step arrives *late*, where
 //!   the reference divides by the nominal 1.0 s and this one divides by the interval that
-//!   actually elapsed -- a deliberate, bounded divergence, §4 of
-//!   `docs/history/divergences.md`.
+//!   actually elapsed -- a deliberate, bounded difference.
 //!
 //! * **D-PID-2 -- the constructor does not initialise the controller state.** The
 //!   integrator, the last input, the filtered input and its difference, the last error and

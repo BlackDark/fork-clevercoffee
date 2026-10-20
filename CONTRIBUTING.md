@@ -7,10 +7,10 @@ guidelines when submitting code changes.
 
 This repository holds **one** firmware, written in Rust, in `crates/cc-*`. The
 C++ firmware it replaced was deleted once the port became the product; start at
-[docs/history/README.md](docs/history/README.md), and read
-[divergences.md](docs/history/divergences.md) before changing
-anything whose behaviour looks wrong -- it is a ledger of places the port
-deliberately differs from the C++, with the reasoning for each.
+[docs/index.md](docs/index.md) for the map and
+[docs/architecture.md](docs/architecture.md) for the shape. The final C++ tree is
+at commit `213be5ee^` and at the upstream repository; use it only for
+archaeology.
 
 The numbered rules are in [AGENTS.md](AGENTS.md) and are not restated here.
 
@@ -60,10 +60,10 @@ than reword it.
 
 Four classes go whatever their truth value: restating a lint the workspace
 already holds; recording what a commit or a refactor did; restating the
-signature; and any reference to the deleted C++ -- a line number, a
-`cpp-findings.md` section, "the C++ does X, so this does Y". `docs/history/` owns
-that provenance. Long is fine when the derivation cannot be redone here, and the
-missing ESP-IDF sources are why. See `AG-RUST-13`.
+signature; and any reference to the deleted C++ -- a line number, a path in the
+old tree, "the C++ does X, so this does Y". Long is fine when the derivation
+cannot be redone here, and the missing ESP-IDF sources are why. See
+`AG-RUST-13`.
 
 ## Submitting Changes
 

@@ -25,8 +25,7 @@ why: >
   share; asserting a number would make the scenario fail on a warm day. What is
   asserted is the *shape*: a number came back, and the machine did not fault.
 
-  The valid range is -50..150 °C, and the firmware applies it (09 §18,
-  `divergences.md` §8). A reading outside it arrives as a read failure and, after
+  The valid range is -50..150 °C, and the firmware applies it. A reading outside it arrives as a read failure and, after
   ten of them, as `SENSOR_ERROR`.
 
 config:

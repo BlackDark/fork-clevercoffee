@@ -2,9 +2,7 @@
 
 **What `cc-display` does with a frame, and why it allocates nothing.**
 
-The C++ renderer's architecture is preserved in
-[`../archive/cpp/display-subsystem-architecture.md`](../archive/cpp/display-subsystem-architecture.md).
-This page is the Rust one, because that is what runs.
+This page describes the Rust renderer, which is what runs.
 
 For the layout rules — what may go where, and what must not clip — read
 [`layout-rules.md`](layout-rules.md). For the checks, read

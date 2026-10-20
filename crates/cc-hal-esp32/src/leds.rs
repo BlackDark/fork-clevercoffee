@@ -1,9 +1,7 @@
 //! The two status LEDs the firmware actually drives, as GPIO writes.
 //!
-//! [review-2026-10-03.md
-//! §3](../../../docs/history/review-2026-10-03.md) item 3.1 is why this module
-//! exists: the LED parameters were writable and had no effect, because nothing
-//! drove a pin.
+//! This module exists because the LED parameters were writable and had no effect:
+//! nothing drove a pin.
 //!
 //! # This is the whole of the hardware half
 //!
@@ -37,8 +35,8 @@
 //! The steam LED's pin is GPIO1, which this firmware gives to UART0's TXD for the
 //! Wi-Fi provisioning console, and `Peripherals::take()` will not hand a pin to two
 //! owners. The full reasoning, including what moving it to GPIO32 would cost, is in
-//! [`crate::pins`] and in [`pins.md`](../../../docs/hardware/pins.md); the decision
-//! is recorded in [divergences.md §30](../../../docs/history/divergences.md).
+//! [`crate::pins`] and in [`pins.md`](../../../docs/hardware/pins.md); this is the
+//! recorded decision.
 
 use esp_idf_hal::gpio::{Level, PinDriver};
 use log::warn;

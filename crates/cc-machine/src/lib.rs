@@ -225,8 +225,7 @@ fn tick(m: &mut Machine, ctx: &Context<'_>, now: Millis, fx: &mut Effects) {
     // The mirror of the check above, and the reason it exists at all is that steam and water
     // share **one relay** (GPIO17), so an ungated steam valve is an ungated *water* valve. The
     // whitelist is `cc_safety::steam_flow_allowed`, whose derivation is in that function's
-    // documentation: `STEAM_RUNNING` and nothing else. §2 of
-    // `docs/history/divergences.md` records that the gate is deliberate.
+    // documentation: `STEAM_RUNNING` and nothing else. The gate is deliberate.
     if !cc_safety::steam_flow_allowed(m.state) {
         fx.push(Effect::CloseSteamValve);
     }

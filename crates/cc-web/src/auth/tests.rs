@@ -62,7 +62,7 @@ fn auth_with_empty_credentials_serves_the_api_open() {
     // The middleware is installed only when the username AND the password are
     // non-empty, and the else arm is a warning, not a locked door. Deliberate:
     // the alternative locks an operator out of a machine whose only other
-    // console is a UART. See `docs/history/divergences.md`.
+    // console is a UART.
     for (username, password) in [("", "espresso"), ("barista", ""), ("", "")] {
         let auth = Auth::from_config(&auth_config(true, username, password));
         assert!(

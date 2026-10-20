@@ -11,10 +11,10 @@ repository.workspace = true
 # `no_std` with no `alloc` and no third-party crates: the display crate renders
 # into a `[u8; 1024]`, so `embedded-graphics` (R1-04 step 1) buys nothing and
 # would add a heap-free but still sizeable dependency for one trait. The CI
-# `cargo tree` check (05 §6) additionally forbids any `esp_idf_*` here.
+# `cargo tree` check additionally forbids any `esp_idf_*` here.
 #
 # `cc-domain` supplies `MachineState`, so the display cannot invent its own
-# state enum and drift from the state machine (04 §6 dependency direction).
+# state enum and drift from the state machine.
 cc-domain = { workspace = true }
 
 [lints]

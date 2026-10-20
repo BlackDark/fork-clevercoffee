@@ -81,8 +81,8 @@ fn recovers_to_pid_normal_after_the_delay_when_the_error_clears() {
 /// recovers on the next tick rather than five seconds later.
 ///
 /// Recovery is safe in the direction that matters: it happens only once the error is genuinely
-/// clear, and the guard is re-checked on every tick. `divergences.md` records the missing delay
-/// under its preserved behaviours, pinned by
+/// clear, and the guard is re-checked on every tick. The missing delay is a preserved
+/// behaviour, pinned by
 /// `parity_findings::the_sensor_error_recovery_delay_is_measured_from_entry`.
 #[test]
 fn a_persisting_error_does_not_postpone_recovery() {

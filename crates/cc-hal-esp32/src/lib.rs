@@ -1,5 +1,4 @@
-//! The one crate allowed to import `esp_idf_hal`, `esp_idf_svc` and `esp_idf_sys`
-//! ([target-architecture.md §6](../../../docs/history/target-architecture.md)).
+//! The one crate allowed to import `esp_idf_hal`, `esp_idf_svc` and `esp_idf_sys`.
 //!
 //! # Rules
 //!
@@ -7,9 +6,7 @@
 //!   and the pin map is the thing that must be edited in one place.
 //! * [`Board`](board) is a trait with one impl per board, and the pin map is a
 //!   `const` validated at compile time. A pin that does not exist on the chip
-//!   must be a compile error, not a silent miswiring ([target-architecture.md
-//!   §6](../../../docs/history/target-architecture.md), "Feature flags and target
-//!   selection").
+//!   must be a compile error, not a silent miswiring.
 //! * `Actuators` is the **only** owner of the pump and the water valve, and
 //!   `HeaterOutput` the only owner of the heater. Interlocks and the emergency
 //!   latch are checked *inside* those methods, not at the call sites, so no
@@ -96,8 +93,7 @@ extern crate alloc;
 // built with its `std` feature and the firmware is a `std` binary, so this
 // links nothing new -- but it does mean this crate is not `no_std`, and the
 // alternative (a hand-rolled spin lock, or `critical-section`, which
-// [target-architecture.md
-// §3](../../../docs/history/target-architecture.md) notes is a FreeRTOS recursive
+// is a FreeRTOS recursive
 // mutex and therefore not ISR-safe) is worse.
 extern crate std;
 

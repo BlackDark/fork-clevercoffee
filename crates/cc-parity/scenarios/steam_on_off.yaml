@@ -5,7 +5,7 @@ mode: dry_run
 covers: [S5]
 
 why: >
-  09 §2. The steam valve is the same physical relay as the water valve, so an
+  The steam valve is the same physical relay as the water valve, so an
   ungated open is an ungated *water* valve. This firmware gates it:
   `may_open_steam` refuses the actuator call outside `STEAM_RUNNING`, and the
   reducer emits `CloseSteamValve` on every tick outside it.

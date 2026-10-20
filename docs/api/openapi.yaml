@@ -332,8 +332,7 @@ paths:
                     type: boolean
                     description: |
                       Whether a brew is in progress, derived from the current
-                      state. NOT the same as `steamMode`, and an addition. See
-                      `docs/history/divergences.md` §24.
+                      state. NOT the same as `steamMode`, and an addition.
                   shotsSinceBackflush:
                     type: integer
                   backflushReminderThreshold:
@@ -623,7 +622,7 @@ paths:
   # Power management
   # =============================================================================
   #
-  # Both carry a deliberate divergence recorded in `docs/history/divergences.md`.
+  # Both carry a deliberate behaviour difference.
 
   /api/sleep:
     post:
@@ -634,8 +633,7 @@ paths:
         `STANDBY`.
 
         This firmware honours the request with the PID explicitly disabled; the
-        old firmware treated the call as a pure toggle. Recorded in
-        `docs/history/divergences.md` §16.
+        old firmware treated the call as a pure toggle.
       responses:
         "200":
           description: Sleep accepted
@@ -706,7 +704,7 @@ paths:
           description: The UI's index document
 
 components:
-  # `system.auth.*` is implemented (see `docs/history/divergences.md` §23).
+  # `system.auth.*` is implemented.
   # Every route except `OPTIONS` is behind it, including `/` and `/ui*`, so the
   # browser raises its credential prompt on a top-level navigation.
   securitySchemes:

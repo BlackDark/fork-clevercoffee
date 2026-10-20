@@ -685,7 +685,7 @@ mod tests {
             .count();
         // 25, not 16. The nine extra entities are the switch-conditional ones,
         // because all four `hardware.switches.*.enabled` flags default to `true`
-        // here — the divergence recorded as §14 of `docs/history/divergences.md`.
+        // here — the deliberate default.
         // The water-tank binary sensor is still conditional and
         // `hardware.sensors.watertank.enabled` is still `false`, so that entity
         // is still absent.

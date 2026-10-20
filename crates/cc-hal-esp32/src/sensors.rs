@@ -38,8 +38,7 @@ use esp_idf_svc::sys::EspError;
 /// The bus carries the OLED and the ABP2. 400 kHz is the ABP2's maximum and the
 /// SSD1306's comfortable maximum, so it is the one rate both tolerate. A faster
 /// bus is strictly less bus time for a shared peripheral, which is why this is
-/// 400 kHz and recorded as a divergence ([divergences.md
-/// §10](../../../docs/history/divergences.md)).
+/// 400 kHz.
 pub const I2C_HZ: Hertz = Hertz(400_000);
 
 /// The SDA pin handed to [`Abp2I2c::new`].
@@ -54,8 +53,7 @@ pub type SclPin = esp_idf_hal::gpio::AnyIOPin<'static>;
 /// The I²C bus, as [`cc_protocol::abp2::I2cBus`] needs it.
 ///
 /// A thin newtype over [`I2cDriver`]. The driver is a single owner of the
-/// peripheral; the bus is a shared, mutex-guarded resource
-/// ([target-architecture.md §7](../../../docs/history/target-architecture.md)),
+/// peripheral; the bus is a shared, mutex-guarded resource,
 /// and the mutex belongs to the caller. What matters here is that **every
 /// transaction is bounded**: three bytes out, seven in, and a driver-level
 /// timeout, so a wedged device cannot hold the bus.

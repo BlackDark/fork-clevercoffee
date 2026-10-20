@@ -27,7 +27,7 @@ why: >
   runtime PID flag from config**. A machine that woke with the runtime PID still
   off would look awake and never heat again.
 
-  09 §14 is preserved here rather than fixed: the user-activity check is a hard
+  A water-switch wake is not implemented: the user-activity check is a hard
   `false`, so the *water* switch cannot wake the machine. A power-switch wake
   works; a water-switch wake does not, and that is the shipped behaviour.
 

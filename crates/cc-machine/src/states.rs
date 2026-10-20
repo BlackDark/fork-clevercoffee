@@ -227,7 +227,6 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
             // Entry is the only writer of the error start time. The drain is this firmware's
             // addition: the error states recover into `PID_NORMAL`, whose entry is empty, so a
             // request that survived here would start a real brew on recovery (AG-REPO-24).
-            // See §37 of `docs/history/divergences.md`.
             drain_action_requests(machine, &mut fx);
             machine.error_since = Some(machine.now);
         }
@@ -428,14 +427,14 @@ pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> 
 
         MachineState::BackflushIdle => {}
 
-        // Reinforced every tick: §39 of `docs/history/divergences.md` records that this firmware
-        // re-asserts the pump and valve here rather than trusting the entry effects to survive.
+        // Reinforced every tick: this firmware re-asserts the pump and valve here rather than
+        // trusting the entry effects to survive.
         MachineState::BackflushFilling => {
             fx.push(Effect::EnablePump);
             fx.push(Effect::OpenWaterValve);
         }
 
-        // Reinforced every tick, for the same reason as the fill phase above (§39).
+        // Reinforced every tick, for the same reason as the fill phase above.
         MachineState::BackflushFlushing => {
             fx.push(Effect::DisablePump);
             fx.push(Effect::CloseWaterValve);
@@ -466,7 +465,7 @@ pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> 
         // Nothing downstream of this state wants a preserved request, and the "never drain
         // wake-up signals" rule is scoped to `STANDBY`, which is untouched;
         // [`Requests::clear_all`](crate::machine::Requests::clear_all) deliberately spares
-        // `standby`. §36 of `docs/history/divergences.md` records the drain.
+        // `standby`.
         MachineState::EmergencyStop => {
             fx.push(Effect::EmergencyShutdown);
             machine.pid.runtime_enabled = false;
@@ -570,8 +569,7 @@ pub fn check_specific(
             // `POST /api/sleep` returned `202 {"accepted":true}`, the command reached the control
             // task (`control: command Sleep`), and the machine sat in `PID_DISABLED`
             // indefinitely. The UI offers a sleep button unconditionally, and `pid.enabled`
-            // defaults to `false`, so that is the out-of-the-box path. §16 of
-            // `docs/history/divergences.md` records the decision.
+            // defaults to `false`, so that is the out-of-the-box path.
             if machine.requests.standby {
                 machine.requests.standby = false;
                 return Some(MachineState::Standby);

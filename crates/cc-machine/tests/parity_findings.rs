@@ -1,9 +1,7 @@
-//! The recorded divergences this crate can demonstrate, one test each.
+//! The deliberate behaviour differences this crate can demonstrate, one test each.
 //!
-//! [`docs/history/divergences.md`](../../docs/history/divergences.md) is the record, and each
-//! section there names its pin in this file. The point of the file is that a deliberate difference
-//! from the machine this firmware replaces cannot be read as a bug and quietly reverted: the
-//! behaviour is asserted here and `divergences.md` says why it is the way it is.
+//! The point of the file is that a deliberate difference from the machine this firmware replaces
+//! cannot be read as a bug and quietly reverted: the behaviour is asserted here.
 //!
 //! # The other half: what was deliberately *not* changed
 //!
@@ -11,19 +9,19 @@
 //! valuable half of this file, because "we left this alone" is the claim most likely to be
 //! reversed by someone who finds it surprising. Each one says so in its own doc comment.
 //!
-//! The divergences:
+//! The differences:
 //!
-//! * §1 the pump watchdogs: [`div1_the_pump_timeouts_are_armed`],
+//! * the pump watchdogs: [`div1_the_pump_timeouts_are_armed`],
 //!   [`div1_the_watchdogs_arm_only_while_the_pump_is_commanded_on`],
 //!   [`div1_the_watchdogs_re_arm_after_a_release`].
-//! * [`div2_the_steam_valve_is_whitelist_gated`] -- §2 the steam valve.
-//! * [`div3_the_water_valve_is_tank_gated`] -- §3 the water valve and the tank.
+//! * [`div2_the_steam_valve_is_whitelist_gated`] -- the steam valve.
+//! * [`div3_the_water_valve_is_tank_gated`] -- the water valve and the tank.
 //! * [`a_sleep_request_is_honoured_with_the_pid_disabled`],
 //!   [`the_sleep_request_is_consumed_and_not_repeated`],
-//!   [`waking_from_standby_still_works_with_the_pid_disabled`] -- §16 sleep with the PID off.
-//! * [`div39_backflush_fill_and_flush_reassert_their_hardware`] -- §39 fill and flush.
+//!   [`waking_from_standby_still_works_with_the_pid_disabled`] -- sleep with the PID off.
+//! * [`div39_backflush_fill_and_flush_reassert_their_hardware`] -- fill and flush.
 //!
-//! And the behaviours left alone, which `divergences.md` lists under its preserved ones:
+//! And the behaviours left alone:
 //!
 //! * [`the_emergency_debounce_needs_three_readings`] -- three readings above the threshold.
 //! * [`the_live_emergency_thresholds_are_the_defaults`] -- 150 °C to trip, 100 °C to recover.
@@ -44,13 +42,12 @@ use cc_machine::{
 use common::Harness;
 
 // ---------------------------------------------------------------------------
-// §2 — the steam valve is whitelist-gated
+// The steam valve is whitelist-gated
 // ---------------------------------------------------------------------------
 
 /// The steam valve is opened only in `STEAM_RUNNING`, and asserted closed everywhere else.
 ///
-/// [`divergences.md` §2](../../docs/history/divergences.md#d02). Three things are asserted, and
-/// all three matter:
+/// Three things are asserted, and all three matter:
 ///
 /// 1. **The whitelist is `STEAM_RUNNING` and nothing else.** `cc_safety::steam_flow_allowed` is a
 ///    `match` with no wildcard arm, so adding a 19th state is a compile error until someone
@@ -132,14 +129,13 @@ fn div2_the_steam_valve_is_whitelist_gated() {
 }
 
 // ---------------------------------------------------------------------------
-// §3 — the water valve is gated on the water tank
+// The water valve is gated on the water tank
 // ---------------------------------------------------------------------------
 
 /// An empty tank refuses the pump **and** the water valve.
 ///
-/// [`divergences.md` §3](../../docs/history/divergences.md#d03). Refusing the valve as well as the
-/// pump is the divergence: the tank feeds the pump, so a valve left open over an empty tank draws
-/// air into the group head and runs the pump dry.
+/// Refusing the valve as well as the pump is the difference: the tank feeds the pump, so a valve
+/// left open over an empty tank draws air into the group head and runs the pump dry.
 ///
 /// The heater is deliberately *not* gated on the tank. The boiler is a separate vessel, and
 /// `hardware.sensors.watertank.keep_heater_on_empty` is a real configuration the machine has to
@@ -199,8 +195,7 @@ fn div3_the_water_valve_is_tank_gated() {
 /// The consequence is a real exposure rather than a style choice: at the production 400 ms sensor
 /// interval the heater stays permitted for up to about 800 ms while the probe already reads above
 /// the emergency temperature. Tripping on the first reading is the safer behaviour and is not
-/// implemented here, so `divergences.md` records this as an open item rather than as a settled
-/// decision: the preserved-behaviours table.
+/// implemented here; this is an open item rather than a settled decision.
 ///
 /// The debounce counts *distinct* samples, which is what `Telemetry::sample_seq` exists to express.
 /// A test that re-used one telemetry value would model one reading seen repeatedly, and the control
@@ -296,19 +291,18 @@ fn the_live_emergency_thresholds_are_the_defaults() {
 }
 
 // ---------------------------------------------------------------------------
-// §1 — both pump watchdogs are armed
+// Both pump watchdogs are armed
 // ---------------------------------------------------------------------------
 
 /// Both pump watchdogs are armed, and a trip is announced before it acts.
 ///
-/// [`divergences.md` §1](../../docs/history/divergences.md#d01). The clock starts on the tick that
+/// The clock starts on the tick that
 /// commands the pump **on**, not on the tick a state is entered, and it is cleared when the pump
 /// is commanded off. Hold the water switch and the pump stops after sixty seconds; hold a brew and
 /// it stops after five minutes. An unbounded pump run on a machine with a 2 kW boiler is the
 /// failure this prevents.
 ///
-/// The two announcement strings are verbatim: they are the strings
-/// `divergences.md` quotes for this divergence.
+/// The two announcement strings are verbatim: a test asserts them.
 #[test]
 fn div1_the_pump_timeouts_are_armed() {
     // The two deadlines, pinned because they are the safety contract.
@@ -369,7 +363,7 @@ fn div1_the_pump_timeouts_are_armed() {
     assert_eq!(
         PumpWatchdog::Brew.message(),
         "Pump timeout - stopping for safety",
-        "verbatim: the string quoted in §1"
+        "verbatim: the watchdog announcement"
     );
     assert!(!fx.contains(&Effect::DisablePump), "{fx:?}");
 
@@ -433,7 +427,7 @@ fn div1_the_pump_timeouts_are_armed() {
     assert_eq!(
         PumpWatchdog::HotWater.message(),
         "Hot water pump timeout - stopping for safety",
-        "verbatim: the string quoted in §1"
+        "verbatim: the watchdog announcement"
     );
 }
 
@@ -563,10 +557,10 @@ fn the_sensor_error_recovery_delay_is_measured_from_entry() {
 }
 
 // ---------------------------------------------------------------------------
-// §39 — fill and flush re-assert their hardware
+// Fill and flush re-assert their hardware
 // ---------------------------------------------------------------------------
 
-/// [`divergences.md` §39](../../docs/history/divergences.md#d39).
+/// Fill and flush re-assert their hardware every tick.
 #[test]
 fn div39_backflush_fill_and_flush_reassert_their_hardware() {
     let mut fill = Harness::in_state(MachineState::BackflushFilling);
@@ -608,8 +602,7 @@ fn div39_backflush_fill_and_flush_reassert_their_hardware() {
 /// lets go gets a machine that is still asleep with a freshly extended timer. Only the brew and
 /// steam switches wake it, and the last part of the test shows that.
 ///
-/// Kept as it is: [`divergences.md`](../../docs/history/divergences.md) lists it under the
-/// preserved behaviours, where "do not fix these" is the instruction.
+/// Kept as it is: this is a deliberate preserved behaviour, not a defect to fix.
 #[test]
 fn the_water_switch_does_not_wake_the_machine_from_standby() {
     let mut h = Harness::in_state(MachineState::Standby);
@@ -654,8 +647,7 @@ fn the_water_switch_does_not_wake_the_machine_from_standby() {
 /// mid-dispense therefore restarts the pump for one control period: narrow, sub-millisecond in
 /// practice, and real.
 ///
-/// Kept as it is: [`divergences.md`](../../docs/history/divergences.md) lists it under the
-/// preserved behaviours, where "do not fix these" is the instruction.
+/// Kept as it is: this is a deliberate preserved behaviour, not a defect to fix.
 #[test]
 fn the_power_off_happens_before_the_standby_request() {
     let mut h = Harness::in_state(MachineState::PidNormal);
@@ -734,7 +726,7 @@ fn all_events() -> Vec<Event> {
 
 /// A sleep request is honoured while the PID is off.
 ///
-/// [`divergences.md` §16](../../docs/history/divergences.md#d16). Found on hardware: `POST
+/// Found on hardware: `POST
 /// /api/sleep` answered `202 {"accepted":true}`, `control: command Sleep` reached the log, and the
 /// state never left `PID_DISABLED`. Since `pid.enabled` defaults to `false`, that was the
 /// out-of-the-box configuration, so the machine could not be put to sleep through its own web
@@ -782,7 +774,7 @@ fn the_sleep_request_is_consumed_and_not_repeated() {
 
 /// Waking from standby still works, and does not need the PID.
 ///
-/// The other half of §16: making sleep work with the PID off must not make standby a one-way door.
+/// The other half: making sleep work with the PID off must not make standby a one-way door.
 #[test]
 fn waking_from_standby_still_works_with_the_pid_disabled() {
     let mut h = Harness::in_state(MachineState::PidDisabled);

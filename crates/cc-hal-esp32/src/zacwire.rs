@@ -17,9 +17,7 @@
 //! `Tstrobe` and then waits for the next nine edges. This does not do that, for
 //! two reasons, both checked against the installed sources rather than assumed.
 //!
-//! **1. This firmware's ISRs do "nothing beyond one GPIO write"**
-//! ([target-architecture.md
-//! §3](../../../docs/history/target-architecture.md)), and a bit-sampling ISR is a
+//! **1. This firmware's ISRs do "nothing beyond one GPIO write"**, and a bit-sampling ISR is a
 //! busy-wait loop with a sampled decision in it. The constraint wins.
 //!
 //! **2. `esp-idf-hal` 0.47 exposes no safe way to get a timestamped GPIO edge

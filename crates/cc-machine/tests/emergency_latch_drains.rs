@@ -9,7 +9,6 @@
 //!
 //! The state drains its action requests on entry and in its update: `AG-REPO-24` ("states that
 //! cannot act on action requests must drain them") plus ADR-0003 rules 2 and 3.
-//! `docs/history/divergences.md` §36 records the drain.
 //!
 //! The drain is not a new policy, and the last test is the contrast that shows it: an empty tank
 //! already drained the same press before the latch did.
@@ -209,7 +208,7 @@ fn recovery_lands_in_init_and_not_in_a_brew_state() {
 }
 
 /// The error states drain as well: a request that survives one starts a real brew when the
-/// machine recovers (`AG-REPO-24`, and §37 of `docs/history/divergences.md`).
+/// machine recovers (`AG-REPO-24`).
 #[test]
 fn a_brew_pressed_during_a_sensor_error_is_not_acted_on_after_it_recovers() {
     use cc_machine::{timing, Sensors};

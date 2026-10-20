@@ -51,5 +51,3 @@ claim about [`layout-rules.md`](layout-rules.md), not a measured comparison.
 - [`docs/operations/runbook.md`](../operations/runbook.md)
   — the on-device checks, including the screen-fit ones. `AG-REPO-18`: add any
   new failure mode you discover, in the same commit.
-- [`docs/differences.md`](../differences.md) [§6](../history/divergences.md#d06) and [§29](../history/divergences.md#d29) — the two display
-  entries in the behavioural-difference index.

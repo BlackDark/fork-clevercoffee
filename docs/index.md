@@ -12,7 +12,7 @@ this page, not in your question.
 | Document | What it is for | Read it if |
 | --- | --- | --- |
 | [`README.md`](../README.md) | What this repository is, and how to build, gate and flash it. | You just opened the repository. |
-| [`GLOSSARY.md`](../GLOSSARY.md) | The words this codebase uses that mean nothing outside it: oracle, parity, ledger, divergence, tick, effect, dormant. | Any word in another document confuses you. Read it first; it is one page. |
+| [`GLOSSARY.md`](../GLOSSARY.md) | The words this codebase uses that mean nothing outside it: divergence, tick, effect, dormant. | Any word in another document confuses you. Read it first; it is one page. |
 | [`docs/index.md`](index.md) | This page. | You want to know which document to open. |
 | [`docs/architecture.md`](architecture.md) | **What the firmware is.** The three boundaries that shape it, the 10 ms loop, where the 320 KB of RAM goes, and what each crate owns. | You want the shape of the thing before you change anything. |
 | [`docs/status.md`](status.md) | **The only page permitted to claim what works.** Dated, owned, every line a pointer to a commit or a measurement. | You want to know what this firmware actually does today. |
@@ -30,8 +30,7 @@ this page, not in your question.
 
 | Document | What it is for | Read it if |
 | --- | --- | --- |
-| [`docs/differences.md`](differences.md) | **The one-page answer to "will this surprise me?"** Every behavioural difference from the C++, filed by how a reader would meet it. | Anything looks wrong and you need to know whether it is intentional. |
-| [`docs/history/divergences.md`](history/divergences.md) | The divergence record in full: for each divergence, the C++'s behaviour, the port's, the reasoning, and what pins it. **Read by `scripts/check-divergence-refs.py` at a hard-coded path — do not move it.** | You are justifying a behaviour change and need the reasoning, not the summary. |
+| [`docs/scenarios.md`](scenarios.md) | The scenario-file format `cc-parity` parses, and how a `dry_run` scenario runs the real reducer in process. | You add or change a scenario. |
 | [`docs/config/reference.md`](config/reference.md) | Every configuration key, its type, range, default and bounds. | You need a parameter name or what it may be set to. |
 
 ## Architecture decisions
@@ -72,7 +71,6 @@ rejected.
 | Document | What it is for | Read it if |
 | --- | --- | --- |
 | [`docs/protocols/sensors.md`](protocols/sensors.md) | The four sensor protocols written as state machines over bytes, why the TSIC-306 was the risk, and what has never run. | You are touching a sensor, or adding a protocol. |
-| [`docs/history/dependency-evaluation.md`](history/dependency-evaluation.md) | Per-dependency evidence: crate exists, licence, MSRV, what was verified and what was not. | You add or evaluate a crate. |
 
 **Web** — HTTP, MQTT and the UI.
 
@@ -87,49 +85,17 @@ rejected.
 
 | Document | What it is for | Read it if |
 | --- | --- | --- |
-| [`docs/operations/runbook.md`](operations/runbook.md) | **The runnable pre-release checklist**, section by section, with the exact command or `curl` for each check. Procedures only; the C++ comparisons live in the history reference. | You are at the hardware, or you are about to cut a release. |
+| [`docs/operations/runbook.md`](operations/runbook.md) | **The runnable pre-release checklist**, section by section, with the exact command or `curl` for each check. Procedures only. | You are at the hardware, or you are about to cut a release. |
 | [`docs/operations/ci.md`](operations/ci.md) | What CI runs, what each job costs, and why the caches are hand-keyed. | You want to know whether CI will catch something, or what it will cost. |
 | [`AUDIT.md`](../AUDIT.md) | A dated repository audit: scorecard, per-finding evidence and fix, tool coverage, and the review verdicts. | You want the defect list, or you are about to re-run the audit and must not duplicate it. |
 | [`docs/THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) | Vendored third-party notices. Checked by CI with `test -f`. | Legal, or adding a vendored dependency. |
 
-## How the firmware got here
-
-[`docs/history/README.md`](history/README.md) is the narrative spine: what the
-port set out to do, what actually happened, and where the evidence is. Everything
-else in that folder is the detail behind it.
-
-| Document | What it is for | Read it if |
-| --- | --- | --- |
-| [`docs/history/README.md`](history/README.md) | **The transformation, in order.** Why the port existed, how it went, what was found and closed. Start here for any "why is it like this" question. | You want the story, not the detail. |
-| [`docs/history/feature-inventory.md`](history/feature-inventory.md) | What the C++ did, feature by feature, and what the port therefore had to have. | You need the scope, not the narrative. |
-| [`docs/history/cpp-findings.md`](history/cpp-findings.md) | Every bug and ambiguity found in the C++ while porting it, each pinned by a named parity test. Duplicate section numbers are evidence a finding was corrected — do not renumber. | You are auditing a feature and want the traps. |
-| [`docs/history/target-architecture.md`](history/target-architecture.md) | The intended crate boundary and startup contract. Partly superseded — check what it says before trusting it. | You want the intended shape, not the shipped one. |
-| [`docs/history/recovered-oracle.md`](history/recovered-oracle.md) | The only surviving record of a Rust firmware that ran on this board. **The derivation** for the fail-closed `LOW_TRIGGER` rule; the rule itself is enforced by `cc_safety::validate_config`. | You touch heater-relay pin selection. |
-| [`docs/history/scenario-format.md`](history/scenario-format.md) | The scenario-file format `cc-parity` parses. | You add a parity scenario. |
-| [`docs/history/review-2026-10-03.md`](history/review-2026-10-03.md) | An independent review's findings, one per row, with status. The most recent hard-eyed record. | You want to know what has already been looked at and found wanting. |
-| [`docs/history/cpp-behaviour-comparisons.md`](history/cpp-behaviour-comparisons.md) | Every "the C++ answered X, this firmware answers Y", in one place: parity that was **chosen**, and where this firmware is safer than the original. | You are about to change a behaviour and need to know what the C++ did first. |
-| [`docs/history/outstanding-findings.md`](history/outstanding-findings.md) | Closed bring-up findings. Not a task list. | You think something is broken and want to know whether it was already closed. |
-
-## Preserved history
-
-[`docs/archive/README.md`](archive/README.md) states the archive rule: material
-is moved there, never deleted, and never merged into a live document.
-
-| Document | What it is for | Read it if |
-| --- | --- | --- |
-| [`docs/archive/README.md`](archive/README.md) | **The archive rule**, and what is in the archive and why. | Before you quote anything dated. |
-| [`docs/archive/migration/`](archive/migration) | The migration's own planning: the decision record, tooling, the R0–R4 task list, the size budget, and two review rounds. | You want to know why a decision was made, or what a task was. |
-| [`docs/archive/cpp/`](archive/cpp) | Documents describing the **deleted C++ firmware**: its repository summary, Wokwi setup, the backflush-reminder design, the C++ state machine. **Superseded** — cite only for what the C++ did. | You want to know why a decision was made about C++ behaviour. |
-
 ## Not documentation — read by code or CI, do not move
 
-Moving any of these is a build or CI break, not a link cleanup (`AG-REPO-30`,
-`AG-REPO-31`). `history/divergences.md` is in this category and has its own row
-above; `history/scenarios/` likewise has a row in the history table. Nothing below
-is linked twice.
+Moving any of these is a build or CI break, not a link cleanup (`AG-REPO-31`).
 
 | Path | Who reads it |
 | --- | --- |
 | [`docs/example_config.json`](example_config.json) | A working configuration, imported unchanged by `cc-config`'s test. |
-| [`docs/history/scenarios/`](history/scenarios) | The scenario set `just parity-test` runs. |
-| [`docs/history/size-baseline.json`](history/size-baseline.json) · [`size-records.jsonl`](history/size-records.jsonl) | The image-size budget, read by `just/size.just`. Never read these by eye. |
+| [`crates/cc-parity/scenarios/`](../crates/cc-parity/scenarios) | The scenario set `just parity-test` runs. |
+| [`docs/operations/image-size/size-baseline.json`](operations/image-size/size-baseline.json) · [`size-records.jsonl`](operations/image-size/size-records.jsonl) | The image-size budget, read by `just/size.just`. Never read these by eye. |

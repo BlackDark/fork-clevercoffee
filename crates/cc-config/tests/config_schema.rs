@@ -181,7 +181,7 @@ fn an_integrator_ceiling_of_zero_is_no_integral_action() {
     //
     // `Ki == 0` is how this codebase already says "no integral action": it is what a
     // `Tn` of 0 gives, and `Controller::set_tunings` pins the accumulator to zero for
-    // it. §28 of `docs/history/divergences.md` records the decision.
+    // it.
     let mut c = Config::default();
     c.pid.regular.i_max = 0.0;
     let (_, ki, _) = c.pid_tunings();
@@ -580,7 +580,7 @@ fn the_default_temperature_sensor_is_tsic_306() {
     // The default names the sensor this firmware is shipped to drive. A machine
     // fitted with the other type reports a not-connected temperature sensor and
     // says which type it asked for, rather than silently reading a bus it does not
-    // own. §7 of `docs/history/divergences.md` records the decision.
+    // own.
     let config = Config::default();
     assert_eq!(
         config.hardware.sensors.temperature.r#type,
@@ -1049,7 +1049,7 @@ fn an_unknown_key_in_an_upload_is_ignored() {
 /// schema knows.
 ///
 /// **The operator procedure this pins.** There is no NVS migration between the old
-/// store and this one (§32 of `docs/history/divergences.md`), so an operator moves
+/// store and this one, so an operator moves
 /// their settings by downloading `config.json` from the machine's web UI and
 /// uploading it here. That only works while the key names agree, and nothing else in
 /// the suite would notice a rename: the counterparty that produced these keys is
@@ -1129,8 +1129,7 @@ fn a_previously_exported_config_document_imports_with_its_values() {
     );
     assert_eq!(
         parsed.system.wifi.ssid, "silvia",
-        "the SSID is the one value whose loss is actually felt — see §32 of \
-         docs/history/divergences.md"
+        "the SSID is the one value whose loss is actually felt"
     );
     // The unknown keys are the point of the third property: `state`,
     // `computed` and `legacy` are in the document and none of them is a key.

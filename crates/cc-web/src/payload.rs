@@ -38,8 +38,7 @@ use crate::telemetry::Telemetry;
 /// `brewing` is **not the same value**. It is derived on every render
 /// (`state.is_brew_state() && state != BrewFinished`), and the two were once emitted
 /// under one name, which made a brew-state flag answer to a steam-mode name. Both
-/// keys are emitted now, and the addition is recorded as §24 of
-/// `docs/history/divergences.md`.
+/// keys are emitted now, and the addition is deliberate.
 #[must_use]
 pub fn status_json(t: &Telemetry, heap_free: u32) -> String {
     // `write!` into the `String` rather than `push_str(&format!(..))`: this runs on

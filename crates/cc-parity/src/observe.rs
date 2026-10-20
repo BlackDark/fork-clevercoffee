@@ -17,8 +17,7 @@
 //!    because the duty is a float computed from a live probe and no two runs
 //!    agree on it; `EnterState`/`ExitState` keep their state name because the
 //!    transition *is* the observation; `PumpTimeoutFired` keeps its watchdog
-//!    because which watchdog fired is the whole point of
-//!    `divergences.md` §1.
+//!    because which watchdog fired is the whole point.
 //! 3. **Timestamps are kept, coarsely.** They are the difference between "the
 //!    pump stopped one loop after the state changed" and "the pump stopped
 //!    immediately", which is a one-loop ordering bug. The driver's clock is
@@ -138,7 +137,7 @@ impl Default for Actuators {
 ///
 /// Two runs of the same scenario must produce equal observations: the control loop
 /// is deterministic, and a test asserts that over every scenario in
-/// `docs/history/scenarios/`.
+/// `scenarios/`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Observation {
     /// The scenario this came from.
@@ -248,7 +247,7 @@ mod tests {
 
     #[test]
     fn the_pump_watchdog_name_is_kept() {
-        // Which watchdog fired is the whole of `divergences.md` §1.
+        // Which watchdog fired is the whole point.
         let e = ObservedEffect::of(&Effect::PumpTimeoutFired {
             watchdog: PumpWatchdog::Brew,
         });

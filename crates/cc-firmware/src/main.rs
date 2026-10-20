@@ -37,8 +37,7 @@
 //! The deadman path passes duty 0, and the gate
 //! ([`cc_domain::heater::HeaterGate`]) refuses a non-zero duty until the supervisor
 //! has beaten. Driving a **dummy load** and measuring with a scope is **not** done:
-//! see `cc_hal_esp32::heater`'s module docs and §5 of
-//! `docs/history/divergences.md`.
+//! see `cc_hal_esp32::heater`'s module docs.
 
 mod config_io;
 mod control;
@@ -669,8 +668,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     //
     //     **GPIO26 and GPIO19 only.** The steam LED would be GPIO1, and GPIO1
     //     belongs to the UART provisioning console (`start_provisioning` below). A
-    //     pin has one owner; see `cc_hal_esp32::pins` for the full reasoning and
-    //     §30 of `docs/history/divergences.md` for the entry.
+    //     pin has one owner; see `cc_hal_esp32::pins` for the full reasoning.
     let led_pins = LedPins {
         status: peripherals.pins.gpio26,
         brew: peripherals.pins.gpio19,
@@ -714,8 +712,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     } = network::bring_up_config()?;
     info!(
         "nvs: {nvs_description} — the predecessor firmware's `config` namespace \
-         is a different key space and is ignored by design (§32 of \
-         docs/history/divergences.md)"
+         is a different key space and is ignored by design"
     );
     info!("nvs: the boot decision was `{origin:?}`");
 
@@ -794,8 +791,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     // GPIO1, which is UART0's TXD and therefore the provisioning console's recovery
     // path. `Peripherals::take` will not hand one pin to two owners, so an operator
     // who left `hardware.leds.steam.enabled` true gets a setting this firmware
-    // silently ignores. One `warn!` at boot is the whole diagnostic — see §30 of
-    // `docs/history/divergences.md`.
+    // silently ignores. One `warn!` at boot is the whole diagnostic.
     if config.hardware.leds.steam.enabled {
         warn!(
             "leds: hardware.leds.steam.enabled is set but this firmware drives no steam \
@@ -1875,7 +1871,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // reloaded on every boot. The `validate_config` call below is the second
                 // half of the same rule — the cross-parameter one, `emergency_temp`
                 // against the setpoint plus hysteresis — so an unsafe setpoint is
-                // refused. `/api/setpoint` already answered 202; no second ack (§38).
+                // refused. `/api/setpoint` already answered 202; no second ack.
                 cc_hal_esp32::web::Command::SetSetpoint(celsius) => {
                     let mut candidate = config.clone();
                     candidate.brew.setpoint = celsius;

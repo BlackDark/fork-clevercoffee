@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Per-bucket flash attribution for the device image, by symbol.
 
-07-image-size-budget.md §8 requires that an increase in image size is
+The image-size policy requires that an increase in image size is
 "attributed by crate and by largest symbol, so an increase is never
 unexplained". The release ELF is stripped (`profile.release.strip =
 "symbols"`), so the symbols come from the `diagnostic` profile, which is
@@ -29,11 +29,20 @@ from collections import Counter
 # components, because the IDF TLS shim (`esp-tls`) is mbedTLS in all but name.
 BUCKETS: list[tuple[str, str]] = [
     ("std::backtrace + addr2line", r"backtrace|addr2line|__rust_(begin|end)_short"),
-    ("gimli / object_rs DWARF reader", r"gimli|object_rs|4object|miniz_oxide|8rustc_demangle"),
-    ("mbedTLS / TLS", r"mbedtls|esp_tls|4esp-tls|mbedx509|mbedcrypto|9wpa_supplicant|wpa_"),
+    (
+        "gimli / object_rs DWARF reader",
+        r"gimli|object_rs|4object|miniz_oxide|8rustc_demangle",
+    ),
+    (
+        "mbedTLS / TLS",
+        r"mbedtls|esp_tls|4esp-tls|mbedx509|mbedcrypto|9wpa_supplicant|wpa_",
+    ),
     ("serde", r"5serde|10serde_json"),
     ("core::fmt", r"4core3fmt|3fmt|Formatter|4core3panicking"),
-    ("printf family", r"printf|vprintf|vsnprintf|snprintf|sprintf|asprintf|strtod|strtof|puts"),
+    (
+        "printf family",
+        r"printf|vprintf|vsnprintf|snprintf|sprintf|asprintf|strtod|strtof|puts",
+    ),
     ("http parser", r"http_parser|13http11_parser"),
     ("lwIP", r"lwip|4tcp4|4udp4|netconn|ip4_addr"),
     ("FreeRTOS", r"freertos|9tasks|10queue|list\.o|portmacro"),
@@ -59,12 +68,19 @@ def symbol_sizes(nm: str, elf: str) -> list[tuple[int, str, str]]:
 
 
 def main() -> int:
-    elf = sys.argv[1] if len(sys.argv) > 1 else "target/xtensa-esp32-espidf/diagnostic/firmware"
+    elf = (
+        sys.argv[1]
+        if len(sys.argv) > 1
+        else "target/xtensa-esp32-espidf/diagnostic/firmware"
+    )
     nm = sys.argv[2] if len(sys.argv) > 2 else "xtensa-esp32-elf-nm"
     try:
         symbols = symbol_sizes(nm, elf)
     except FileNotFoundError:
-        print(f"no {nm} on PATH; set XTTENSA_NM=/path/to/xtensa-esp32-elf-nm", file=sys.stderr)
+        print(
+            f"no {nm} on PATH; set XTTENSA_NM=/path/to/xtensa-esp32-elf-nm",
+            file=sys.stderr,
+        )
         return 2
 
     compiled = [(name, re.compile(pat)) for name, pat in BUCKETS]
@@ -82,12 +98,16 @@ def main() -> int:
     print(f"{'bucket':34} {'bytes':>10} {'symbols':>8}")
     for bucket, _pat in BUCKETS:
         if count_by_bucket[bucket]:
-            print(f"{bucket:34} {bytes_by_bucket[bucket]:>10,} {count_by_bucket[bucket]:>8,}")
-    print(f"{'--- named buckets subtotal':34} {sum(bytes_by_bucket.values()):>10,} "
-          f"{sum(count_by_bucket.values()):>8,}")
+            print(
+                f"{bucket:34} {bytes_by_bucket[bucket]:>10,} {count_by_bucket[bucket]:>8,}"
+            )
+    print(
+        f"{'--- named buckets subtotal':34} {sum(bytes_by_bucket.values()):>10,} "
+        f"{sum(count_by_bucket.values()):>8,}"
+    )
     print(f"{'all symbols':34} {total:>10,} {len(symbols):>8,}")
 
-    # Static RAM is the other number 07 §5 requires, and the same symbol table
+    # Static RAM is the other number the policy requires, and the same symbol table
     # carries it: `.bss` is zeroed at boot, `.data` is copied from flash.
     ram = Counter()
     ram_symbols = Counter()
@@ -99,7 +119,9 @@ def main() -> int:
             ram[".data"] += size
             ram_symbols[".data"] += 1
     print()
-    print(f"{'static RAM (named symbols)':34} {sum(ram.values()):>10,} {sum(ram_symbols.values()):>8,}")
+    print(
+        f"{'static RAM (named symbols)':34} {sum(ram.values()):>10,} {sum(ram_symbols.values()):>8,}"
+    )
     for section in (".data", ".bss"):
         print(f"  {section:32} {ram[section]:>10,} {ram_symbols[section]:>8,}")
     return 0

@@ -56,8 +56,8 @@ pub const CASES: &[Case] = &[
         run: actuators::tests::an_empty_tank_stops_the_pump_and_the_water_valve_but_not_the_heater,
     },
     Case {
-        name: "actuators::the_water_valve_is_gated_on_an_empty_tank_which_the_cpp_does_not_do",
-        run: actuators::tests::the_water_valve_is_gated_on_an_empty_tank_which_the_cpp_does_not_do,
+        name: "actuators::the_water_valve_is_gated_on_an_empty_tank",
+        run: actuators::tests::the_water_valve_is_gated_on_an_empty_tank,
     },
     Case {
         name: "actuators::the_steam_valve_is_whitelist_gated_to_steam_running",

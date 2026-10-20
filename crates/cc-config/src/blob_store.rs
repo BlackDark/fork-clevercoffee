@@ -47,8 +47,7 @@
 //! * **A first boot onto such an NVS is indistinguishable from a first boot on a
 //!   blank device**, which is the state a factory reset reaches anyway. The
 //!   operator's saved setpoints are lost once, deliberately, and the reason is
-//!   recorded in the boot log — see [`crate::predecessor`] and §32 of
-//!   `docs/history/divergences.md`.
+//!   recorded in the boot log — see [`crate::predecessor`].
 //!
 //! The alternative — importing the other firmware's hashed keys — would mean
 //! shipping its hash function, its key list and its per-parameter type table, and

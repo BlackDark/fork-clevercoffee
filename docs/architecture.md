@@ -133,8 +133,8 @@ they can be unit tested for an application that runs on one microcontroller.
 
 **`cc-parity`** links the real reducer and drives it on your machine with a
 recording stand-in for the GPIO. It runs the scenarios in
-[`history/scenarios/`](history/scenarios) and compares observations. See
-[`history/scenario-format.md`](history/scenario-format.md).
+[`crates/cc-parity/scenarios/`](../crates/cc-parity/scenarios) and asserts the
+observed behaviour. See [`scenarios.md`](scenarios.md) for the file format.
 
 **`cc-device-tests`** runs `cc-hal-esp32`'s unit tests *on the chip*, because
 that crate cannot be tested by `cargo test` at all. It is never flashed as the

@@ -3,8 +3,8 @@
 //! # Why UART and not a captive portal
 //!
 //! The chip has no USB peripheral (AG-REPO-10), so provisioning over a serial console is the one
-//! mechanism that always works. The recovered firmware implemented exactly this
-//! ([`recovered-oracle.md`](../../../docs/history/recovered-oracle.md) §5.2), and the log line it
+//! mechanism that always works. The recovered firmware implemented exactly this,
+//! and the log line it
 //! left in the boot log is the specification:
 //!
 //! ```text
@@ -525,7 +525,7 @@ mod tests {
 
     #[test]
     fn the_oracle_sequence_parses_end_to_end() {
-        // `recovered-oracle.md` §5.2, verbatim.
+        // Verbatim.
         let mut parser = Parser::new();
         assert_eq!(
             parser.feed("wifi status"),

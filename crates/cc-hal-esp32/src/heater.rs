@@ -106,8 +106,7 @@
 //! cannot drift.
 //!
 //! Hence the `GPTimer` ISR. `cc_firmware::HEATER_LEDC_DEFECT` carries the finding
-//! where the boot log prints it; the decision and its trade-offs are
-//! [divergences.md §9](../../../docs/history/divergences.md).
+//! where the boot log prints it.
 //!
 //! ### Traps a hardware-PWM transport must not rediscover
 //!
@@ -141,8 +140,7 @@
 //!   be 50 on and 50 off could be 51 and 49, and no host test would know.
 //!
 //! The duty-versus-time measurement against a dummy load is **not** done, so the
-//! heater path is unproven on hardware. See
-//! [divergences.md](../../../docs/history/divergences.md).
+//! heater path is unproven on hardware.
 
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};

@@ -801,8 +801,7 @@ where
 /// **No per-response `Access-Control-Allow-Origin: *`**, and the omission is
 /// deliberate: the SPA is served same-origin from `/ui` and needs nothing, and a
 /// wildcard origin on an endpoint that can reboot a boiler or change its safety
-/// cut-offs is a widening with no consumer. Recorded in
-/// [divergences.md](../../../docs/history/divergences.md).
+/// cut-offs is a widening with no consumer.
 fn register_preflight(server: &mut EspHttpServer<'static>) -> Result<(), EspError> {
     server
         .fn_handler::<EspError, _>("/api*", Method::Options, |mut req| {
@@ -2676,8 +2675,7 @@ fn ota_open_session(
 ///
 /// 1. **Admission.** [`cc_machine::ota::admit`] on the machine state from the
 ///    published snapshot, as a cheap first filter. Refused while brewing or
-///    steaming, which is the strictly-safer difference recorded in
-///    [divergences.md](../../../docs/history/divergences.md).
+///    steaming, which is the strictly-safer difference.
 /// 2. **Claim.** One update at a time. A second concurrent upload gets a `409`.
 ///    `409`.
 /// 3. **Safe hardware shutdown, waited for.** [`Command::OtaBegin`] to the

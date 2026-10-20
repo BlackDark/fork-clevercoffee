@@ -20,8 +20,7 @@ use cc_domain::units::Millis;
 /// The DS18B20 family code, and the only family this driver accepts.
 ///
 /// It is also the family of the probe **measured on the board**: the recovered firmware's boot log
-/// reported `sensor: DS18B20 at 0x41af78cdaa376928 (family 0x28)`
-/// ([`recovered-oracle.md`](../../../docs/history/recovered-oracle.md)).
+/// reported `sensor: DS18B20 at 0x41af78cdaa376928 (family 0x28)`.
 pub const FAMILY_DS18B20: u8 = 0x28;
 
 /// DS18S20 / DS1820.
@@ -688,8 +687,7 @@ pub enum Ds18b20Fault {
     /// [`crate::sensor::ds18b20`] applies.
     ///
     /// There is no sentinel for this fault, because there is no number the sensor would have
-    /// reported for it: the reading is arithmetically valid and physically implausible. See
-    /// [`divergences.md` §8](../../../docs/history/divergences.md#d08).
+    /// reported for it: the reading is arithmetically valid and physically implausible.
     OutOfRange,
 }
 
@@ -782,7 +780,7 @@ mod tests {
     use alloc::vec::Vec;
 
     /// The ROM the board actually answered with, from the recovered firmware's boot log:
-    /// `0x41af78cdaa376928` ([`recovered-oracle.md`](../../../docs/history/recovered-oracle.md)).
+    /// `0x41af78cdaa376928`.
     ///
     /// **The log prints the ROM in wire order, least-significant byte first.**
     /// In the device's own layout byte 0 is the family code and byte 7 is the

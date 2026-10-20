@@ -58,8 +58,7 @@ An LED on a GPIO proves **the pin**. It does not prove:
   relays are wired for — the value is a config fact you read, not measure.
 - **the `LOW_TRIGGER` heater fail-closed case.** A configuration selecting
   `LOW_TRIGGER` for the heater is refused outright by `validate_config` rather
-  than made safe (`pins.md`, and the normative derivation in
-  `docs/history/recovered-oracle.md`). It is a compile- and boot-time refusal, so
+  than made safe (`pins.md`). It is a compile- and boot-time refusal, so
   there is no runtime behaviour to watch on a bench.
 - **water.** Nothing here moves water. Brew, backflush, hot water and steam all
   transition with LEDs standing in for the pump and the valve: the firmware side
@@ -102,13 +101,13 @@ valve off again, and `cc_hal_esp32::Inhibit` exists for exactly that.
 Six parameters differ from their compiled-in defaults, and every one is
 deliberate. Nothing else needs changing: the four operator switches default to
 `TOGGLE`, which is also what the deleted C++ defaulted them to
-(`9fa8c834:include/clevercoffee/Config.h:988-1046`), so a bench that "fixes"
+(`213be5ee^:include/clevercoffee/Config.h:988-1046`), so a bench that "fixes"
 them to `MOMENTARY` has quietly diverged from the machine it stands in for.
 
 | Parameter | Bench value | Why |
 | --- | --- | --- |
 | `pid.enabled` | `true` | The default is `false`; a bench wants the PID driving the heater LED. |
-| `hardware.switches.brew.type` | **`0`** (Momentary) | The brew button returns to rest when released. All four operator switches default to `TOGGLE` — which is also the deleted C++'s default (`9fa8c834:include/clevercoffee/Config.h:988-1046`) — so this is the one place the bench deliberately differs, because **the bench's hardware differs**. |
+| `hardware.switches.brew.type` | **`0`** (Momentary) | The brew button returns to rest when released. All four operator switches default to `TOGGLE` — which is also the deleted C++'s default (`213be5ee^:include/clevercoffee/Config.h:988-1046`) — so this is the one place the bench deliberately differs, because **the bench's hardware differs**. |
 | `hardware.switches.power.enabled` | **`false`** | **No power switch is fitted on this bench.** Leaving it `true` with GPIO39 unwired leaves a floating input, and because the power switch is a `TOGGLE` that reads *off* at boot, the machine starts in `PID_DISABLED` whatever `pid.enabled` says. |
 | `hardware.switches.steam.type` | default `TOGGLE` (`1`) | **Not changed**: those two buttons really do latch, and the deleted C++ defaulted them the same way. |
 | `hardware.switches.hot_water.type` | default `TOGGLE` (`1`) | As above. |
@@ -139,7 +138,6 @@ curl -X POST 'http://<host>/api/restart'          # both sensor keys are read at
 curl 'http://<host>/api/parameters?filter=all' | jq '.[]|select(.value != .default)|{name,value}'
 ```
 
-Then read `the boot decision was `Stored`` in the boot log — **`DiscardedUnsafe`
+Then read `the boot decision was`Stored`` in the boot log — **`DiscardedUnsafe`
 means the validator threw the whole configuration away** and you are back on
-defaults, which is how this bench lost its Dallas probe once already
-([`../history/outstanding-findings.md` #12](../history/outstanding-findings.md)).
+defaults, which is how this bench lost its Dallas probe once already.

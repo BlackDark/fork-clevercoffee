@@ -22,7 +22,7 @@ why: >
   `task_wdt`/`interrupt wdt` line in the log. ESP-IDF's interrupt watchdog is
   300 ms on the original ESP32, which is a separate and tighter budget than the
   5 s task watchdog — and it is the one that caught the LEDC carrier during
-  R1-07 (09 §17), so the log is checked for both.
+  R1-07, so the log is checked for both.
 
   A 10 s connect is 2× the 5 s TWDT, so an unsuspended watchdog **must** fire.
   That is what makes this a test rather than a wait.

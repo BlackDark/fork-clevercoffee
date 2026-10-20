@@ -1,6 +1,4 @@
-# 10 — The scenario format
-
-**Owner:** R1-08.
+# The scenario format
 
 A scenario is a scripted run of the real `cc-machine` reducer and `cc-safety`
 monitor, with assertions over the resulting states and effects. It makes a
@@ -71,7 +69,7 @@ what makes a `wait` of 5000 ms mean five hundred iterations and not one.
 | `sensor` | `temperature_c`, `water_tank_full`, `has_temperature_error`, `has_scale_error`, `brew_weight` | a new sample → `Event::SensorUpdated`, and a `cc_safety::reduce` |
 | `config` | `set: { dotted.key: value }` | mutate `cc_config::Config`; a parameter write. |
 | `mqtt` | `command` — a `cc_machine::Command` name | a request from outside the switch layer → `Event::Command` |
-| `ota` | `action` (`begin`/`end`), `path` (for `begin`) | an OTA session. `begin` asserts the actuator gap is closed (see [§7](divergences.md#d07)). |
+| `ota` | `action` (`begin`/`end`), `path` (for `begin`) | an OTA session. `begin` asserts the actuator gap is closed (see §7). |
 
 `mqtt` is named for the transport, but the *stimulus* is the request flag it sets
 (`context->setBrewStartRequested(true)`), which is what the firmware consumes. A
@@ -149,7 +147,7 @@ only a device can produce.
 | `never` | `effect: NAME`, `after_ms` (optional) | the effect was never emitted (optionally only after `at_ms`) |
 | `count` | `effect: NAME`, `min`, `max` (optional) | how many times it was emitted |
 | `ordering` | `before: NAME`, `after: NAME` | the first effect occurred before the second |
-| `actuator_safe` | — | at the end of the run, heater duty 0, pump off, both valves closed, emergency latch **not** set. 06 §Definitions' *known-safe state*. |
+| `actuator_safe` | — | at the end of the run, heater duty 0, pump off, both valves closed, emergency latch **not** set: the *known-safe state*. |
 | `http` | `path`, `expect: { key: value }` | a captured endpoint's JSON contains these keys with these values |
 
 `actuator_safe` is the assertion that makes a `dry_run` scenario honest. A scenario
@@ -174,9 +172,9 @@ The rule: while an OTA session is active the control loop must not run and the p
 and valve must not be driven, and beginning a session disables the heater. Every
 actuator ends up off.
 
-`divergences.md` §31 records the OTA gap: the old firmware left the pump
-running, and this scenario pins the fix. The `assert` for `ota: begin` is
-therefore a negation:
+The scenario pins the OTA rule: the pump and valve must be shut down when a
+session begins, and this is the assertion that catches a regression. The
+`assert` for `ota: begin` is therefore a negation:
 
 ```yaml
 - { kind: never, effect: EnablePump, after_ms: 0 }
@@ -188,7 +186,7 @@ An assertion failure here is the fix regressing, not a difference to explain.
 ## 8. Where the files live
 
 ```text
-docs/history/scenarios/*.yaml    the scripts
+crates/cc-parity/scenarios/*.yaml    the scripts
 ```
 
 A scenario is the only committed artefact. Running it produces an observation on

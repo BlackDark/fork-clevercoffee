@@ -74,7 +74,7 @@ assert:
   # close between the two flow states is the whitelist resolving a conflict
   # rather than whichever call happened to be last.
   - { kind: ordering, before: CloseWaterValve, after: OpenWaterValve }
-  # 09 §13, preserved: BACKFLUSH_FILLING is on the water-flow whitelist and its
+  # Preserved: BACKFLUSH_FILLING is on the water-flow whitelist and its
   # `update` only logs, so nothing re-asserts its pump. A regression that fixed
   # it would show a diff here, and that diff would have to be deliberate.
   - { kind: no_fluid_flow }

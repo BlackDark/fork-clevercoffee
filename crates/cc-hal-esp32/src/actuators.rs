@@ -8,8 +8,7 @@
 //!
 //! [`cc_machine::applier::apply`] is the only caller. A new state cannot
 //! accidentally poke a relay, because it has no way to reach one — it can only
-//! return an `Effect` (see
-//! [target-architecture.md §3](../../../docs/history/target-architecture.md)).
+//! return an `Effect`.
 //! That holds only if this type is the sole exit. The opposite arrangement is
 //! what lets a cached "heater enabled" flag drift away from the pin: an ISR that
 //! drives the relay directly bypasses the facade. Here the heater pin belongs to
@@ -37,8 +36,7 @@
 //! [`Actuators::open_water_valve`], from the flag the shell sets from the float
 //! switch. The tank condition gates both, not just the pump: a brew state
 //! entered with an empty tank otherwise opens the water valve against a dry
-//! reservoir. Recorded in
-//! [divergences.md §3](../../../docs/history/divergences.md).
+//! reservoir.
 //!
 //! ## 3. The two valve whitelists
 //!
@@ -46,7 +44,6 @@
 //! [`cc_safety::steam_flow_allowed`] even though the reducer never emits the
 //! effect. Steam and water share **one relay** (GPIO17), so an ungated steam
 //! valve is an ungated *water* valve; see
-//! [divergences.md §3](../../../docs/history/divergences.md) and
 //! [pins.md](../../../docs/hardware/pins.md).
 //!
 //! [`Actuators::open_water_valve`] applies
@@ -1065,10 +1062,8 @@ pub mod tests {
     }
 
     #[cfg_attr(test, test)]
-    pub fn the_water_valve_is_gated_on_an_empty_tank_which_the_cpp_does_not_do() {
-        // The divergence in [divergences.md
-        // §3](../../../docs/history/divergences.md), pinned as a test so the parity
-        // harness knows it is expected.
+    pub fn the_water_valve_is_gated_on_an_empty_tank() {
+        // The water valve is refused as well as the pump, pinned as a test.
         let empty = Interlock {
             water_tank_full: false,
             ..RUNNING

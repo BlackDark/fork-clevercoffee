@@ -49,8 +49,7 @@
 //! and there is no `Sync`. So the store can be *moved* to the diagnostics task
 //! but not *shared*. It is therefore owned by one task — the firmware's network
 //! task — and the web server reaches it through the same bounded command queue
-//! everything else uses ([target-architecture.md
-//! §3](../../../docs/history/target-architecture.md)), not by borrowing it.
+//! everything else uses, not by borrowing it.
 
 use alloc::vec;
 use alloc::vec::Vec;
