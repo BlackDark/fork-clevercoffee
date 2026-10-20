@@ -90,7 +90,10 @@ test("parameter editing preserves drafts across categories and masks secrets in 
   await expect(
     page.getByText("1 unsaved change", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "System", exact: true }).last().click();
+  await page
+    .getByRole("navigation", { name: "Parameter categories" })
+    .getByRole("link", { name: "System", exact: true })
+    .click();
   await page.getByRole("link", { name: "Behavior", exact: true }).click();
   await expect(target).toHaveValue(next);
   await page.getByRole("button", { name: "Review & save" }).click();
@@ -190,8 +193,20 @@ test("drafts survive dashboard navigation and secrets stay masked in review", as
   await password.fill("private-test-secret");
   await password.blur();
   await page.getByRole("link", { name: "Dashboard", exact: true }).click();
+  await expect(
+    page.getByRole("heading", {
+      name: "Good coffee starts here.",
+      exact: true,
+    }),
+  ).toBeVisible();
   await page.getByRole("link", { name: "Parameters", exact: true }).click();
-  await page.getByRole("link", { name: "System", exact: true }).last().click();
+  await expect(
+    page.getByRole("navigation", { name: "Parameter categories" }),
+  ).toBeVisible();
+  await page
+    .getByRole("navigation", { name: "Parameter categories" })
+    .getByRole("link", { name: "System", exact: true })
+    .click();
   await expect(password).toHaveValue("private-test-secret");
   await page.getByRole("button", { name: "Review & save" }).click();
   await expect(page.getByRole("dialog")).not.toContainText(

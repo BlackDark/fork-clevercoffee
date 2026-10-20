@@ -46,6 +46,10 @@ passed. A temporary invalid Svelte prop was rejected by the native checker and
 the probe was removed. Each native check clears `.svelte-check` to prevent
 stale diagnostics for deleted components. The packaged asset size is unchanged.
 
+The navigation E2E checks also pass with explicit destination-screen waits and
+category-scoped links, covering the navigation timing difference observed in
+GitHub CI.
+
 The Rust gate, firmware build, and physical-device behavior were not tested;
 the user explicitly scoped this migration to the frontend.
 
