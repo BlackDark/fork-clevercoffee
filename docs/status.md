@@ -39,6 +39,13 @@ The embedded asset set measures 106,363 bytes versus 211,182 bytes for the
 React baseline built from `fc3efdc6`: gzip HTML/JS/CSS plus `logo.png`, measured
 by summing the files in `dist`. Gzip files were also decompressed to verify the
 archives. Screenshots are linked from the [README](../README.md).
+The tooling follow-up retains TypeScript 6.0.3 for Svelte's compiler API and
+uses TypeScript 7.0.2 through the `@typescript/native` alias and `--tsgo`.
+The native check, TypeScript 6 fallback, frontend check, and production build
+passed. A temporary invalid Svelte prop was rejected by the native checker and
+the probe was removed. Each native check clears `.svelte-check` to prevent
+stale diagnostics for deleted components. The packaged asset size is unchanged.
+
 The Rust gate, firmware build, and physical-device behavior were not tested;
 the user explicitly scoped this migration to the frontend.
 

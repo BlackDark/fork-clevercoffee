@@ -8,14 +8,15 @@
     "build": "pnpm check:types && vite --mode production build",
     "postbuild": "rimraf -g \"dist/**/*.html\" \"dist/**/*.js\" \"dist/**/*.css\"",
     "lint": "pnpm -w lint",
-    "check:types": "svelte-check --tsconfig ./tsconfig.app.json --fail-on-warnings",
+    "check:types": "rimraf .svelte-check && svelte-check --tsconfig ./tsconfig.app.json --fail-on-warnings --tsgo",
     "tsc": "pnpm check:types",
     "check": "pnpm lint && pnpm check:types && pnpm test:run",
     "test": "vitest",
     "test:run": "vitest run",
     "test:e2e": "playwright test",
     "preview": "vite preview --host 0.0.0.0",
-    "format": "pnpm -w format"
+    "format": "pnpm -w format",
+    "check:types:ts6": "svelte-check --tsconfig ./tsconfig.app.json --fail-on-warnings"
   },
   "dependencies": {
     "@lucide/svelte": "1.59.0",
@@ -33,6 +34,7 @@
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/svelte": "5.4.2",
     "@types/node": "26.6.5",
+    "@typescript/native": "npm:typescript@7.0.2",
     "jsdom": "30.1.3",
     "prettier": "3.9.10",
     "prettier-plugin-svelte": "4.1.1",

@@ -386,5 +386,7 @@ explicitly authorized by the user; there is no 50 KB size limit.
 **AG-UI-2.** `pnpm --dir ui check` runs Biome for TS/CSS, Prettier for Svelte
 markup, `svelte-check --fail-on-warnings`, and Vitest. Also run the frontend build
 and Playwright E2E suite before committing UI behavior changes. TypeScript 6 is
-pinned for `svelte-check` compatibility. Browser tests use the mock API and cannot
+retained for Svelte tooling compatibility; the native TypeScript 7 checker runs
+via the pinned `@typescript/native` alias and `svelte-check --tsgo`. The optional
+`check:types:ts6` script uses the TypeScript 6 engine. Browser tests use the mock API and cannot
 establish behavior on the physical machine.

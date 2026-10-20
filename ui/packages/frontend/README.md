@@ -16,8 +16,13 @@ pnpm --filter @clevercoffee/frontend test:e2e
 ```
 
 `pnpm check` runs Biome on TypeScript/CSS, Prettier on Svelte markup,
-`svelte-check` (including accessibility warnings), and Vitest. TypeScript 6 is
-pinned because the current `svelte-check` requires it. ESLint is not used.
+`svelte-check` (including accessibility warnings), and Vitest. TypeScript 7 runs the native checker through `--tsgo`; TypeScript 6
+remains installed for Svelte tooling, with TypeScript 7 pinned under the
+`@typescript/native` npm alias. Each native check clears its generated cache so
+removed or renamed Svelte files cannot leave stale diagnostics.
+`pnpm check:types:ts6` provides a compatibility
+check using the TypeScript 6 engine. See the [svelte-check documentation](https://www.npmjs.com/package/svelte-check).
+ESLint is not used.
 Browser tests exercise the bundled mock API; reports and screenshots go to
 `playwright-report/` and `test-results/`. Set
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to use an existing Chromium binary.
