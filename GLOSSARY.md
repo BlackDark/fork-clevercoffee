@@ -40,26 +40,19 @@ that would.
 
 **The C++ firmware** — the firmware this one replaces, deleted from the
 repository when the port became the product. Recoverable at
-`git show 9fa8c834:<path>`. Where it still matters, that is deliberate: several
-behaviours here exist to be *different* from it, and the difference is recorded.
+`git show 213be5ee^:<path>` and at the upstream repository. It is not the
+standard: use it only for archaeology.
 
 **Divergence** — a place where this firmware deliberately behaves differently
-from the C++. "Deliberately" is the operative word. Each one is recorded in
-[`docs/history/divergences.md`](docs/history/divergences.md) with the C++'s
-behaviour, this one's, and the reasoning.
-
-**Ledger** — the name `divergences.md` carried while it also held machine-readable
-declarations: 6 `ledger` fenced blocks that `cc-parity` parsed to classify diff
-lines. Both the blocks and the parser are gone; the prose is the record, and
-`scripts/check-divergence-refs.py` still keeps its `§N` pointers resolving.
+from the C++. "Deliberately" is the operative word. Each one is stated at the
+code or test that pins it.
 
 **Parity** — equivalence with the C++ on a committed set of scenarios. **It was
 never demonstrated on this machine**, and there is no longer a harness to
 demonstrate it with: capturing a baseline meant flashing the C++ onto a powered,
 wired machine, the owner declined, and the comparison code and the baseline
 directory went with the rest of the C++ tooling. The scenarios still run, and they
-assert the firmware's own behaviour, but nothing compares them to a reference. See
-[`docs/differences.md`](docs/differences.md) for what that costs.
+assert the firmware's own behaviour, but nothing compares them to a reference.
 
 **Scenario** — one named, reproducible situation fed to the reducer: a cold
 boot, a sensor read, a heater-gate check. Each records one *observation*, a
@@ -70,10 +63,8 @@ against, rather than a second implementation checked in the same run. The progra
 that produced the recorded output are not in this tree; what remains is the output,
 frozen in `crates/cc-domain/src/pid_parity.rs`,
 `crates/cc-display/tests/fmt_oracle.txt` and
-`crates/cc-display/tests/support/*_widths.rs`.
-[`docs/history/recovered-oracle.md`](docs/history/recovered-oracle.md) uses the word
-in a narrower sense: a Rust firmware recovered from a flash dump, whose source never
-existed.
+`crates/cc-display/tests/support/*_widths.rs`. The word is also used for a Rust
+firmware recovered from a flash dump, whose source never existed.
 
 ## The safety layer
 
@@ -87,7 +78,7 @@ steam have separate ones, and the separation matters because **both valves share
 a single relay** — so the gate has to be keyed on state, not on which valve is
 open. **What the relay actually is**: the water/group valve. Steam leaves through
 a **hand-operated wand valve**, and the firmware has no pin for a steam outlet and
-makes no request for one (see `outstanding-findings.md` #14). So this whitelist
+makes no request for one. So this whitelist
 is a guard against a *future* change driving that relay as a steam outlet, not a
 repair of a live hazard.
 

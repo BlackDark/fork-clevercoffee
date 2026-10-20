@@ -20,8 +20,7 @@ why: >
   not run for the session's duration.
 
   The assertion is the fix: the pump and valve were running when the session
-  began, and nothing re-energises them while it is open. `divergences.md` §31
-  records the difference and what pins it.
+  began, and nothing re-energises them while it is open.
 
 config:
   set:

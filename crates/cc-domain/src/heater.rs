@@ -87,7 +87,7 @@
 //!   from hardware.
 //!
 //! Until a person with a scope, a dummy load and the boiler **disconnected** measures it,
-//! the LEDC transport stays out of the firmware; see §5 of `docs/history/divergences.md`.
+//! the LEDC transport stays out of the firmware.
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use crate::units::{Duty, Millis};

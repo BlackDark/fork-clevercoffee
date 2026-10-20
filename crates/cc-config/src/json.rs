@@ -35,7 +35,7 @@
 //!    believes it took effect and runs on the old value. Here the import is
 //!    all-or-nothing and the offending keys are named. The route's own error
 //!    message already claims to reject invalid values, so this makes the code match
-//!    the message (§22 of `docs/history/divergences.md`).
+//!    the message.
 //! 2. **The size limit is explicit and stated.** `serde_json` has no pool that can
 //!    overflow, so the bound has to be a decision rather than a capacity fact.
 //!    [`MAX_CONFIG_BYTES`] is set from what the store can hold: `docs/example_config.json`
@@ -287,7 +287,7 @@ fn scan(root: &Map<String, Value>) -> Result<Vec<(&'static ParamSpec, Value)>, I
 /// filled in — that is the right shape for seeding a fresh store from a document
 /// that is meant to be complete, and the wrong shape for an upload, where a
 /// document that mentions twelve keys must leave the other eighty-six exactly as
-/// they are (§22 of `docs/history/divergences.md`).
+/// they are.
 ///
 /// Returning *pairs* rather than a `Config` is what keeps the writer single.
 /// The handler hands these to the control task, which applies them with
@@ -573,7 +573,7 @@ pub(crate) fn enum_discriminants_known(key: &str, value: i8) -> bool {
 /// partition.
 ///
 /// Deliberately *not* tightened. If a decision is ever taken to bound these,
-/// it belongs in `docs/history/divergences.md` with the field list, because it
+/// it belongs in the import contract with the field list, because it
 /// changes what an import accepts.
 pub const MAX_TEXT_LEN: usize = 4096;
 

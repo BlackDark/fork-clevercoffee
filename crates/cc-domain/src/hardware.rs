@@ -29,8 +29,7 @@ pub enum SwitchMode {
 /// high-impedance while the pin is being configured and during reset, so a
 /// low-trigger relay board — which energises its coil when the input is low or
 /// floating — turns the heater **on** at every boot, before any firmware runs.
-/// `cc-safety`'s `validate_config` refuses this value for the heater relay; the analysis
-/// is in `docs/history/recovered-oracle.md`.
+/// `cc-safety`'s `validate_config` refuses this value for the heater relay.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(i8)]
 pub enum RelayTriggerType {

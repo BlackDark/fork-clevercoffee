@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Record a phase-gate image-size datapoint (docs/history/07 §4).
+"""Record an image-size datapoint.
 
-Appends one JSON object to docs/history/size-records.jsonl and rewrites
-docs/history/size-baseline.json, which `just size` / `just size-check`
-compare against.
+Appends one JSON object to docs/operations/image-size/size-records.jsonl and
+rewrites docs/operations/image-size/size-baseline.json, which `just size` /
+`just size-check` compare against.
 
 Usage: size-record.py <image_bytes> <app_slot_bytes> <label> <records.jsonl>
 """
@@ -14,7 +14,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-BASELINE = Path("docs/history/size-baseline.json")
+BASELINE = Path("docs/operations/image-size/size-baseline.json")
 
 
 def git_rev() -> str:

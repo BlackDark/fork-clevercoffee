@@ -20,7 +20,7 @@
 //! # The error checking
 //!
 //! Both the write's acknowledgement and the read's byte count are checked, and that is a deliberate
-//! divergence recorded in [`divergences.md` §10](../../../docs/history/divergences.md#d10). It is
+//! behaviour difference. It is
 //! the safe direction: the alternative is a plausible-looking pressure built from bytes the sensor
 //! never sent, feeding the brew pressure control.
 

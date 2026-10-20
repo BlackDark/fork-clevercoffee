@@ -75,8 +75,7 @@ Four routes:
 Three of the four exist. The fourth is deliberately a `501` rather than a `404`,
 because a `404` is indistinguishable from a lost feature.
 
-Full reasoning and the refusal conditions are
-[`../history/divergences.md`](../history/divergences.md#d31).
+Full reasoning and the refusal conditions are in `cc_machine::ota::admit`.
 
 **The OTA upload was exercised on hardware.** The record is [`../status.md`](../status.md). A power cut during the `otadata` write was not part of that pass.
 
@@ -87,8 +86,7 @@ holds the schema, `POST /api/parameters` applies them, and
 [`../config/reference.md`](../config/reference.md) is every key, its type, range
 and default.
 
-Three of them are dormant: registered, persisted, and never exercised. They are
-named in [`../history/divergences.md`](../history/divergences.md).
+Three of them are dormant: registered, persisted, and never exercised.
 
 ## MQTT
 

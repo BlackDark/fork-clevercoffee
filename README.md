@@ -3,8 +3,8 @@
 This is a fork of [CleverCoffee](https://github.com/rancilio-pid/clevercoffee)
 with internal refactorings and new features. It carries **one** firmware, written
 in Rust. The C++ firmware this repository started with was deleted once the Rust
-port became the product; it survives in git history and its behaviour is recorded
-in [`docs/history/cpp-findings.md`](docs/history/cpp-findings.md).
+port became the product; it survives in git history and at the upstream
+repository.
 
 **The machine is an ESP32-DevKitC V4 / ESP32-WROOM-32E** — the original ESP32,
 Xtensa LX6. There is no S3, C3 or C6 in this project. `esp32_usb` in the
@@ -33,13 +33,12 @@ has no native USB.
 | Your situation | Read |
 | --- | --- |
 | **New here** | This page, then [`GLOSSARY.md`](GLOSSARY.md) for the vocabulary and [`docs/architecture.md`](docs/architecture.md) for the shape |
-| **I am about to change firmware behaviour** | [`AGENTS.md`](AGENTS.md) — the rulebook — then [`docs/differences.md`](docs/differences.md) |
+| **I am about to change firmware behaviour** | [`AGENTS.md`](AGENTS.md) — the rulebook — then [`docs/architecture.md`](docs/architecture.md) |
 | **I am at the machine** | [`docs/operations/runbook.md`](docs/operations/runbook.md) |
-| **I want to know how it got this way** | [`docs/history/README.md`](docs/history/README.md) |
 | **I want a specific document** | [`docs/index.md`](docs/index.md) is the map. Every document appears there exactly once. |
 
 **[`docs/index.md`](docs/index.md) is the map**: one row per document, grouped by
-those four situations. [`docs/status.md`](docs/status.md) is the only page in
+situation. [`docs/status.md`](docs/status.md) is the only page in
 this repository permitted to claim what works — it is dated, owned, and every
 line in it is a pointer to a commit or a measurement. Agent rules are numbered
 in [`AGENTS.md`](AGENTS.md); [`CLAUDE.md`](CLAUDE.md) is a pointer to it.
@@ -81,21 +80,17 @@ What CI runs and what it costs: [`docs/operations/ci.md`](docs/operations/ci.md)
 ## The C++ firmware this replaces
 
 It was deleted on 2026-10-06, along with its PlatformIO build. There is nothing
-here to build, and **no way to rebuild it** short of checking out `9fa8c834` and
-reconstructing the tooling. If a board still answers as the C++ did, it is
+here to build, and **no way to rebuild it** short of checking out `213be5ee^`
+and reconstructing the tooling. If a board still answers as the C++ did, it is
 running that firmware, not this one.
 
-What the C++ did is recorded rather than forgotten:
-[`docs/history/divergences.md`](docs/history/divergences.md) for every
-deliberate difference, and
-[`docs/history/cpp-findings.md`](docs/history/cpp-findings.md) for every bug and
-ambiguity found while porting it.
+The upstream repository is
+[`rancilio-pid/clevercoffee`](https://github.com/rancilio-pid/clevercoffee);
+the final C++ tree is at commit `213be5ee^`. That is a lookup reference, not a
+standard for this firmware.
 
-**The C++ comparison was never measured on this machine.** No baseline was ever
-captured, and the comparison harness has since been removed with the rest of the
-C++ tooling. The scenario tests run the Rust reducer in process and assert its
-behaviour directly.
-[`docs/differences.md`](docs/differences.md) says what that costs.
+The scenario tests run the Rust reducer in process and assert its behaviour
+directly.
 
 ## What this fork changed
 

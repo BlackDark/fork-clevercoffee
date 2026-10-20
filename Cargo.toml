@@ -1,6 +1,6 @@
 # CleverCoffee — Rust firmware workspace.
 #
-# The workspace is at the REPOSITORY ROOT (04 §6), not in a subdirectory: the
+# The workspace is at the REPOSITORY ROOT, not in a subdirectory: the
 # justfile, scripts/ and ui/ already live here and a subdirectory would put the
 # recipes' relative paths in the wrong place.
 #
@@ -8,8 +8,7 @@
 #   cc-domain, cc-protocol, cc-netpolicy, cc-safety, cc-machine, cc-display,
 #   cc-config, cc-web, cc-mqtt
 #   portable,
-#       no_std, host-testable, MUST NOT name esp_idf_{svc,hal,sys} (CI grep,
-#       05 §6)
+#       no_std, host-testable, MUST NOT name esp_idf_{svc,hal,sys} (CI grep)
 #   cc-hal-esp32, cc-firmware                                  device-only;
 #       they do not compile for a host target and are therefore NOT in
 #       `default-members`.
@@ -44,7 +43,7 @@ members = [
     "crates/cc-parity",
 ]
 # `cargo test` / `cargo clippy` with no `-p` must not try to build the device
-# crates on the host (05 §4, 04 §6 "What compiles and tests on the host").
+# crates on the host.
 default-members = [
     "crates/cc-domain",
     "crates/cc-protocol",
@@ -89,17 +88,16 @@ cc-mqtt = { path = "crates/cc-mqtt" }
 
 # Device crates.
 cc-hal-esp32 = { path = "crates/cc-hal-esp32" }
-# `cc-provisioning` (the SoftAP captive portal, 05 §5) is NOT a workspace member.
+# `cc-provisioning` (the SoftAP captive portal) is NOT a workspace member.
 # It was a 17-line `#![no_std]` skeleton with zero users that every device build
-# still had to resolve a dependency graph for. The crate is deleted; the design
-# and its three rules survive in `docs/archive/migration/05-tooling-and-workflows.md`
-# §5, and it returns at R4-11 with code rather than as a placeholder.
+# still had to resolve a dependency graph for. The crate is deleted; it returns
+# at R4-11 with code rather than as a placeholder.
 
 # `cc-config` is the only portable crate with third-party dependencies: serde for
 # the configuration value's Serialize/Deserialize, and serde_json for the nested
 # JSON blob. Both are pulled in already by esp-idf-svc, so this adds no new
 # download to the device build. `default-features = false` + `alloc` keeps
-# cc-config no_std (04 §1); the `std` feature is re-enabled under `cfg(test)` for
+# cc-config no_std; the `std` feature is re-enabled under `cfg(test)` for
 # `serde_json::to_string_pretty` in the round-trip tests.
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
@@ -143,8 +141,8 @@ embedded-io = "0.7.1"
 
 # The `esp` toolchain is a nightly fork, so the device build runs on the
 # unstable channel's lints. `-D clippy::pedantic` is declared HERE and nowhere
-# else (04 §1.7, skill rule 8): passing it on the command line as well
-# double-flags and hides the real config.
+# else: passing it on the command line as well double-flags and hides the real
+# config.
 
 [workspace.lints.rust]
 missing_docs = "warn"

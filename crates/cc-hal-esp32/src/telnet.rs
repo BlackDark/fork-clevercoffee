@@ -1,8 +1,5 @@
 //! The Wi-Fi telnet log stream: the listener, and ADR-0002's heap-aware shed.
 //!
-//! Transport completed after finding 3.2 of
-//! [`review-2026-10-03.md`](../../../docs/history/review-2026-10-03.md).
-//!
 //! # What is here
 //!
 //! A [`RING_ENTRIES`]-entry ring plus a listener on port 23, with ADR-0002's

@@ -9,7 +9,7 @@
 .claude/
 .env
 
-# --- Rust firmware workspace (docs/rust-migration 05 §2) ---
+# --- Rust firmware workspace ---
 # Build output of the root Cargo workspace and of the ESP-IDF build that
 # esp-idf-sys drives (.embuild/ holds the ESP-IDF clone + its toolchain, ~4 GB).
 target/

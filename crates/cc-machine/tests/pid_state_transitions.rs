@@ -190,8 +190,7 @@ fn pid_disabled_entry_stops_the_pump_and_closes_the_valve() {
 /// They cannot act on a request, and nothing between them and `PID_NORMAL` can either: that
 /// state's entry emits no effects. Without the drain, a brew pressed while the machine is in an
 /// error state starts a real shot once the fault clears and the recovery delay elapses.
-/// `AG-REPO-24` names the error states for exactly this reason, and §37 of
-/// `docs/history/divergences.md` records the divergence.
+/// `AG-REPO-24` names the error states for exactly this reason.
 #[test]
 fn the_error_states_drain_requests() {
     for state in [MachineState::SensorError, MachineState::EepromError] {

@@ -45,7 +45,6 @@
 //! -55..125 °C span -- arrives as a *sensor read failure* rather than as a temperature. After ten
 //! of them the machine reaches `SENSOR_ERROR` instead of handing the number to the PID. The heater
 //! is off in both cases, so nothing unsafe is accepted; what changes is what the operator is told.
-//! Reasoning: [`divergences.md` §8](../../../docs/history/divergences.md#d08).
 
 pub use crate::sensor::onewire::Ds18b20Fault;
 use crate::sensor::onewire::{self, OneWireBus, OneWireError, Rom, RomSelection, ScratchPad};
@@ -77,8 +76,8 @@ pub const RESOLUTION_BITS: u8 = 11;
 /// with no debounce; here, a probe reading -1 °C is a *sensor read failure* rather than an
 /// emergency, and a reading at 155 °C is a read failure rather than a temperature inside S1's own
 /// band. The two ranges answer different questions -- "can a probe physically be here" against
-/// "must the machine stop" -- and the driver's is deliberately the stricter one, a behaviour change
-/// recorded in [`divergences.md` §8](../../../docs/history/divergences.md#d08).
+/// "must the machine stop" -- and the driver's is deliberately the stricter one, a deliberate
+/// behaviour change.
 pub const PLAUSIBLE_RANGE: (f32, f32) = (-50.0, 150.0);
 
 /// S1's band, kept beside [`PLAUSIBLE_RANGE`] so that the two are visibly different numbers in the

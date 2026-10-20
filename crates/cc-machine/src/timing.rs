@@ -46,7 +46,7 @@ pub const STANDBY_DISPLAY_OFF_MS: u32 = 10 * 60 * 1_000;
 ///
 /// Armed on the pump-on edge in [`crate::handlers::arm_pump_watchdogs`]. A trip emits
 /// [`crate::Effect::PumpTimeoutFired`], so it is visible in the log, and then requests the
-/// brew stop. §1 of `docs/history/divergences.md` records why arming it is deliberate.
+/// brew stop. Arming it is deliberate.
 pub const BREW_PUMP_TIMEOUT_MS: u32 = 300_000;
 
 /// The maximum hot-water run time: sixty seconds.

@@ -1,20 +1,18 @@
 # CleverCoffee developer recipes.
 #
-# Normative source: docs/archive/migration/05-tooling-and-workflows.md §4.
-# The recipes below are that document's, with three corrections that the R1-01
-# build proved are required. Each is marked DEVIATION and says why:
+# The recipes below carry three corrections that the R1-01 build proved are
+# required. Each is marked DEVIATION and says why:
 #
 #   D1. The host recipes pass `--target {{host_target}}` explicitly.
 #       `.cargo/config.toml` sets `[build] target = "xtensa-esp32-espidf"`, and
 #       that applies to *every* cargo invocation in the repository — including
 #       `cargo test` for the portable crates, which would then try to build
-#       `std` for the Xtensa target. 05 §4's `just test` has no `--target` and
-#       therefore cannot work as written.
+#       `std` for the Xtensa target. A host test recipe without `--target`
+#       cannot work as written.
 #   D2. The device recipes source `.rust-esp-env.sh`, which puts the Xtensa GCC
 #       on `PATH`. ESP-IDF's link line references `xtensa-esp32-elf-gcc`, so
 #       without it the build fails with "linker `xtensa-esp32-elf-gcc` not
-#       found". 05 §2 relies on `source $HOME/exports` (espup's export file)
-#       for this; `just env-file` regenerates that indirection.
+#       found". `just env-file` regenerates the ESP-IDF export indirection.
 #   D3. `flash` uses `cargo espflash` (not `espflash`) and passes the
 #       partition table explicitly. The app image does NOT contain the partition
 #       table — the first byte of the app is the 0xE9 app magic, and the table
@@ -44,7 +42,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 set dotenv-load := true
 
 # Device build knobs. SINGLE source of truth: `.cargo/config.toml` and the
-# `firmware` CI job env (05 §6) must agree with these. `just doctor` asserts them.
+# `firmware` CI job env must agree with these. `just doctor` asserts them.
 export ESP_IDF_VERSION := "v5.5.5"
 export RUSTFLAGS := "--cfg espidf_time64"
 
@@ -101,7 +99,7 @@ tgt_esp32 := "xtensa-esp32-espidf"
 tgt_esp32s3 := "xtensa-esp32s3-espidf"
 tgt_esp32c6 := "riscv32imac-esp-espidf"
 
-# The one binary is named `firmware` (04 §6), so this is the artifact path.
+# The one binary is named `firmware`, so this is the artifact path.
 bin_esp32 := "firmware"
 
 # The host triple, for the recipes that build, lint and test the *portable*
@@ -561,7 +559,6 @@ check:
 doc-links:
     @python3 scripts/check-doc-links.py
     @python3 scripts/check-openapi.py .
-    @python3 scripts/check-divergence-refs.py .
 
 # Every screen on every template, as one PNG contact sheet. Host only, no
 # hardware: `just screens` then open the file. This is the check a golden image
@@ -872,7 +869,7 @@ logs host:
 
 # The harness's own tests. A separate recipe because `cc-parity` is not in
 # `host_crates`: these are the binary contract (`list`/`run`) and the whole
-# scenario set in `docs/history/scenarios/`, run in process with no device.
+# scenario set in `crates/cc-parity/scenarios/`, run in process with no device.
 parity-test:
     cargo test --locked -p cc-parity --target {{host_target}}
 

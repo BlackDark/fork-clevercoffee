@@ -56,12 +56,10 @@ run `git log --oneline -- <file>` on it. This repository's own history contains
 several confidently-wrong status claims that were caught only by an independent
 review.
 
-**AG-REPO-3.** Start at [`docs/history/README.md`](docs/history/README.md) and
-read ["Where the migration actually is"](docs/history/README.md#where-it-is-now)
-**before planning any work**. For what the firmware *is*, read
-[`docs/architecture.md`](docs/architecture.md); for the vocabulary, read
-[`GLOSSARY.md`](GLOSSARY.md). The port is closed and has no execution skill;
-open work is [`docs/attention.md`](docs/attention.md).
+**AG-REPO-3.** Start at [`docs/architecture.md`](docs/architecture.md) for what
+the firmware *is*, and [`docs/attention.md`](docs/attention.md) for what is open.
+The vocabulary is in [`GLOSSARY.md`](GLOSSARY.md). There is no migration
+narrative to read: the Rust tree is the standard.
 
 **AG-REPO-4.** `docs/status.md` is the only page permitted to claim what works.
 If you change behaviour, update it **in the same commit** (AG-REPO-20).
@@ -81,15 +79,14 @@ fails, fix it, re-run *all* applicable steps, and only then commit.
 **AG-REPO-9.** **The Rust device answers to `test-cc-rust`**
 (`cc_config::schema::DEFAULT_HOSTNAME`), and it keeps that name even though the
 C++ firmware it distinguished itself from is gone. It was chosen when two
-firmwares could sit on one network and answer to the same name; the port
-diverges on pump timeouts, the steam-valve whitelist and the PID divide, and
-those divergences are the record of what was investigated, so the name is left
+firmwares could sit on one network and answer to the same name; this firmware
+differs on pump timeouts, the steam-valve whitelist and the PID divide, and
+those differences are the record of what was investigated, so the name is left
 as the marker they hang on. Change it **only** in
 `cc_config::schema::DEFAULT_HOSTNAME`, and keep
 [`docs/example_config.json`](docs/example_config.json) in step -- an import test
 parses that exact file, so the two cannot drift apart. `mqtt.password` also
-defaults to `silvia`; that is a **credential, not a name**. Full reasoning:
-[`divergences.md` [§13](docs/history/divergences.md#d13)](docs/history/divergences.md#d13).
+defaults to `silvia`; that is a **credential, not a name**.
 
 **AG-REPO-10.** The target is the **original ESP32** (Xtensa), not an S3 or C6.
 `esp32_usb` refers to the USB-to-UART cable; the chip has no native USB.
@@ -121,10 +118,7 @@ necessary. If one is required, state the reason.
 **AG-REPO-14.** Add documentation only where necessary.
 
 **AG-REPO-15.** Tools available here: `gh` for GitHub, `jq` for JSON, `rg`
-(ripgrep) for search. For the project's layout, build and test commands as they
-stood for the **deleted C++ firmware**, see
-[`docs/archive/cpp/REPOSITORY_SUMMARY.md`](docs/archive/cpp/REPOSITORY_SUMMARY.md)
--- it describes the C++, say so when you cite it.
+(ripgrep) for search.
 
 **AG-REPO-16.** If you are working with a new library or tool, look up its
 documentation from its website, its repository, or the relevant `llms.txt` before
@@ -189,56 +183,38 @@ the relay is off. Legitimate exceptions: `actuators`' own internals, and the PID
 ISR's heater PWM (documented at its definition).
 
 **AG-REPO-27.** **The deleted C++ is in git history, not in the working tree.**
-When a behaviour is surprising, `git log -- <path>` and `git show
-HEAD~:<path>` recover the implementation this port replaced; the per-feature
-catalogue of what it did and which bugs it had is in
-[`09-cpp-findings.md`](docs/history/cpp-findings.md). Read it before
-concluding the port does something surprising.
+The final C++ tree is at commit `213be5ee^` and at
+[`rancilio-pid/clevercoffee`](https://github.com/rancilio-pid/clevercoffee). Use
+that only for archaeology. A commit-hash lookup is allowed; do not copy its
+implementation or treat it as the standard (`AG-RUST-13`).
 
 ---
 
 ## Documentation structure
 
 **AG-REPO-28.** **`docs/index.md` is the map, and it is exhaustive.** One row per
-document, grouped by the four situations -- new here / changing behaviour / at
-the machine / reading history. Every document in the repository appears there
-**exactly once**. A document that is not in that table has no reachable entry
-point, which makes it invisible; if you write one, the table is out of date until
-it is in it.
+document, grouped by situation -- new here / changing behaviour / at the machine.
+Every document in the repository appears there **exactly once**. A document that
+is not in that table has no reachable entry point, which makes it invisible; if
+you write one, the table is out of date until it is in it.
 
-**AG-REPO-29.** **`docs/archive/` is preserved history, not a source of truth.**
-Material is moved there, never deleted, and never merged into a live document
-(the other way round defeats the point). Each archived file carries a banner
-saying what it was, when, and whether the Rust port supersedes it. **Any claim
-quoted out of `archive/` into a live document must be re-verified against live
-evidence** -- code, a test, a measurement, or [`docs/status.md`](docs/status.md) --
-and the archive citation is recorded as *provenance only*, never as the proof. The
-concrete failure this prevents: a retracted claim ("the ESP32 has no Bluetooth
-radio") was lifted out of a September survey and treated as today's constraint.
-[`docs/archive/README.md`](docs/archive/README.md) states the rule and says what is
-in the archive and why.
+**AG-REPO-29.** **There is no in-tree C++ archive.** The provenance is the
+upstream repository, [`rancilio-pid/clevercoffee`](https://github.com/rancilio-pid/clevercoffee),
+and commit `213be5ee^`. Do not reintroduce migration narrative, comparison
+ledgers, or archived C++ documents: this Rust tree is the standard, and a claim
+about an earlier firmware is not evidence for it.
 
-**AG-REPO-30.** **`docs/history/` is machine-read. Move it only deliberately.**
-It was `docs/rust-migration/` until commit `dc046aab` (2026-10-05), when the whole
-documentation tree was restructured and this directory moved with it. That move was **not** a
-link cleanup and it is the reason this rule now has an explicit exemption: the
-paths that name this directory are resolved by code and by CI, not only by
-prose.
+**AG-REPO-30.** **Live data paths are machine-read. Move them only deliberately.**
 
-- `scripts/check-divergence-refs.py` resolves it at a hard-coded path
-  (`LEDGER`) and rewrites the `§N` pointers into it.
-- `scripts/size-record.py` takes it as input.
-- `just/size.just` reads `size-baseline.json` and appends to
-  `size-records.jsonl`; `rust.yml` uploads the latter.
-- Rust doc comments link into it with rustdoc link syntax, and `just doc` runs
-  `RUSTDOCFLAGS="-D warnings"`, so a broken link there is a **build break**.
-  (`just lint` is clippy; the rustdoc recipe is separate, and `just check` runs
-  both. `AG-RUST-1` lists them as two steps for that reason.)
+- `crates/cc-parity/scenarios/` is read by the harness and by every scenario
+  test.
+- `docs/operations/image-size/size-baseline.json` and `size-records.jsonl` are
+  read by `just/size.just` and uploaded by CI.
+- Rust doc comments link into `docs/` with rustdoc link syntax, and `just doc`
+  runs `RUSTDOCFLAGS="-D warnings"`, so a broken link there is a **build
+  break**.
 
-**Amending it means changing those paths in the same commit**, and the amendment
-must be dated in this rule. Renumbering a section breaks every `§N` pointer to
-it: `scripts/check-divergence-refs.py` rewrites them and fails on a pointer to a
-section that no longer exists.
+Amending a path means changing the reader in the same commit.
 
 **AG-REPO-31.** **`docs/api/openapi.yaml` is checked against the routes the
 firmware serves.** `scripts/check-openapi.py` compares it against the `ROUTES`
@@ -295,7 +271,7 @@ Everything in this section is scoped `AG-RUST-*` and applies to `crates/`,
 
 **AG-RUST-1.** **`just check`** runs the host gate: fmt-check, clippy with
 `-D warnings` (pedantic), rustdoc with `-D warnings`, the host test suite, the
-parity harness, and the device-test audit.
+scenario tests, and the device-test audit.
 
 **AG-RUST-2.** **`just check` is not sufficient.** It does not compile
 `cc-hal-esp32` or `cc-firmware`. **For a change that can affect the firmware
@@ -370,19 +346,15 @@ enough:
    workspace value carries information: `#![deny(missing_docs)]` turns a missing
    doc from a warning into a build break, and is the shape worth keeping.
 2. **Process record.** What a commit did, what moved between crates, what a field
-   was before, which finding produced the code. That is `git log` and
-   `docs/history/`; a comment that restates it rots on the next refactor.
+   was before, which finding produced the code. That is `git log`; a comment that
+   restates it rots on the next refactor.
 3. **Signature restatement.** "The decimal integer, unadorned" over
    `fn set_int`, "the current rotation" over `fn rotation`. If the name and
    signature say it, it does not need saying.
-4. **Any reference to the deleted C++.** A line number, a `cpp-findings.md`
-   section, a path in the old tree, "the C++ does X, so this does Y". Those files
-   are gone (`AG-REPO-27`), the migration is closed
-   (`docs/history/README.md`), and `docs/history/` owns the provenance record, so
-   the comparison is neither followable nor the crate's business. Say what this
-   firmware does and why that is correct. A **deliberate** divergence keeps its
-   `divergences.md` entry link: that file records this firmware's behaviour,
-   `cc-parity` parses it, and the link is what pins the divergence to a test.
+4. **Any reference to the deleted C++.** A line number, a path in the old tree,
+   "the C++ does X, so this does Y". The tree is at `213be5ee^` for archaeology
+   (`AG-REPO-27`), but it is not the standard and not the crate's business. Say
+   what this firmware does and why that is correct.
 
 **What survives, and why this is not a line-count rule.** Derivation that
 cannot be redone in this repository is worth its length: ESP-IDF is not vendored

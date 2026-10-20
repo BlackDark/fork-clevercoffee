@@ -2,8 +2,7 @@
 //!
 //! # What this is, and why it is a wrapper
 //!
-//! [target-architecture.md
-//! §3.2](../../../docs/history/target-architecture.md) is unambiguous: commands
+//! Commands
 //! into the control task (brew start, setpoint change, factory reset) arrive on a
 //! bounded `hal::task::queue::Queue<Command, 32>` drained at the top of every
 //! tick, and never as a direct call from a network task into control state.
@@ -16,8 +15,7 @@
 //!
 //! # Drop-newest, and why not drop-oldest
 //!
-//! [target-architecture.md
-//! §3.2](../../../docs/history/target-architecture.md) says `Event` drops oldest
+//! `Event` drops oldest
 //! (freshness wins) and `Command` drops newest (the newest request is the most
 //! relevant). A `POST /api/setpoint`
 //! arriving while the queue is full of older setpoints must win, or the UI
@@ -27,8 +25,7 @@
 //!
 //! `POST /api/parameters` carries a *list of key/value pairs*, and a `Command`
 //! cannot: `Queue<T>` is bounded by `T: Copy` (`esp-idf-hal` 0.47 `task.rs:978`,
-//! "ensures the contained elements are not `Drop`") and [target-architecture.md
-//! §3.2](../../../docs/history/target-architecture.md) turns that into a rule —
+//! "ensures the contained elements are not `Drop`") and the rule follows —
 //! *"No `String`, no `Vec`, no `Box` in a cross-task message."* A `Vec` of
 //! pairs in a `Command` does not compile, and inlining the values into fixed
 //! arrays would cap the value length at a number chosen by the queue's
@@ -50,8 +47,7 @@ use esp_idf_hal::task::thread::ThreadSpawnConfiguration;
 
 use cc_web::Command;
 
-/// The queue depth: `Queue<Command, 32>`, from [target-architecture.md
-/// §3.2](../../../docs/history/target-architecture.md).
+/// The queue depth: `Queue<Command, 32>`.
 pub const COMMAND_QUEUE_DEPTH: usize = 32;
 
 /// A bounded, non-blocking, drop-newest channel from the network tasks to the
@@ -150,8 +146,8 @@ pub fn delay_ms(ms: u32) {
 /// `std::thread::Builder` on this target is `esp_pthread`
 /// (`components/pthread/port/linux/pthread.c`), which reads its priority from
 /// the **process-wide** `esp_pthread` default,
-/// `CONFIG_PTHREAD_TASK_PRIO_DEFAULT`. That default is 5 in this build, and the
-/// [priority table](../../../docs/history/target-architecture.md) says control is
+/// `CONFIG_PTHREAD_TASK_PRIO_DEFAULT`. That default is 5 in this build, and
+/// control is
 /// 5, display is 3 and provisioning is 4 — so the control task got the right
 /// number by coincidence and the other two did not. Worse, lwIP's own `tcpip`
 /// task runs at **18**, so a bare spawn left network work preempting the control
@@ -220,8 +216,7 @@ where
 
 /// The control task's `FreeRTOS` priority.
 ///
-/// 5, from the [priority
-/// table](../../../docs/history/target-architecture.md): the control loop is the
+/// 5: the control loop is the
 /// highest-priority non-ISR
 /// task in the firmware, so a network or display task cannot preempt a
 /// decision about the heater.
@@ -233,16 +228,14 @@ where
 /// [`crate::scale::SAMPLER_PRIO`]'s doc, which is where it is measured.
 pub const CONTROL_PRIO: u8 = 5;
 
-/// The display task's priority, 3, from the [priority
-/// table](../../../docs/history/target-architecture.md).
+/// The display task's priority, 3.
 ///
 /// Below [`CONTROL_PRIO`] on purpose: a frame is ten milliseconds of I²C bus
 /// time, and the tick that must not be delayed is the one that decides whether
 /// the heater stays on.
 pub const DISPLAY_PRIO: u8 = 3;
 
-/// The provisioning task's priority, 4, from the [priority
-/// table](../../../docs/history/target-architecture.md).
+/// The provisioning task's priority, 4.
 ///
 /// Between display and control: the UART console is interactive, so it should
 /// answer while a frame is going out, but it is still a network-tier task and
@@ -276,17 +269,17 @@ pub const TELNET_PRIO: u8 = 2;
 const _: () = {
     assert!(
         CONTROL_PRIO > DISPLAY_PRIO,
-        "04 §2: a display frame is 10 ms of I²C bus time and must not preempt \
+        "a display frame is 10 ms of I²C bus time and must not preempt \
          the tick that decides whether the heater stays on"
     );
     assert!(
         CONTROL_PRIO > PROVISION_PRIO,
-        "04 §2: provisioning is a network-tier task and must not preempt the \
+        "provisioning is a network-tier task and must not preempt the \
          control loop"
     );
     assert!(
         PROVISION_PRIO > DISPLAY_PRIO,
-        "04 §2: an interactive UART console should answer while a frame is \
+        "an interactive UART console should answer while a frame is \
          being written to the panel"
     );
     assert!(
@@ -641,8 +634,7 @@ pub mod tests {
 
     #[cfg_attr(test, test)]
     pub fn a_command_carries_no_pointer() {
-        // The [target-architecture.md
-        // §3.2](../../../docs/history/target-architecture.md) bound, as a
+        // The bound, as a
         // compile-time fact: `Queue` requires
         // `T: Copy`, and `Command` is only `Copy` because every variant is
         // `Copy`. A future `String` in a variant would make this file stop

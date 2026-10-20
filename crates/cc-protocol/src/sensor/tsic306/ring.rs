@@ -4,9 +4,8 @@
 //!
 //! The app note recommends a falling-edge ISR that measures `Tstrobe` and then
 //! *waits* for the next nine edges, sampling after each (app note §1.4): a
-//! bit-sampling ISR. [target-architecture.md
-//! §3.1](../../../../../docs/history/target-architecture.md) constrains this
-//! firmware's ISRs to "nothing beyond one GPIO write", so the two cannot both be
+//! bit-sampling ISR. This firmware's ISRs are constrained to "nothing beyond one
+//! GPIO write", so the two cannot both be
 //! satisfied. The constraint wins, and the work is split:
 //!
 //! | | where | what it does |

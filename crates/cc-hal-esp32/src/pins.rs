@@ -103,8 +103,7 @@ pub const BREW_LED: u8 = 19;
 //
 // So `hardware.leds.steam.*` is honoured as a **decision** — `LedOutput.steam`
 // is computed and tested — and not as a **write**. `cc_hal_esp32::leds` logs once
-// at boot when the parameter is enabled and the pin is not available, and
-// [divergences.md §30](../../../docs/history/divergences.md) carries the entry.
+// at boot when the parameter is enabled and the pin is not available.
 //
 // # What moving it would cost
 //

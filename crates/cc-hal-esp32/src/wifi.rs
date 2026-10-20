@@ -324,9 +324,7 @@ impl Sta {
     /// decision.
     ///
     /// It needs no watchdog suspension: the single subscription belongs to the
-    /// control task alone
-    /// ([target-architecture.md
-    /// §2](../../../docs/history/target-architecture.md)), so the network task is
+    /// control task alone, so the network task is
     /// not a subscriber and there is nothing to disable. That is worth naming,
     /// because otherwise the absence reads as a removed safety net.
     pub fn wait_for_connection(&mut self) -> bool {

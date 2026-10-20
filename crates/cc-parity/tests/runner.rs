@@ -8,12 +8,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn repo_root() -> PathBuf {
-    // CARGO_MANIFEST_DIR is `<repo>/crates/cc-parity`.
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("the repository root exists")
+fn scenarios_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("scenarios")
 }
 
 fn binary() -> PathBuf {
@@ -37,7 +33,7 @@ fn every_dry_run_scenario_is_runnable_through_the_binary() {
     let _dir = scratch("list");
     let out = Command::new(binary())
         .args(["list"])
-        .arg(repo_root().join("docs/history/scenarios"))
+        .arg(scenarios_dir())
         .output()
         .expect("cc-parity runs");
     assert!(out.status.success(), "list must succeed");
@@ -78,7 +74,7 @@ fn one_scenario_runs_end_to_end_through_the_binary() {
     let dir = scratch("run");
     let out = Command::new(binary())
         .args(["run"])
-        .arg(repo_root().join("docs/history/scenarios/brew_by_time.yaml"))
+        .arg(scenarios_dir().join("brew_by_time.yaml"))
         .output()
         .expect("cc-parity runs");
     assert!(

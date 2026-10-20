@@ -115,14 +115,13 @@ never logged or put in `sys.argv` (`justfile:826`).
 
 ## cleanup
 
-### CLN-1 · M · effort S · `docs/operations/ci.md:10`, `justfile:482`, `docs/differences.md:110`
+### CLN-1 · M · effort S · `docs/operations/ci.md:10`, `justfile:482`, divergence ledger (removed)
 
 - Evidence: AG-RUST-4 says no document states a test count. `ci.md:10` says "1074
   tests"; this audit's `just check` ran 1318 (1247 in cc-web across 50 suites,
   71 in cc-parity across 4). `justfile:482` says "its 67 `#[test]` functions";
-  `scripts/device-test-audit.py` reports 112. `differences.md:110` says 5
-  machine-readable `ledger` blocks; `rg -c '^```ledger'
-  docs/history/divergences.md` says 6.
+  `scripts/device-test-audit.py` reports 112. The divergence ledger, since
+  removed, said 5 machine-readable `ledger` blocks where the file itself held 6.
 - Fix: delete the numbers; describe the gate instead. `justfile:439`'s "67 device
   tests" is past-tense history ("made 67 look green"), so it is the weaker half
   of the finding and can keep the number or drop it.
@@ -131,14 +130,12 @@ never logged or put in `sys.argv` (`justfile:826`).
 
 ### CLN-2 · L · effort S · `justfile:826,896`, `.gitignore:12`
 
-- Evidence: three stale paths from the `docs/rust-migration` -> `docs/history`
-  move (`dc046aab`, recorded under AG-REPO-30). `justfile:826` cites
-  `.gitignore:21` for `.env`, which is at line 10. `.gitignore:12` cites
-  `docs/rust-migration 05 §2`, now
-  `docs/archive/migration/05-tooling-and-workflows.md`. `justfile:896`'s
-  `parity-test` header says cc-parity's tests read
-  `docs/rust-migration/scenarios/` and `intentional-diffs.md`, neither of which
-  exists; `crates/cc-parity/tests/runner.rs` now reads `history/`.
+- Evidence: three stale paths from the earlier documentation move. `justfile:826`
+  cites `.gitignore:21` for `.env`, which is at line 10. `.gitignore:12` cites a
+  migration document that is no longer in the tree. `justfile:896`'s
+  `parity-test` header said the tests read a migration scenario directory and
+  `intentional-diffs.md`, neither of which exists;
+  `crates/cc-parity/tests/runner.rs` now reads `scenarios/`.
 - Fix: point all three at the live paths.
 - Benefit: three fewer misdirections for a reader chasing a rule.
 
@@ -152,7 +149,7 @@ never logged or put in `sys.argv` (`justfile:826`).
   (`cc-protocol/src/sensor/tsic306/mod.rs`).
 - Measured before filing: the long blocks are mostly load-bearing. They cache
   derivation an agent cannot redo without the deleted C++
-  (`git show 9fa8c834:<path>`, AG-REPO-27) and ESP-IDF sources; their
+  (`git show 213be5ee^:<path>`, AG-REPO-27) and ESP-IDF sources; their
   internally checkable claims are machine-asserted
   (`cc-domain/src/heater.rs:382` asserts `CARRIER_HZ * WINDOW_MS == 1_000`) or
   agree with their ADRs; and comments that merely narrate the next line are 115
@@ -184,7 +181,7 @@ never logged or put in `sys.argv` (`justfile:826`).
 - `target/`, `.embuild/`, `scripts/__pycache__/`: untracked and gitignored, zero
   tracked entries.
 - Git history (163 MB `.git`): intentional; AG-REPO-27 requires the deleted C++
-  tree stay recoverable (`git show 9fa8c834:<path>`).
+  tree stay recoverable (`git show 213be5ee^:<path>`).
 
 ## Tool coverage
 

@@ -25,9 +25,7 @@
 //! measurable rather than structural.
 //!
 //! The task runs at [`SAMPLER_PRIO`], above the control task's 5 and above
-//! `esp-mqtt`'s 4, so a network task cannot preempt the control loop. The table
-//! is [target-architecture.md
-//! §2](../../../docs/history/target-architecture.md).
+//! `esp-mqtt`'s 4, so a network task cannot preempt the control loop.
 //!
 //! # Nothing here waits without a deadline
 //!

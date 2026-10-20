@@ -7,11 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# Exactly ONE binary, named `firmware` (04 §6). NOT bin/esp32 + bin/esp32s3 +
+# Exactly ONE binary, named `firmware`. NOT bin/esp32 + bin/esp32s3 +
 # bin/esp32c6: `cargo espflash` cannot tell which binary to flash from `--target`
 # alone, so the artifact path must be unambiguous. Note this means the artifact
-# is `target/xtensa-esp32-espidf/release/firmware`, NOT `.../cc-firmware` — the
-# path in 05 §6's CI snippet is stale.
+# is `target/xtensa-esp32-espidf/release/firmware`, NOT `.../cc-firmware`.
 [[bin]]
 name = "firmware"
 path = "src/main.rs"
@@ -63,6 +62,6 @@ workspace = true
 
 # LittleFS is a managed component. Without it `esp_idf_svc::fs::littlefs` does
 # not compile: the Rust module is gated on
-# `esp_idf_comp_joltwallet__littlefs_enabled` (04 §6).
+# `esp_idf_comp_joltwallet__littlefs_enabled`.
 [[package.metadata.esp-idf-sys.extra_components]]
 remote_component = { name = "joltwallet/littlefs", version = "^1.22" }

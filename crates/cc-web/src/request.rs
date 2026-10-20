@@ -23,8 +23,7 @@ use crate::telemetry::Command;
 /// Nothing else on this route restricts the value, so the only bound that protects
 /// it is the schema's. The only way to be sure of using that bound is to ask for
 /// it: [`cc_config::assign::parse`] is the ask, and it cannot drift from
-/// `ParamSpec` the way a repeated literal does. The divergence from a wider filter
-/// is recorded as §26 of `docs/history/divergences.md`.
+/// `ParamSpec` the way a repeated literal does. The narrower filter is deliberate.
 ///
 /// # Reject, do not clamp
 ///

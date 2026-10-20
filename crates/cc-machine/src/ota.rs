@@ -3,13 +3,11 @@
 //!
 //! # What this is for
 //!
-//! Requirement **S8** of
-//! [`feature-inventory.md`](../../../docs/history/feature-inventory.md), §6:
-//! *"an OTA must leave pump and valve off."* A machine reflashed mid-brew, or booting with
+//! **An OTA must leave pump and valve off.** A machine reflashed mid-brew, or booting with
 //! the 3-way valve energised, is the hardware damage `AGENTS.md`'s Hardware Control
 //! Invariants exist to prevent. This module is that requirement as code, and it is the
-//! **only** place the answer is decided. §31 of `docs/history/divergences.md` records the
-//! four ways an admitted session is stricter than a heater-only shutdown.
+//! **only** place the answer is decided. An admitted session is stricter than a heater-only
+//! shutdown in four ways.
 //!
 //! # Why it is a pure function, and why that is the point
 //!

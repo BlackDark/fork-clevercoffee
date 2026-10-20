@@ -47,8 +47,7 @@ use crate::control::Control;
 /// Both are latches: a command sets one and it stays set. Clearing it on the
 /// sampler's answer is what makes the switch usable — a mode that can never be left is
 /// a switch that can never be turned off, and the sampler has an event for exactly that
-/// (`SamplerEvent::Tared` / `Calibrated` / `Refused`). Recorded as §11 of
-/// `docs/history/divergences.md`.
+/// (`SamplerEvent::Tared` / `Calibrated` / `Refused`).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ScaleModes {
     /// A tare has been asked for and has not been answered.
@@ -93,7 +92,7 @@ pub struct Live {
     /// Always zero: this firmware has no brew-weight tracker, so there is no pre-brew
     /// weight to subtract and the topic carries a constant. The topic stays registered
     /// because dropping it would leave a Home Assistant entity that discovery advertises
-    /// and nothing ever updates. §11 of `docs/history/divergences.md`.
+    /// and nothing ever updates.
     pub brew_weight_g: f64,
     /// Whether the tank float reports a full tank.
     pub water_tank_full: bool,

@@ -257,15 +257,15 @@ shape here; `cancel-in-progress: true` is already set per workflow.
 ## A size failure has no automatic "what grew?"
 
 When `just size-check` fails with *"image grew X % vs baseline"*, nothing in the
-gate answers **what grew**. `just size` gives a section breakdown
+gate answers **what grew**. The threshold is 10 % over the recorded baseline, and
+a justified increase is re-recorded with `just size-record`. `just size` gives a section breakdown
 (`.flash.text`, `.rodata`, `.iram0`, `.dram0`) and that is where you stop.
 
 `scripts/size-buckets.py` is the per-crate, per-symbol attribution tool, and it
 is **not wired into any recipe**. It is written and working; it is simply never
-called, because [`archive/migration/07-image-size-budget.md`](../archive/migration/07-image-size-budget.md)
-§8 requires attribution "so an increase is never unexplained" and the R1-09
-follow-up to close that gap was never taken. Recorded here so the next reader
-does not re-derive that the tool does not exist.
+called, because the image-size policy requires attribution "so an increase is
+never unexplained" and the R1-09 follow-up to close that gap was never taken.
+Recorded here so the next reader does not re-derive that the tool does not exist.
 
 It needs a `diagnostic`-profile ELF, not the release one, because the release
 profile is stripped. Build it first:

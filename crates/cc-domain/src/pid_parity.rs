@@ -132,8 +132,8 @@ const SCENARIO_C: &[Expected] = &[
 /// Expected results for oracle scenario `scenario_d_sub_second_sample_time_is_nan`.
 ///
 /// **These are the reference's outputs and this firmware deliberately does not reproduce
-/// them.** The table is kept, unmodified, as the evidence for §4 of
-/// `docs/history/divergences.md`; `scenario_d_the_reference_goes_nan_and_this_port_does_not`
+/// them.** The table is kept, unmodified, as the evidence for the deliberate
+/// difference; `scenario_d_the_reference_goes_nan_and_this_port_does_not`
 /// asserts the divergence rather than the agreement. Deleting this table would delete the
 /// only record of what a sub-second window produces.
 const SCENARIO_D_ORACLE: &[Expected] = &[

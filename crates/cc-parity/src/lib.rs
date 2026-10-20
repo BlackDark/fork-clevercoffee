@@ -4,7 +4,7 @@
 //!
 //! A scenario is a declarative script — stimuli in, assertions out — and this crate
 //! runs it against the real control loop. The format is specified in
-//! [`docs/history/scenario-format.md`](../../docs/history/scenario-format.md).
+//! [`docs/scenarios.md`](../../docs/scenarios.md).
 //!
 //! # The safety property, and where it comes from
 //!

@@ -472,12 +472,6 @@ jobs:
       - name: The API spec matches the routes the firmware serves
         run: python3 scripts/check-openapi.py .
 
-      # The ledger is renumbered as the port finds divergences, and a `§N` prose
-      # reference silently rots when it is. These checks make the references
-      # anchored and prove the anchors resolve.
-      - name: Divergence references resolve to real sections
-        run: python3 scripts/check-divergence-refs.py .
-
       - name: clippy (device, pedantic, -D warnings)
         run: just lint-esp32
 
@@ -493,12 +487,12 @@ jobs:
       - name: Upload the image size
         # So a size change is a downloadable artefact in the run summary rather
         # than something a human has to go and read a log for. `just size-record`
-        # appends to docs/history/size-records.jsonl; this uploads the
+        # appends to docs/operations/image-size/size-records.jsonl; this uploads the
         # tail of it.
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: image-size
-          path: docs/history/size-records.jsonl
+          path: docs/operations/image-size/size-records.jsonl
           if-no-files-found: error
 
   # ---------------------------------------------------------------- invariants

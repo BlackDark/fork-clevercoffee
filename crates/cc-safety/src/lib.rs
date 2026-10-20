@@ -21,10 +21,10 @@
 //! configuration rules: an unsafe configuration is refused when it is stored and
 //! refused again when it is loaded.
 //!
-//! # Deliberate divergences
+//! # Deliberate differences
 //!
-//! Each one is an entry in `docs/history/divergences.md` and is pinned by a
-//! `div_`-prefixed test, so a parity diff there is known to be expected.
+//! Each one is pinned by a
+//! `div_`-prefixed test.
 //!
 //! * **S4 gates the water valve as well as the pump.** Emptying the tank and then
 //!   entering a brew state would otherwise open the water valve against a dry

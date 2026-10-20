@@ -3,8 +3,8 @@
 //!
 //! # Why this is its own module
 //!
-//! `main.rs` is the startup order, the task spawns and the watchdog feed
-//! (04-target-architecture.md §6). The probe is none of those: it is one
+//! `main.rs` is the startup order, the task spawns and the watchdog feed.
+//! The probe is none of those: it is one
 //! peripheral with two possible transports behind it, brought up once at boot
 //! and then polled by the control task. Keeping it here means the wiring in
 //! `bring_up` stays readable — a reader sees the pins taken and handed to
@@ -56,8 +56,7 @@ const BOARD_PROBE: TemperatureSensorType = TemperatureSensorType::DallasDs18b20;
 /// Read `hardware.sensors.temperature.type` out of the configuration.
 ///
 /// The default is `TSIC_306`, which does **not** match the machine that ships with a
-/// `DS18B20`. The mismatch is preserved deliberately — §7 of
-/// `docs/history/divergences.md` — and so is the consequence: whichever driver the
+/// `DS18B20`. The mismatch is preserved deliberately, and so is the consequence: whichever driver the
 /// setting names is the one that answers, and no answer is a sensor error rather than a
 /// silent fallback to the other bus.
 fn probe_from_config(config: &cc_config::Config) -> TemperatureSensorType {

@@ -1,6 +1,6 @@
 # S8 — an OTA session from idle.
 #
-# The gap 01 §6 records: while an OTA session is active the control loop does not
+# The gap: while an OTA session is active the control loop does not
 # run, so the state machine does not run and the pump and valve are not driven.
 # Beginning a session disables the heater and nothing else.
 name: ota_start_from_idle
@@ -17,7 +17,7 @@ why: >
   why the gap went unnoticed: it is only reachable from a state that had
   something running. `ota_start_during_brew` is the scenario that exposes it.
 
-  The requirement (01 §6, R3-15) is a safe hardware shutdown — pump, valve **and**
+  The requirement (R3-15) is a safe hardware shutdown — pump, valve **and**
   heater — not the heater alone. Asserted here as a negation so the control case
   and the during-brew case share a shape; from idle the two agree, and this
   scenario is the control for that.

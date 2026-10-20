@@ -426,8 +426,7 @@ impl Control {
 
     /// Re-choose the gains on the next tick, without waiting for a state change.
     ///
-    /// **A deliberate divergence**, recorded as §34 of
-    /// `docs/history/divergences.md`. Gating the retune on the last *state* would store
+    /// **A deliberate difference.** Gating the retune on the last *state* would store
     /// and report back a `pid.regular.kp` written over HTTP while the running PID kept
     /// the old gains until the machine happened to change state. Measured on a bench
     /// ESP32: `POST /api/parameters pid.regular.kp=62` was accepted, persisted across a

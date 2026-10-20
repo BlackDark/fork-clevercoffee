@@ -572,8 +572,8 @@ pub fn display_uptime(d: &mut Display, uptime_s: u32, y: i32) {
         text.push(c).ok();
     }
     text.push('m').ok();
-    // **Right-aligned to the frame, not drawn at `x`.** A deliberate divergence,
-    // recorded as §17 of `docs/history/divergences.md`: a fixed `x = 84` lets the
+    // **Right-aligned to the frame, not drawn at `x`.** A deliberate difference:
+    // a fixed `x = 84` lets the
     // string run off the panel.
     //
     // The hour field is a *minimum* width, not a fixed one: past 100 hours it

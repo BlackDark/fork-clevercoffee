@@ -19,9 +19,7 @@
 //!
 //! # Why `ssd1306`, and why the init sequence is hand-written
 //!
-//! `ssd1306` 0.10.0 is the crate
-//! [dependency-evaluation.md](../../../docs/history/dependency-evaluation.md)
-//! selected: `embedded-hal 1.0`, which `esp-idf-hal` 0.47.0 satisfies
+//! `ssd1306` 0.10.0 is the crate this firmware selected: `embedded-hal 1.0`, which `esp-idf-hal` 0.47.0 satisfies
 //! (`src/i2c.rs:458-478` implements `ErrorType` and `I2c<SevenBitAddress>` for
 //! `I2cDriver`).
 //!

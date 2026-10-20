@@ -395,7 +395,7 @@ fn hot_water_switch(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
 
 /// The two pump watchdogs, run on every tick.
 ///
-/// # A deliberate divergence -- §1 of `docs/history/divergences.md`
+/// # A deliberate difference
 ///
 /// Both watchdogs are **armed on the activating edge** (see [`arm_pump_watchdogs`]), so a
 /// five-minute brew or a one-minute hot-water run is stopped rather than running until the

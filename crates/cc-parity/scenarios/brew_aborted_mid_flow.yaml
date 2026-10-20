@@ -1,6 +1,6 @@
 # S5 — aborting while the pump is running.
 #
-# The one-tick window 09 §15 is about is adjacent to this: the state changes and
+# The one-tick window is adjacent to this: the state changes and
 # the valve fail-safe runs in the same tick, so the abort path is exactly where
 # a valve could be left open for one iteration.
 name: brew_aborted_mid_flow
