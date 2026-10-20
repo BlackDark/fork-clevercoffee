@@ -25,6 +25,25 @@ page.
 
 ---
 
+## Frontend migration — 2026-10-20
+
+Owner: Codex. Frontend-only verification against the bundled mock API:
+`pnpm --dir ui check`, the frontend production build, and
+`pnpm --dir ui --filter @clevercoffee/frontend test:e2e` passed. The browser
+suite is [frontend.spec.ts](../ui/packages/frontend/e2e/frontend.spec.ts).
+Local browser execution used Chromium 153 through
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` because the Playwright browser download
+returned an invalid archive in the execution environment.
+
+The embedded asset set measures 106,363 bytes versus 211,182 bytes for the
+React baseline built from `fc3efdc6`: gzip HTML/JS/CSS plus `logo.png`, measured
+by summing the files in `dist`. Gzip files were also decompressed to verify the
+archives. Screenshots are linked from the [README](../README.md).
+The Rust gate, firmware build, and physical-device behavior were not tested;
+the user explicitly scoped this migration to the frontend.
+
+---
+
 ## What works today
 
 **The Rust firmware boots, regulates and serves.** Recorded 2026-09-30 and

@@ -72,3 +72,21 @@ jobs:
       - name: Build
         working-directory: ui/packages/frontend
         run: pnpm build
+
+      - name: Install browser
+        working-directory: ui/packages/frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser integration tests
+        working-directory: ui/packages/frontend
+        run: pnpm test:e2e
+
+      - name: Browser test report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: frontend-browser-tests
+          path: |
+            ui/packages/frontend/playwright-report/
+            ui/packages/frontend/test-results/
+          retention-days: 7

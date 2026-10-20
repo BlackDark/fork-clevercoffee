@@ -1,30 +1,19 @@
-import path from "node:path";
+import { fileURLToPath, URL } from "node:url";
+import { svelte } from "@sveltejs/vite-plugin-svelte";
 import tailwindcss from "@tailwindcss/vite";
-import react from "@vitejs/plugin-react";
-import gzipPlugin from "rollup-plugin-gzip";
-import type { UserConfig } from "vite";
+import gzip from "rollup-plugin-gzip";
 import { defineConfig } from "vite";
-
-// Get base path from environment variable or default to root
-const basePath = process.env.VITE_BASE_PATH || "/";
-
-// https://vite.dev/config/
-export default defineConfig(() => {
-  const config: UserConfig = {
-    plugins: [react(), tailwindcss(), gzipPlugin()],
-    define: {
-      APP_VERSION: JSON.stringify(process.env.VITE_APP_VERSION ?? "dev"),
+export default defineConfig({
+  plugins: [svelte(), tailwindcss(), gzip()],
+  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+  base: process.env.VITE_BASE_PATH || "/ui/",
+  define: {
+    APP_VERSION: JSON.stringify(process.env.VITE_APP_VERSION ?? "dev"),
+  },
+  server: {
+    proxy: {
+      "/api": "http://localhost:3001",
+      "/events": "http://localhost:3001",
     },
-    resolve: {
-      alias: {
-        "@": path.resolve(__dirname, "./src"),
-      },
-    },
-    base: basePath,
-    build: {
-      chunkSizeWarningLimit: 1000, // Increase chunk size warning limit to 1000 KB
-    },
-  };
-
-  return config;
+  },
 });

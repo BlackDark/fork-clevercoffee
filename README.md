@@ -99,18 +99,19 @@ directly.
 - Persistence of configuration across updates and flashes, in the ESP32's
   dedicated **NVS** flash blocks rather than the filesystem
   ([ESP-IDF docs](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/storage/nvs_flash.html))
-- A brand new React UI, precompiled and served from flash
+- A Svelte 5 UI, precompiled and served from flash
 - Hostname configuration during setup, for direct access by DNS name
 - OTA in the web app: upload a binary. The download-from-URL route exists and
   answers `501` — see [`docs/web/http-and-ui.md`](docs/web/http-and-ui.md)
 
-### New frontend / UI
+### Frontend / UI
 
-- Dark mode
-- New home page — ![home](.github/images/frontend-home.webp)
-- Conditional parameter selection with change detection
-  ![parameters](.github/images/frontend-param.webp)
-- System page — ![system](.github/images/frontend-system.webp)
+Svelte 5 with TanStack Query and uPlot, responsive navigation, searchable
+parameters with draft preservation, and light/dark themes.
+
+![Dashboard](.github/images/svelte-dashboard.webp)
+
+[Mobile](.github/images/svelte-mobile.webp) · [Dark theme](.github/images/svelte-dark.webp)
 
 ## How to try it out
 
