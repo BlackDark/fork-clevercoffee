@@ -77,9 +77,8 @@
 
 <div class="page-heading">
   <div>
-    <div class="eyebrow">MAKE IT YOURS</div>
-    <h1>Parameters</h1>
-    <p>Fine-tune your machine, one detail at a time.</p>
+    <h1>Configuration</h1>
+    <p>Configure machine behavior, system settings, and hardware.</p>
   </div>
 </div>
 <div class="settings-toolbar">

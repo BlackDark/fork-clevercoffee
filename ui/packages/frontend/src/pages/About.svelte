@@ -5,9 +5,8 @@
 
 <div class="page-heading">
   <div>
-    <div class="eyebrow">BUILT FOR YOUR DAILY CUP</div>
     <h1>About CleverCoffee</h1>
-    <p>Precision, a little curiosity, and a love of good coffee.</p>
+    <p>CleverCoffee firmware and BrewUI.</p>
   </div>
 </div>
 <section class="panel max-w-3xl">

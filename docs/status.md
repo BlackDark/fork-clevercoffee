@@ -1,6 +1,6 @@
 # Status
 
-**Dated 2026-10-09. Owner: Eduard Marbach** (`mail@eduard-marbach.de`), who also
+**Dated 2026-10-21. Owner: Eduard Marbach** (`mail@eduard-marbach.de`), who also
 owns the wired machine. Re-verify with `git log --oneline -1` and `just gate`
 before trusting a line below.
 
@@ -22,6 +22,26 @@ evidence. A status claim anywhere else is unverified until you have run
 Every line below is a **pointer**, not a claim: a commit, a test, or a
 measurement. If you cannot follow the pointer, the line is wrong and so is this
 page.
+
+---
+
+## Frontend layout correction — 2026-10-21
+
+Owner: Codex. Restored the original neutral light/dark palette, logo, header
+navigation, two-panel machine overview, and cyan/purple/amber uPlot colors.
+Navigation collapses below 768px into a burger menu; route selection, Escape,
+and outside clicks close it. The theme follows the system until a selection is
+saved. No sidebar remains.
+
+`pnpm --dir ui check`, the production build, TypeScript 6 compatibility check,
+and the mock-backed Playwright suite passed. The navigation regression in
+[frontend.spec.ts](../ui/packages/frontend/e2e/frontend.spec.ts) covers collapse,
+route selection, Escape focus return, and desktop header placement. Refreshed
+screenshots are linked from the [README](../README.md). The clean production
+asset set totals 105,685 bytes (95,083 bytes gzip JavaScript), measured by summing
+`dist` files and verifying each gzip archive. Local browser execution
+used the Chromium executable override described below. No firmware or hardware
+verification was performed.
 
 ---
 

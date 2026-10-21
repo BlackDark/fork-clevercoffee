@@ -1,14 +1,5 @@
 <script lang="ts">
-  import {
-    Coffee,
-    LayoutDashboard,
-    Settings2,
-    Server,
-    Info,
-    Sun,
-    Moon,
-    ExternalLink,
-  } from "@lucide/svelte";
+  import { Menu, X, Sun, Moon } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { createMachine } from "@/lib/machine.svelte";
   import Home from "../pages/Home.svelte";
@@ -21,13 +12,15 @@
       location.pathname.replace(/^.*\/ui\/?/, "/") ||
       "/",
   );
+  let menuOpen = $state(false);
+  let menuButton: HTMLButtonElement;
   let dark = $state(false);
   let theme = $state("system");
   const links = [
-    { href: "/", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/config/behavior", label: "Parameters", icon: Settings2 },
-    { href: "/system", label: "System", icon: Server },
-    { href: "/about", label: "About", icon: Info },
+    { href: "/", label: "Home" },
+    { href: "/config/behavior", label: "Configuration" },
+    { href: "/system", label: "System" },
+    { href: "/about", label: "About" },
   ];
   onMount(() => {
     const media = matchMedia("(prefers-color-scheme: dark)");
@@ -42,6 +35,7 @@
     sync();
     const hash = () => {
       route = location.hash.slice(1) || "/";
+      menuOpen = false;
     };
     window.addEventListener("hashchange", hash);
     media.addEventListener("change", sync);
@@ -77,7 +71,30 @@
   }
 </script>
 
-<svelte:window onbeforeunload={guard} />
+<svelte:window
+  onbeforeunload={guard}
+  onkeydown={(event) => {
+    if (event.key === "Escape" && menuOpen) {
+      menuOpen = false;
+      menuButton?.focus();
+    }
+  }}
+  onclick={(event) => {
+    if (
+      menuOpen &&
+      !event
+        .composedPath()
+        .some(
+          (node) =>
+            node instanceof Element && node.classList.contains("topbar"),
+        )
+    )
+      menuOpen = false;
+  }}
+  onresize={() => {
+    if (innerWidth >= 768) menuOpen = false;
+  }}
+/>
 
 <a
   href="#main"
@@ -88,109 +105,117 @@
   class="skip-link">Skip to content</a
 >
 <div class="app-layout">
-  <aside class="sidebar">
+  <header class="topbar">
     <a
       href="#/"
       class="brand"
-      ><span class="brand-icon"><Coffee size={24} /></span><span
-        >CleverCoffee<small>BREWUI</small></span
-      ></a
+      aria-label="CleverCoffee"
+      ><img
+        src={`${import.meta.env.BASE_URL}logo.png`}
+        alt=""
+        width="24"
+        height="24"
+      /></a
     >
-    <div class="nav-caption">YOUR MACHINE</div>
-    <nav aria-label="Main navigation">
-      {#each links as link}<a
-          href={`#${link.href}`}
-          class:active={link.href === "/"
+    <nav
+      id="primary-navigation"
+      aria-label="Main navigation"
+      class="header-nav"
+      class:open={menuOpen}
+    >
+      {#each links as link}
+        {@const active =
+          link.href === "/"
             ? route === "/"
             : route.startsWith(link.href.split("/").slice(0, 2).join("/"))}
-          aria-current={(
-            link.href === "/"
-              ? route === "/"
-              : route.startsWith(link.href.split("/").slice(0, 2).join("/"))
-          )
-            ? "page"
-            : undefined}><link.icon size={19} />{link.label}</a
-        >{/each}
+        <a
+          href={`#${link.href}`}
+          class:active
+          aria-current={active ? "page" : undefined}
+          onclick={() => {
+            menuOpen = false;
+          }}>{link.label}</a
+        >
+      {/each}
     </nav>
-    <div class="sidebar-bottom">
-      <span class="flex items-center gap-2"
+    <div class="header-actions">
+      <span
+        class="connection-status"
+        aria-label="Device connection"
         ><span
           class="status-dot"
           class:offline={machine.status.isError}
         ></span>{machine.status.isPending
           ? "Connecting…"
           : machine.status.isError
-            ? "Device unavailable"
-            : "Device connected"}</span
-      ><small>Made for a better daily ritual.</small>
+            ? "Offline"
+            : "Online"}</span
+      >
+      <button
+        class="icon-btn"
+        onclick={toggleTheme}
+        aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
+        >{#if dark}<Sun size={18} />{:else}<Moon size={18} />{/if}</button
+      >
+      <button
+        class="icon-btn menu-button"
+        bind:this={menuButton}
+        aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
+        aria-expanded={menuOpen}
+        aria-controls="primary-navigation"
+        onclick={() => {
+          menuOpen = !menuOpen;
+        }}
+        >{#if menuOpen}<X size={20} />{:else}<Menu size={20} />{/if}</button
+      >
     </div>
-  </aside>
-  <div class="main-column">
-    <header class="topbar">
-      <span class="text-sm text-muted-foreground">Your coffee, precisely.</span>
-      <div class="flex items-center gap-4">
+  </header>
+  <main
+    id="main"
+    tabindex="-1"
+  >
+    {#if machine.status.isError}<div
+        class="notice error"
+        role="alert"
+      >
+        Cannot reach the device. Controls may be out of date. <button
+          class="text-link"
+          onclick={() => machine.status.refetch()}>Retry connection</button
+        >
+      </div>{/if}
+    {#if machine.status.data?.isStandby}<div class="notice">
+        The machine is in standby. <button
+          class="text-link"
+          onclick={wake}
+          disabled={machine.command.isPending}>Wake up</button
+        >
+      </div>{/if}
+    {#if machine.status.data?.backflushReminderDue && route !== "/"}<div
+        class="notice"
+      >
+        Backflush recommended · {machine.status.data.shotsSinceBackflush} shots since
+        cleaning.
         <a
-          href="https://github.com/BlackDark/fork-clevercoffee"
-          target="_blank"
-          rel="noreferrer"
-          class="github-link">GitHub <ExternalLink size={13} /></a
-        ><button
-          class="icon-btn"
-          onclick={toggleTheme}
-          aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
-          >{#if dark}<Sun size={18} />{:else}<Moon size={18} />{/if}</button
+          class="text-link"
+          href="#/">View maintenance</a
         >
-      </div>
-    </header>
-    <main
-      id="main"
-      tabindex="-1"
-    >
-      {#if machine.status.isError}<div
-          class="notice error"
-          role="alert"
-        >
-          Cannot reach the device. Controls may be out of date. <button
-            class="text-link"
-            onclick={() => machine.status.refetch()}>Retry connection</button
-          >
-        </div>{/if}
-      {#if machine.status.data?.isStandby}<div class="notice">
-          The machine is in standby. <button
-            class="text-link"
-            onclick={wake}
-            disabled={machine.command.isPending}>Wake up</button
-          >
-        </div>{/if}
-      {#if machine.status.data?.backflushReminderDue && route !== "/"}<div
-          class="notice"
-        >
-          Backflush recommended · {machine.status.data.shotsSinceBackflush} shots
-          since cleaning.
-          <a
-            class="text-link"
-            href="#/">View maintenance</a
-          >
-        </div>{/if}
-      {#if machine.command.isError}<div
-          class="notice error"
-          role="alert"
-        >
-          {machine.command.error.message}
-        </div>{/if}
-      {#if route === "/"}<Home
-          {dark}
-        />{:else if route.startsWith("/config/")}<Config
-          filter={route.split("/")[2]}
-        />{:else if route === "/system"}<System
-        />{:else if route === "/about"}<About />{:else}<h1>Page not found</h1>
-        <a
-          href="#/"
-          class="btn">Back to dashboard</a
-        >{/if}
-      <footer>
-        CleverCoffee <span>Thoughtful control. Better coffee.</span>
-      </footer>
-    </main>
-  </div>
+      </div>{/if}
+    {#if machine.command.isError}<div
+        class="notice error"
+        role="alert"
+      >
+        {machine.command.error.message}
+      </div>{/if}
+    {#if route === "/"}<Home
+        {dark}
+      />{:else if route.startsWith("/config/")}<Config
+        filter={route.split("/")[2]}
+      />{:else if route === "/system"}<System
+      />{:else if route === "/about"}<About />{:else}<h1>Page not found</h1>
+      <a
+        href="#/"
+        class="btn">Back to dashboard</a
+      >{/if}
+    <footer>CleverCoffee</footer>
+  </main>
 </div>

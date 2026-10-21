@@ -105,7 +105,6 @@
 
 <div class="page-heading">
   <div>
-    <div class="eyebrow">BEHIND THE BREW</div>
     <h1>System</h1>
     <p>Back up your settings, update your device, and keep things running.</p>
   </div>
@@ -122,7 +121,7 @@
     <div class="panel-heading">
       <div>
         <h2>Power & standby</h2>
-        <p>A fresh start, or a well-earned rest.</p>
+        <p>Wake, sleep, or restart the device.</p>
       </div>
       <Power size={20} />
     </div>
@@ -163,7 +162,7 @@
     <div class="panel-heading">
       <div>
         <h2>Configuration backup</h2>
-        <p>Keep a copy of your current setup.</p>
+        <p>Download the current configuration.</p>
       </div>
       <Download size={20} />
     </div>

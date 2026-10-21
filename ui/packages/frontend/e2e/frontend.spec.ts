@@ -37,9 +37,7 @@ test("dashboard shows live telemetry, retains charts, and sends only the edited 
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("#/error");
   await page.getByRole("link", { name: "Back to dashboard" }).click();
-  await expect(
-    page.getByText("Device connected", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("Online", { exact: true })).toBeVisible();
   await expect(page.getByText("Live", { exact: true })).toBeVisible();
   await expect(page.locator(".uplot")).toHaveCount(2);
   const temperature = page.getByLabel("Brew temperature", { exact: true });
@@ -48,7 +46,7 @@ test("dashboard shows live telemetry, retains charts, and sends only the edited 
   const request = page.waitForRequest(
     (r) => r.url().includes("/api/parameters") && r.method() === "POST",
   );
-  await page.getByRole("button", { name: "Set", exact: true }).click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
   expect((await request).postData()).toBe("brew.setpoint=94");
   await expect(page.getByRole("status")).toContainText(
     "Brew temperature saved",
@@ -192,14 +190,14 @@ test("drafts survive dashboard navigation and secrets stay masked in review", as
   await expect(password).toBeEnabled();
   await password.fill("private-test-secret");
   await password.blur();
-  await page.getByRole("link", { name: "Dashboard", exact: true }).click();
+  await page.getByRole("link", { name: "Home", exact: true }).click();
   await expect(
     page.getByRole("heading", {
-      name: "Good coffee starts here.",
+      name: "Home",
       exact: true,
     }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Parameters", exact: true }).click();
+  await page.getByRole("link", { name: "Configuration", exact: true }).click();
   await expect(
     page.getByRole("navigation", { name: "Parameter categories" }),
   ).toBeVisible();
@@ -280,4 +278,33 @@ test("invalid configuration is rejected before upload", async ({ page }) => {
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByRole("alert")).toBeVisible();
   expect(requests).toBe(0);
+});
+
+test("header navigation collapses on small screens and closes after selection or Escape", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 740, height: 900 });
+  await page.goto("#/");
+  const nav = page.getByRole("navigation", { name: "Main navigation" });
+  const burger = page.getByRole("button", { name: "Open navigation menu" });
+  await expect(nav).toBeHidden();
+  await burger.click();
+  await expect(nav).toBeVisible();
+  await nav.getByRole("link", { name: "About", exact: true }).click();
+  await expect(page).toHaveURL(/#\/about$/);
+  await expect(nav).toBeHidden();
+  await burger.click();
+  await page.keyboard.press("Escape");
+  await expect(nav).toBeHidden();
+  await expect(burger).toBeFocused();
+  await burger.click();
+  await page.locator("main").click({ position: { x: 10, y: 500 } });
+  await expect(nav).toBeHidden();
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await expect(nav).toBeVisible();
+  await expect(burger).toBeHidden();
+  expect(await nav.evaluate((node) => node.closest("header") !== null)).toBe(
+    true,
+  );
+  expect(await page.locator("aside").count()).toBe(0);
 });

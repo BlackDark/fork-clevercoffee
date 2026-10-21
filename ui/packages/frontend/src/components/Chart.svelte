@@ -15,22 +15,22 @@
   let plot: uPlot | undefined;
   let error = $state("");
   function create() {
-    const stroke = dark ? "#b5c4c0" : "#52655e";
-    const grid = dark ? "#2d3e37" : "#e4ebe7";
+    const stroke = dark ? "#6b7280" : "#9ca3af";
+    const grid = dark ? "#374151" : "#e5e7eb";
     const series: uPlot.Series[] =
       kind === "temperature"
         ? [
             {},
             {
               label: "Current",
-              stroke: "#139b7c",
+              stroke: dark ? "#06b6d4" : "#0891b2",
               width: 2,
               points: { show: false },
               value: (_, v) => (v == null ? "—" : `${v.toFixed(1)} °C`),
             },
             {
               label: "Target",
-              stroke: "#d4a449",
+              stroke: dark ? "#a855f7" : "#9333ea",
               width: 2,
               dash: [5, 4],
               points: { show: false },
@@ -41,8 +41,8 @@
             {},
             {
               label: "Heater power",
-              stroke: "#d4a449",
-              fill: "#d4a44920",
+              stroke: dark ? "#f59e0b" : "#d97706",
+              fill: dark ? "#f59e0b20" : "#d9770620",
               width: 2,
               points: { show: false },
               value: (_, v) => (v == null ? "—" : `${v.toFixed(0)}%`),
@@ -51,7 +51,7 @@
     return new uPlot(
       {
         width: Math.max(240, container.clientWidth),
-        height: 240,
+        height: 320,
         series,
         axes: [
           {
@@ -93,7 +93,7 @@
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         const width = Math.max(240, container.clientWidth);
-        if (plot && plot.width !== width) plot.setSize({ width, height: 240 });
+        if (plot && plot.width !== width) plot.setSize({ width, height: 320 });
       });
     });
     observer.observe(container);

@@ -103,101 +103,92 @@
   }
 </script>
 
-<div class="page-heading">
-  <div>
-    <div class="eyebrow">THE DAILY RITUAL</div>
-    <h1>Good coffee starts here.</h1>
-    <p>A live look at your machine. Everything you need for the next cup.</p>
-  </div>
-  <span class="badge"
-    ><span
-      class="status-dot"
-      class:offline={stream !== "Live"}
-    ></span>{stream}</span
-  >
-</div>
+<h1 class="sr-only">Home</h1>
 {#if message}<p
     class="notice"
     role="status"
   >
     {message}
   </p>{/if}
-<div class="stats-grid">
-  <section class="stat-card">
-    <div class="stat-label"><Thermometer size={18} /> Boiler temperature</div>
-    <div class="stat-value">
-      {current?.currentTemp.toFixed(1) ?? "—"}<span>°C</span>
-    </div>
-    <p>Target {current?.targetTemp.toFixed(1) ?? "—"} °C</p>
-  </section>
-  <section class="stat-card">
-    <div class="stat-label"><Zap size={18} /> Heater output</div>
-    <div class="stat-value">
-      {current?.heaterPower.toFixed(0) ?? "—"}<span>%</span>
-    </div>
-    <progress
-      max="100"
-      value={current?.heaterPower ?? 0}
-      aria-label="Heater output"
-    ></progress>
-  </section>
-  <section class="stat-card">
-    <div class="stat-label"><Activity size={18} /> Machine status</div>
-    <div class="stat-value status-text">
-      {m.status.isPending
-        ? "Connecting"
-        : m.status.isError
-          ? "Offline"
-          : m.status.data?.isStandby
-            ? "Standby"
-            : m.status.data?.steamMode
-              ? "Steaming"
-              : m.status.data?.brewing
-                ? "Brewing"
-                : "Online"}
-    </div>
-    <p>
-      {m.status.data?.isStandby
-        ? "Taking a little break"
-        : "A moment for a good cup."}
-    </p>
-  </section>
-</div>
-<div class="dashboard-grid">
-  <section class="panel chart-panel">
+<div class="home-grid">
+  <section class="panel">
     <div class="panel-heading">
-      <div>
-        <h2>Temperature</h2>
-        <p>Current and target temperature over time</p>
-      </div>
-      <Thermometer size={20} />
-    </div>
-    {#if history.isError}<div
-        class="notice error"
-        role="alert"
+      <h2><Activity size={20} />Machine Status</h2>
+      <span class="badge"
+        ><span
+          class="status-dot"
+          class:offline={stream !== "Live"}
+        ></span>{stream}</span
       >
-        History unavailable. <button
-          class="text-link"
-          onclick={() => history.refetch()}>Retry</button
-        >
-      </div>{/if}{#if !current && initial.isError}<p role="alert">
+    </div>
+    <div class="machine-metrics">
+      <div>
+        <div class="stat-label">
+          <Thermometer
+            size={18}
+            class="temperature-icon"
+          />Current Temperature
+        </div>
+        <div class="stat-value">
+          {current?.currentTemp.toFixed(2) ?? "—"}<span>°C</span>
+        </div>
+      </div>
+      <div>
+        <div class="stat-label">
+          <Zap
+            size={18}
+            class="heater-icon"
+          />Current Heater Power
+        </div>
+        <div class="stat-value">
+          {current?.heaterPower.toFixed(2) ?? "—"}<span>%</span>
+        </div>
+      </div>
+    </div>
+    {#if !current && initial.isError}<p role="alert">
         Temperature unavailable.
-      </p>{/if}<Chart
-      data={temperatureChart}
-      {dark}
-    />
+      </p>{/if}
+    <form
+      class="setpoint-form"
+      onsubmit={save}
+    >
+      <div>
+        <label for="brew-temperature">Setpoint (°C)</label>
+        <p>Target: {current?.targetTemp.toFixed(1) ?? "—"} °C</p>
+      </div>
+      <div class="setpoint-controls">
+        <input
+          class="input"
+          aria-label="Brew temperature"
+          id="brew-temperature"
+          type="number"
+          step="any"
+          min={target?.min ?? 0}
+          max={target?.max ?? 150}
+          value={setpoint ?? target?.value ?? ""}
+          oninput={(e) => {
+            setpoint = e.currentTarget.valueAsNumber;
+          }}
+          required
+          disabled={!target}
+        /><button
+          class="btn"
+          disabled={m.save.isPending || !target}>Save</button
+        >
+      </div>
+    </form>
   </section>
   <section class="panel">
     <div class="panel-heading">
-      <div>
-        <h2>Machine controls</h2>
-        <p>Make yourself a coffee.</p>
-      </div>
-      <Power size={20} />
+      <h2><Power size={20} />Machine Functions</h2>
     </div>
     {#each [{ label: "PID heating", route: "/pid", on: m.status.data?.pidEnabled ?? !!m.parameters.data?.find((p) => p.name === "pid.enabled")?.value }, { label: "Steam mode", route: "/steam", on: m.status.data?.steamMode }] as control}
       <div class="control-row">
-        <span>{control.label}</span><button
+        <div>
+          <span>{control.label}</span>
+          <p>{control.on ? "Enabled" : "Disabled"}</p>
+        </div>
+        <button
           class="pill-toggle"
           role="switch"
           aria-label={control.label}
@@ -208,31 +199,13 @@
           onclick={() => command(control.route)}><span></span></button
         >
       </div>{/each}
-    <form
-      class="setpoint-form"
-      onsubmit={save}
-    >
-      <label for="brew-temperature">Brew temperature</label>
-      <div class="flex gap-2 mt-2">
-        <div class="input-suffix">
-          <input
-            id="brew-temperature"
-            type="number"
-            step="any"
-            min={target?.min ?? 0}
-            max={target?.max ?? 150}
-            value={setpoint ?? target?.value ?? ""}
-            oninput={(e) => (setpoint = e.currentTarget.valueAsNumber)}
-            required
-            disabled={!target}
-          /><span>°C</span>
-        </div>
-        <button
-          class="btn"
-          disabled={m.save.isPending || !target}>Set</button
-        >
-      </div>
-    </form>
+    <div class="control-row">
+      <span>Backflush</span><button
+        class="btn secondary"
+        disabled={m.command.isPending || m.status.isError || m.status.isPending}
+        onclick={() => command("/backflush")}>Toggle backflush</button
+      >
+    </div>
     {#if m.parameters.data?.some((p) => p.name === "hardware.sensors.scale.enabled" && !!p.value)}<div
         class="flex gap-2 mt-4"
       >
@@ -249,11 +222,34 @@
   </section>
   <section class="panel chart-panel">
     <div class="panel-heading">
-      <div>
-        <h2>Heater activity</h2>
-        <p>Power delivered to keep things just right</p>
-      </div>
-      <Zap size={20} />
+      <h2>
+        <Thermometer
+          size={20}
+          class="temperature-icon"
+        />Temperature History
+      </h2>
+    </div>
+    {#if history.isError}<div
+        class="notice error"
+        role="alert"
+      >
+        History unavailable. <button
+          class="text-link"
+          onclick={() => history.refetch()}>Retry</button
+        >
+      </div>{/if}<Chart
+      data={temperatureChart}
+      {dark}
+    />
+  </section>
+  <section class="panel chart-panel">
+    <div class="panel-heading">
+      <h2>
+        <Zap
+          size={20}
+          class="heater-icon"
+        />Heater Power History
+      </h2>
     </div>
     <Chart
       data={heaterChart}
@@ -261,19 +257,13 @@
       {dark}
     />
   </section>
-  <section class="panel">
-    <div class="panel-heading">
-      <div>
-        <h2>A little care goes a long way.</h2>
-        <p>Keep your machine in good company.</p>
-      </div>
-      <Droplets size={20} />
-    </div>
+  <section class="panel maintenance-panel">
+    <div class="panel-heading"><h2><Droplets size={20} />Maintenance</h2></div>
     <div class="maintenance-number">
       {shots}<span> / {threshold} shots</span>
     </div>
     <p class="text-sm text-muted-foreground mb-3">
-      Since the last backflush{m.status.data?.backflushReminderDue
+      Shots since last backflush{m.status.data?.backflushReminderDue
         ? " · Cleaning recommended"
         : ""}
     </p>
@@ -281,19 +271,11 @@
       max={Math.max(1, threshold)}
       value={shots}
       aria-label="Shots since backflush"
-    ></progress>
-    <div class="flex flex-wrap gap-2 mt-5">
-      <button
-        class="btn secondary"
-        disabled={m.command.isPending}
-        onclick={() => command("/backflush")}
-        ><Droplets size={15} />Backflush</button
-      ><button
-        class="btn ghost"
-        disabled={m.command.isPending}
-        onclick={() => command("/maintenance/reset-backflush-counter")}
-        ><RotateCcw size={15} />Reset counter</button
-      >
-    </div>
+    ></progress><button
+      class="btn secondary mt-4"
+      disabled={m.command.isPending}
+      onclick={() => command("/maintenance/reset-backflush-counter")}
+      ><RotateCcw size={15} />Reset counter</button
+    >
   </section>
 </div>

@@ -380,8 +380,9 @@ Practical consequences:
 TanStack Svelte Query owns server state and mutations, uPlot owns charts, and
 Zod Mini validates API data. Use native controls and Bits UI dialogs rather than
 adding a second primitive library. Hash routes keep the client independent of
-server route registration. The migration's UI design and dependency changes were
-explicitly authorized by the user; there is no 50 KB size limit.
+server route registration. Preserve the original neutral light/dark palette, logo, and header navigation.
+Collapse navigation into a burger menu below 768px; do not introduce a sidebar.
+There is no 50 KB size limit.
 
 **AG-UI-2.** `pnpm --dir ui check` runs Biome for TS/CSS, Prettier for Svelte
 markup, `svelte-check --fail-on-warnings`, and Vitest. Also run the frontend build
