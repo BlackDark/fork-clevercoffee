@@ -116,6 +116,10 @@ const MAX_TICKS: u32 = 120_000;
 /// A scenario run that failed.
 #[derive(Debug)]
 pub enum RunError {
+    /// The scenario failed [`Scenario::validate`]: a `Scenario` built directly
+    /// rather than through [`Scenario::parse`] can name a switch, command or
+    /// state the firmware does not have.
+    Invalid(crate::scenario::ScenarioError),
     /// The scenario is not a `dry_run` scenario; the driver does not drive a
     /// device.
     NotDryRun {
@@ -135,6 +139,7 @@ pub enum RunError {
 impl std::fmt::Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Invalid(err) => write!(f, "{err}"),
             Self::NotDryRun { name } => {
                 write!(
                     f,
@@ -197,13 +202,17 @@ impl Runner {
     ///
     /// # Errors
     ///
-    /// [`RunError::NotDryRun`] if the scenario is `hardware`.
+    /// [`RunError::NotDryRun`] if the scenario is `hardware`, and
+    /// [`RunError::Invalid`] if it fails [`Scenario::validate`].
     pub fn new(scenario: Scenario) -> Result<Self, RunError> {
         if scenario.mode != crate::scenario::Mode::DryRun {
             return Err(RunError::NotDryRun {
                 name: scenario.name.clone(),
             });
         }
+        scenario
+            .validate(&scenario.name)
+            .map_err(RunError::Invalid)?;
         let mut config = Config::default();
         apply_overrides(&mut config, &scenario.config.set).map_err(|e| {
             RunError::AssertionFailed {
@@ -1310,8 +1319,26 @@ assert:
         assert!(obs.states.contains(&"STANDBY".to_string()), "{obs:?}");
     }
 
-    /// A long-press on the power switch reboots, which is the only path in the
-    /// firmware that restarts the chip (`Effect::RequestReboot`).
+    #[test]
+    fn a_scenario_mutated_after_parsing_is_validated_not_panicked_on() {
+        let mut s = scenario(
+            r"
+name: bad
+title: bad
+mode: dry_run
+stimuli:
+  - { at_ms: 0, kind: mqtt, command: BREW_START }
+assert:
+  - { kind: actuator_safe }
+",
+        );
+        s.stimuli[0].kind = StimulusKind::Mqtt {
+            command: "NOT_A_COMMAND".into(),
+        };
+        let err = run(s).expect_err("must be refused");
+        assert!(matches!(err, RunError::Invalid(_)), "{err}");
+    }
+
     #[test]
     fn an_mqtt_command_reaches_the_reducer_as_the_command_it_names() {
         // Boot emits `SetPidRuntime` too, so only the one at 500 ms is the command's.
@@ -1336,6 +1363,8 @@ assert:
         );
     }
 
+    /// A long-press on the power switch reboots, which is the only path in the
+    /// firmware that restarts the chip (`Effect::RequestReboot`).
     #[test]
     fn a_long_press_on_power_requests_a_reboot() {
         let s = scenario(
