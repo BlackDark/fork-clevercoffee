@@ -90,9 +90,6 @@ pub const BENCH_UNSAFE_TEMPERATURES: bool = option_env!("CC_BENCH_UNSAFE_TEMPERA
 #[cfg(test)]
 extern crate alloc;
 
-#[cfg(test)]
-mod pid_parity;
-
 pub use error::ErrorCode;
 pub use state::MachineState;
 

@@ -8,13 +8,8 @@
 //! late production-window ticks. The last two assert intentional divergence.
 //! Agreement scenarios require bit-exact results as well as [`TOLERANCE`].
 
-// `alloc` is linked for tests only. The library itself uses no allocation at all; a
-// growable log of parity results is a test convenience, not a runtime requirement, and
-// pulling in `alloc` unconditionally would be a lie about the crate's dependencies.
-use alloc::vec::Vec;
-
-use super::pid::{Controller, ControllerDirection, Mode, ProportionalOn};
-use super::units::Millis;
+use cc_domain::pid::{Controller, ControllerDirection, Mode, ProportionalOn};
+use cc_domain::units::Millis;
 
 /// Absolute tolerance for the output comparison. The measured difference is 0.0 on every
 /// step; the tolerance makes a future floating-point contraction difference fail loudly

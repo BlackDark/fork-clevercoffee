@@ -61,7 +61,7 @@ short structured description of what the machine did.
 **Oracle** — a reference whose recorded output is the expected value a test asserts
 against, rather than a second implementation checked in the same run. The programs
 that produced the recorded output are not in this tree; what remains is the output,
-frozen in `crates/cc-domain/src/pid_parity.rs`,
+frozen in `crates/cc-domain/tests/pid_parity.rs`,
 `crates/cc-display/tests/fmt_oracle.txt` and
 `crates/cc-display/tests/support/*_widths.rs`. The word is also used for a Rust
 firmware recovered from a flash dump, whose source never existed.
