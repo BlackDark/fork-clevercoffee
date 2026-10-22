@@ -8,7 +8,7 @@ measured from a real run; the run ids are in the commit history.
 
 ```
 rust.yml        host      (42 s)   fmt, clippy -D warnings, rustdoc, tests, scenarios, device, UI
-                device   (370 s)   esp toolchain, device clippy, release build, image size budget
+                device   (160 s)   esp toolchain, device clippy, release build, image size budget
                 invariants(15 s)   four cross-cutting greps and scripts
 frontend.yml    frontend    (26 s)  the React UI: lint, types, tests, build
 release.yml     release       --   on a v* tag only; builds the Rust image and publishes a
@@ -22,7 +22,8 @@ the time a contributor waits is `device`, and everything else is runner-minutes.
 | | wall clock | runner-minutes |
 | --- | --- | --- |
 | before the C++ removal | 599 s (device job) | 988 s across 3 jobs — and the C++ workflows never ran on a PR to `rewrite/rust` |
-| now | **370 s** | **~450 s across 4 jobs** |
+| before the host-artifact cache | 370 s | ~450 s across 4 jobs |
+| now (run `39859013389`) | **160 s** | **~230 s across 3 jobs** |
 
 ## Two toolchains, and why they are separate jobs
 
@@ -56,7 +57,7 @@ Three things forced this apart, each learned the hard way:
 
 | step | cold | warm | what it is |
 | --- | --- | --- | --- |
-| restore `.embuild` + `target/xtensa-esp32-espidf` | miss | **19 s** | the ESP-IDF clone, tools, python env, and the built archives |
+| restore `.embuild` + `target/` (device and its host half) | miss | **35 s** | the ESP-IDF clone, tools, python env, built archives, build scripts and proc-macros |
 | restore `~/.rustup/toolchains/esp` | miss | fast | 1.9 GB of Xtensa rustc + GCC + LLVM |
 | restore `~/.cargo/registry` | miss | fast | 407 crates that were otherwise re-downloaded |
 | `mise install` | 16 s | 16 s | host tools |
@@ -64,8 +65,9 @@ Three things forced this apart, each learned the hard way:
 | install the esp toolchain | 71 s | ~0 s | espup (0.4 s) + `espup install`, skipped on a cache hit — see the Caches section, which is what the warm figure is drawn from |
 | install the pinned host toolchain | 8 s | 8 s | needed only so the lint-name probe has both channels |
 | lint-name probe | 1 s | 1 s | every `clippy::` in an allow/expect exists on ≥1 channel |
-| **device clippy** | 240 s | **114 s** | |
-| **release build** | 174 s | **111 s** | |
+| **device clippy** | 240 s | **41 s** | |
+| **release build** | 174 s | **45 s** | |
+| prune before save | 1 s | 1 s | drops unpacked tool archives and always-stale workspace artifacts |
 | size budget + record | 2 s | 2 s | |
 
 The 126 s and 63 s came from the cache alone. The cause was that `esp-idf-sys`'s
@@ -74,6 +76,12 @@ run** — once for the `dev` profile's `OUT_DIR` (device clippy) and once for
 `release` (the firmware build). Different `OUT_DIR`, different CMake build
 directory, 107 `.a` archives each. The cache holds both, so the script re-runs
 and finds its work already done.
+
+The next 73 s and 38 s came from caching `target/debug` and `target/release`.
+With `--target`, cargo builds build scripts and proc-macros there, for the host;
+uncached, they were rebuilt every run, and with them every crate depending on
+them: ~170 crates, `std` included, in both steps. Workspace crates still rebuild,
+because checkout gives their sources fresh mtimes.
 
 `espup install` is still ~70 s even warm: 2.1 s is the download, the rest is
 unpacking. The toolchain cache removes most of it — the run that first
