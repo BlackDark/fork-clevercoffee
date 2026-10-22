@@ -173,7 +173,8 @@ pub(crate) fn bring_up() -> Result<(), Box<dyn Error>> {
         shared_i2c.map(|bus| &*Box::leak(Box::new(bus)));
 
     let frame = Arc::new(slots::FrameSlot::new());
-    let display = display_task_for(&config, shared_i2c, &frame, &tier.net);
+    // Boxed: the closure then carries a pointer, not the task.
+    let display = Box::new(display_task_for(&config, shared_i2c, &frame, &tier.net));
 
     // Built here, in this 16 KB frame, so the closure carries a pointer; see
     // `ControlArgs` for why a by-value bundle overflowed the control stack.
@@ -549,20 +550,19 @@ fn display_task_for(
     shared_i2c: Option<&'static cc_hal_esp32::display_shared::SharedBus>,
     frame: &Arc<slots::FrameSlot>,
     net: &network::Network,
-) -> Box<display_task::DisplayTask> {
+) -> display_task::DisplayTask {
     let panel = if config.hardware.oled.enabled {
         shared_i2c.map(cc_hal_esp32::display_shared::SharedPanel::bring_up)
     } else {
         info!("display: hardware.oled.enabled is false — the panel is not brought up");
         None
     };
-    // Boxed: a task bundle built by value is a frame cost this function cannot see.
-    Box::new(display_task::DisplayTask::new(
+    display_task::DisplayTask::new(
         panel,
         display_task::template_for(config.display.template),
         Arc::clone(frame),
         Arc::clone(&net.shared),
-    ))
+    )
 }
 
 /// Log where the switches are resting, once, at boot.
