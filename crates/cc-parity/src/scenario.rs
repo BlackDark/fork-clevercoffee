@@ -491,7 +491,7 @@ impl Scenario {
 }
 
 /// Resolve a switch name to its enumeration.
-fn parse_switch(name: &str) -> Option<cc_machine::SwitchId> {
+pub(crate) fn parse_switch(name: &str) -> Option<cc_machine::SwitchId> {
     use cc_machine::SwitchId;
     match name {
         "brew" => Some(SwitchId::Brew),
@@ -607,7 +607,7 @@ fn validate_assertion(a: &Assertion) -> Result<(), String> {
 }
 
 /// Resolve a command name to its enumeration.
-fn parse_command(name: &str) -> Option<cc_machine::Command> {
+pub(crate) fn parse_command(name: &str) -> Option<cc_machine::Command> {
     use cc_machine::Command::{
         BackflushCycleStart, BackflushEnter, BackflushStop, BrewStart, BrewStop, ManualFlushStart,
         ManualFlushStop, NormalOperation, Reboot, SetUserPidEnabled, Standby, SteamStart,

@@ -10,13 +10,14 @@ use cc_config::Config;
 use cc_domain::pid::{Controller, ControllerDirection, Mode as PidMode, ProportionalOn};
 use cc_domain::state::MachineState;
 use cc_domain::units::{Celsius, Millis};
-use cc_machine::{
-    Actuators, Command, Diagnostics, Effect, Effects, Event, MachineChannels, Sensors, SwitchId,
-};
+use cc_machine::{Actuators, Diagnostics, Effect, Effects, Event, MachineChannels, Sensors};
 use serde_json::Value;
 
 use crate::observe::{Actuators as ObservedActuators, Observation};
-use crate::scenario::{Assertion, ButtonAction, OtaAction, Scenario, Stimulus, StimulusKind};
+use crate::scenario::{
+    parse_command, parse_switch, Assertion, ButtonAction, OtaAction, Scenario, Stimulus,
+    StimulusKind,
+};
 
 /// An `Actuators` implementation that records and does nothing else.
 ///
@@ -571,7 +572,10 @@ impl Runner {
                 action,
                 long_press,
             } => {
-                let id = parse_switch(switch).unwrap_or(SwitchId::Brew);
+                // `Scenario::validate` resolved the name with this same parser.
+                let Some(id) = parse_switch(switch) else {
+                    unreachable!("validated switch {switch:?} did not resolve");
+                };
                 let ev = match action {
                     ButtonAction::Press => Event::ButtonPressed {
                         switch: id,
@@ -615,7 +619,9 @@ impl Runner {
             }
 
             StimulusKind::Mqtt { command } => {
-                let cmd = parse_command(command).unwrap_or(Command::BrewStop);
+                let Some(cmd) = parse_command(command) else {
+                    unreachable!("validated command {command:?} did not resolve");
+                };
                 feed(&mut machine, &ctx, Event::Command(cmd), &mut effects);
             }
 
@@ -917,34 +923,6 @@ fn set_path(doc: &mut Value, key: &str, value: &Value, depth: usize) -> bool {
             set_path(child, rest, value, depth + 1)
         }
     }
-}
-
-fn parse_switch(name: &str) -> Option<SwitchId> {
-    Some(match name {
-        "brew" => SwitchId::Brew,
-        "steam" => SwitchId::Steam,
-        "power" => SwitchId::Power,
-        "hot_water" => SwitchId::HotWater,
-        _ => return None,
-    })
-}
-
-fn parse_command(name: &str) -> Option<Command> {
-    Some(match name {
-        "BREW_START" => Command::BrewStart,
-        "BREW_STOP" => Command::BrewStop,
-        "STEAM_START" => Command::SteamStart,
-        "STEAM_STOP" => Command::SteamStop,
-        "MANUAL_FLUSH_START" => Command::ManualFlushStart,
-        "MANUAL_FLUSH_STOP" => Command::ManualFlushStop,
-        "BACKFLUSH_ENTER" => Command::BackflushEnter,
-        "BACKFLUSH_CYCLE_START" => Command::BackflushCycleStart,
-        "BACKFLUSH_STOP" => Command::BackflushStop,
-        "STANDBY" => Command::Standby,
-        "NORMAL_OPERATION" => Command::NormalOperation,
-        "REBOOT" => Command::Reboot,
-        _ => return None,
-    })
 }
 
 #[cfg(test)]
@@ -1367,6 +1345,30 @@ assert:
 
     /// A long-press on the power switch reboots, which is the only path in the
     /// firmware that restarts the chip (`Effect::RequestReboot`).
+    #[test]
+    fn an_mqtt_command_reaches_the_reducer_as_the_command_it_names() {
+        // Boot emits `SetPidRuntime` too, so only the one at 500 ms is the command's.
+        let s = scenario(
+            r"
+name: pid_on
+title: enable the PID over MQTT
+mode: dry_run
+duration_ms: 1000
+stimuli:
+  - { at_ms: 500, kind: mqtt, command: SET_USER_PID_ENABLED }
+assert:
+  - { kind: always, effect: SetPidRuntime }
+",
+        );
+        let obs = run(s).expect("runs");
+        assert!(
+            obs.occurrences("SetPidRuntime")
+                .into_iter()
+                .any(|i| obs.effects[i].at_ms == 500),
+            "SET_USER_PID_ENABLED must reach the reducer as SetUserPidEnabled: {obs:?}"
+        );
+    }
+
     #[test]
     fn a_long_press_on_power_requests_a_reboot() {
         let s = scenario(
