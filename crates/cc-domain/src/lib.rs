@@ -5,7 +5,7 @@
 //! [`secret`] serialization without coupling provisioning to configuration.
 
 #![no_std]
-#![forbid(unsafe_code)] // already denied workspace-wide; restated for clarity
+#![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
 /// Declare an `i8`-backed option enum together with its `from_raw` constructor.

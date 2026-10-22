@@ -5,7 +5,7 @@
 //! perform socket and flash operations. Topic layout belongs to `cc-mqtt`.
 
 #![no_std]
-#![forbid(unsafe_code)] // already denied workspace-wide; restated for clarity
+#![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
 pub mod history;

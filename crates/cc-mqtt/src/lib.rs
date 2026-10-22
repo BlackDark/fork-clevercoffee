@@ -7,6 +7,7 @@
 //! [`PlanView`] stores slice end offsets, not lengths. Confusing them drops sensors
 //! and can index binary sensors past the end.
 #![no_std]
+#![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
 extern crate alloc;
