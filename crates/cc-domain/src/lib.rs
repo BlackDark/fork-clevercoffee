@@ -8,27 +8,32 @@
 #![forbid(unsafe_code)] // already denied workspace-wide; restated for clarity
 #![deny(missing_docs)]
 
-/// Add a `from_raw` constructor to an enum whose discriminants are contiguous
-/// `i8` values starting at 0.
+/// Declare an `i8`-backed option enum together with its `from_raw` constructor.
 ///
 /// The schema in `cc-config` stores enumerations as their integer discriminant and needs
-/// to turn one back into the enum. Doing that with a single macro keeps the mapping next to
-/// the declaration, where a reviewer can check it, and means adding a variant is a one-line
-/// change rather than an edit in two crates.
+/// to turn one back into the enum. Wrapping the declaration means each discriminant is
+/// written once, on its variant, and `from_raw` cannot disagree with it.
 ///
-/// **Why it lives here and is not `#[macro_export]`ed.** It is one macro, used by
+/// **Why it lives here and is not `#[macro_export]`ed.** It is used only by
 /// [`hardware`], [`process`] and [`system`]. `macro_rules` scoping is **textual**, so a
 /// definition at the crate root is visible to every module declared *after* it, and that is
-/// the crate-private export. `#[macro_export]` would also work and would be wrong: it
-/// publishes `cc_domain::from_raw` as public API of a `no_std` domain crate, and
-/// `missing_docs` would then demand docs on a macro that is an implementation detail of
-/// three of its own modules.
+/// the crate-private export. `#[macro_export]` would publish `cc_domain::from_raw` as
+/// public API of a `no_std` domain crate.
 ///
-/// **It must stay above the `pub mod` lines below.** Moving it into a submodule
-/// and importing it is the other idiom, and it does not work here: `use
-/// crate::…` cannot name a `macro_rules` macro that has not been exported.
+/// **It must stay above the `pub mod` lines below.** `use crate::…` cannot name a
+/// `macro_rules` macro that has not been exported.
 macro_rules! from_raw {
-    ($name:ident, { $($variant:ident => $value:literal),* $(,)? }) => {
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $name:ident {
+            $( $(#[$variant_meta:meta])* $variant:ident = $value:literal, )*
+        }
+    ) => {
+        $(#[$meta])*
+        $vis enum $name {
+            $( $(#[$variant_meta])* $variant = $value, )*
+        }
+
         impl $name {
             /// Recover the variant from its wire representation.
             ///
@@ -90,3 +95,24 @@ mod pid_parity;
 
 pub use error::ErrorCode;
 pub use state::MachineState;
+
+#[cfg(test)]
+mod tests {
+    use crate::hardware::ScaleType;
+    use crate::system::LogLevel;
+
+    #[test]
+    fn from_raw_inverts_the_discriminant_and_rejects_the_rest() {
+        for v in [
+            ScaleType::Hx711Dual,
+            ScaleType::Hx711Single,
+            ScaleType::Bluetooth,
+        ] {
+            assert_eq!(ScaleType::from_raw(v as i8), Some(v));
+        }
+        assert_eq!(ScaleType::from_raw(3), None);
+        assert_eq!(ScaleType::from_raw(-1), None);
+        assert_eq!(LogLevel::from_raw(6), Some(LogLevel::Silent));
+        assert_eq!(LogLevel::from_raw(7), None);
+    }
+}
