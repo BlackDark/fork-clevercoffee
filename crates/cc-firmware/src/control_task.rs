@@ -649,7 +649,11 @@ impl ControlLoop {
             return;
         }
         self.config.brew.setpoint = celsius;
-        self.control.set_setpoint(celsius);
+        self.control
+            .set_setpoint(crate::control::effective_setpoint(
+                &self.config,
+                self.control.machine().steam_mode,
+            ));
         persist_setpoint(&mut self.store, celsius, &self.config);
         self.feed(cc_machine::Command::NormalOperation, effects);
     }

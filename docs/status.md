@@ -241,6 +241,11 @@ recorded below.
   The HX711 **is** implemented, and no scale is fitted to the board. Since
   `2ad8d15` a calibration request reads `hardware.sensors.scale.known_weight`
   live rather than the boot-time value; unverified on hardware for that reason.
+- **A Wi-Fi bring-up error no longer aborts boot.** An `EspError` from
+  `Sta::new` or `connect` used to end `bring_up` before HTTP, telnet, the
+  provisioning console and the control task started; it now means offline mode,
+  as an association timeout already did. Not exercised on hardware: no fault was
+  injected.
 - **`just flash <port>` now writes both app slots, so it always wins** — the
   defect it fixes (#16) is that it used to write only `app0` while `otadata` kept
   selecting whichever slot the last update chose, so on a board that had taken an

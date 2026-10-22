@@ -489,8 +489,12 @@ fn start_network_tier(
 
     let sys_loop = cc_hal_esp32::wifi::init_stack()?;
     info!("netif: lwIP and the default event loop are up");
+    // A failed bring-up is offline mode, not a failed boot: the HTTP server, telnet
+    // and the provisioning console below are how the network gets fixed.
     let sta = if config.is_wifi_provisioned() {
-        Some(bring_up_wifi(modem, config, &sys_loop)?)
+        bring_up_wifi(modem, config, &sys_loop)
+            .map_err(|err| warn!("wifi: bring-up failed ({err:?}) — running offline"))
+            .ok()
     } else {
         info!("wifi: no SSID configured — the UART provisioning task will run");
         None
@@ -661,13 +665,8 @@ where
     }
 }
 
-/// The shared I²C bus, taken from `Peripherals` and held until the ABP2 is built.
-///
-/// `I2C0` plus its two pins — GPIO21/22 for **both** devices — so whichever of the two
-/// lands second has to share the driver. The bus needs a mutex, which does not exist
-/// yet, so **this function takes the bus for the pressure sensor** and the display
-/// task must either share this driver (`Abp2I2c::from_driver` exists for exactly
-/// that) or wait.
+/// `I2C0` and its two pins, GPIO21/22, taken from `Peripherals` for the bus the
+/// ABP2 and the panel share (see [`build_shared_i2c`]).
 struct I2cPins {
     /// `I2C0`, the only I²C peripheral this build uses.
     peripheral: esp_idf_hal::i2c::I2C0<'static>,
@@ -677,22 +676,6 @@ struct I2cPins {
     scl: esp_idf_hal::gpio::Gpio22<'static>,
 }
 
-/// Build the ABP2 pressure sensor, when one is fitted.
-///
-/// `hardware.sensors.pressure.enabled` is the gate, and it defaults to `false`, so a
-/// machine with no ABP2 spends no bus, no driver and no 20 Hz deadline on one — and
-/// `/api/status` publishes `pressure: null`.
-///
-/// A failure is **not** fatal. A pressure sensor that does not answer costs a
-/// telemetry field, not the machine; refusing to boot over one would be a regression.
-///
-/// # How the 10 ms is spent
-///
-/// A conversion needs 10 ms inside a 50 ms cadence — **20 % of a loop period**.
-/// `cc_protocol::abp2::Driver` makes that a *deadline* instead of a delay: the
-/// conversion command is written on one tick and the answer read on a later one, so
-/// the sensor costs two I²C transactions spread across normal control-loop work and no
-/// sleep at all.
 /// Construct the I²C bus once and wrap it for sharing.
 ///
 /// Deliberately separate from [`bring_up_pressure`]: the pressure sensor and
@@ -711,6 +694,22 @@ fn build_shared_i2c(
     ))
 }
 
+/// Build the ABP2 pressure sensor, when one is fitted.
+///
+/// `hardware.sensors.pressure.enabled` is the gate, and it defaults to `false`, so a
+/// machine with no ABP2 spends no bus, no driver and no 20 Hz deadline on one — and
+/// `/api/status` publishes `pressure: null`.
+///
+/// A failure is **not** fatal. A pressure sensor that does not answer costs a
+/// telemetry field, not the machine; refusing to boot over one would be a regression.
+///
+/// # How the 10 ms is spent
+///
+/// A conversion needs 10 ms inside a 50 ms cadence — **20 % of a loop period**.
+/// `cc_protocol::abp2::Driver` makes that a *deadline* instead of a delay: the
+/// conversion command is written on one tick and the answer read on a later one, so
+/// the sensor costs two I²C transactions spread across normal control-loop work and no
+/// sleep at all.
 pub(crate) fn bring_up_pressure<'bus>(
     bus: Option<&'bus cc_hal_esp32::display_shared::SharedBus>,
     config: &cc_config::Config,
