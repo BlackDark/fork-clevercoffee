@@ -1,39 +1,9 @@
-//! The display task: the panel, on the panel's cadence.
+//! Panel owner, rendering the latest [`FrameRequest`](crate::slots::FrameRequest).
 //!
-//! # What it owns
-//!
-//! The panel and nothing else. It renders whatever
-//! [`FrameRequest`](crate::slots::FrameRequest) the control task last published,
-//! at the panel's own refresh interval, and it draws the two boot screens before
-//! any normal frame.
-//!
-//! # Why the panel left the control task
-//!
-//! Because of what a frame costs. The 1 KB framebuffer goes out as eight I²C
-//! writes, which is tens of milliseconds of bus time on a 400 kHz bus — and it
-//! was being paid **inside the control tick**, on the same task, in the same
-//! iteration as the heater decision. The loop was not slow because the loop was slow; it
-//! was slow because the display was in it.
-//!
-//! A whole-tick measurement (2026-10-09) has mean work 1 ms against a 10 ms period.
-//!
-//! With the panel here, the control task's cost is the reducer and the applier,
-//! and the panel's cost is the panel. The two contend for one I²C bus, which is
-//! a mutex, and neither can make the other miss a deadline that matters: the
-//! display may be 100 ms late, and the control decision may not be 10 ms late.
-//!
-//! # The refresh interval
-//!
-//! [`cc_hal_esp32::display::REFRESH_INTERVAL_MS`] = 100 ms. It is also the floor on how
-//! quickly a screen change becomes visible, because the panel's own driver rate-limits the
-//! flush and this task publishes a frame no faster than that.
-//!
-//! # The boot screens
-//!
-//! The logo is drawn twice at boot — once with the version and then with the Wi-Fi
-//! address. It is drawn here because this task owns the panel, and the address is not
-//! known to the control task: the radio publishes it into the telemetry snapshot, so the
-//! second screen is drawn when the snapshot's IP first appears.
+//! A frame takes tens of milliseconds on the shared I²C bus, so rendering runs
+//! outside the 10 ms control task. Refresh is limited by
+//! [`cc_hal_esp32::display::REFRESH_INTERVAL_MS`].
+//! Boot first shows the version, then the IP once it appears in the telemetry snapshot.
 
 use std::sync::Arc;
 

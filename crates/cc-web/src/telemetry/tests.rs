@@ -1,10 +1,4 @@
-//! What the type itself has to guarantee, which nothing above it can enforce.
-//!
-//! These assertions are on the *type*, not on a payload: they are the properties
-//! `cc_hal_esp32::web::Snapshot`'s hand-written `Sync` names in its second
-//! safety bullet — "`get` clones `T`; with `T = Telemetry` that is a fixed-size
-//! copy … and `T: Send` bounds the transfer" — and which nothing in the HAL
-//! could check without a board.
+//! Type-level guarantees required by the HAL snapshot's `Sync` safety argument.
 
 use super::*;
 

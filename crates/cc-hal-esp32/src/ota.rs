@@ -1,55 +1,13 @@
-//! Streaming writes to flash: the half of an OTA that needs a chip.
+//! Stream socket chunks through [`cc_web::ota::PartReader`] into flash.
 //!
-//! # What this module is, and what it is not
+//! [`OTA_CHUNK_BYTES`] is a stack buffer; parser carry stays bounded independently
+//! of image size. Never buffer the whole image on the device heap.
+//! See [ADR-0002](../../../docs/adr/0002-wifi-logging-ota-memory-architecture.md).
 //!
-//! It is four calls to `esp_ota_*` and two to `esp_partition_*`, plus the loop
-//! that reads a socket and hands each run straight through. Every *decision*
-//! — may we flash, is this file acceptable, is it big enough, is the upload
-//! truncated — is in [`cc_web::ota`] or [`cc_machine::ota`] and is host-tested
-//! there. This file decides nothing, which is why it is small and why it is the
-//! only part of the OTA that is unreachable from `cargo test`.
-//!
-//! # The memory argument, and why it holds here
-//!
-//! ```text
-//! socket -> [ OTA_CHUNK_BYTES stack buffer ] -> cc_web::ota::PartReader -> flash
-//! ```
-//!
-//! The only buffer is [`OTA_CHUNK_BYTES`], and it lives on the **stack** of the
-//! task running the handler. Nothing in the loop allocates: the reader's hold-back
-//! is `boundary.len() + 4` bytes inside a `Vec` whose capacity is reached on the
-//! first push and never grows, and `esp_ota_write` copies straight into the SPI
-//! flash driver's own buffer. So the heap cost of a 1.6 MB upload is the same as
-//! the heap cost of a 4 KB one, which is the whole difference between this and an
-//! OOM abort on a 320 KB part.
-//!
-//! This is the *inbound* half of
-//! [ADR-0002](../../../docs/adr/0002-wifi-logging-ota-memory-architecture.md)
-//! decision 2. That ADR's outbound half stopped a 19 KB `String` copy from
-//! aborting the firmware; without the inbound half, one 1.6 MB `String` would
-//! undo it.
-//!
-//! # Why the handler runs on the httpd task and still does not block the API
-//!
-//! It does block it, for the duration of one upload, and that is stated rather
-//! than hidden. ESP-IDF's httpd is a single task (`web_async`'s module docs), so
-//! any handler that loops occupies the web server.
-//!
-//! What is avoided is the opposite failure: queueing the upload to the control
-//! task would stall the task that decides whether the heater stays on, and would
-//! leave the response unable to reach the client. [`Kind::Filesystem`] and
-//! [`Kind::Firmware`] uploads stay on the handler, and the reader streams, so the
-//! response is written after the last byte rather than before the first — a
-//! browser's `fetch` waits for it either way.
-//!
-//! # What happens to the watchdog
-//!
-//! **Nothing, and that is a decision.** The flash write happens on the **httpd**
-//! task and the watchdog is subscribed to the **control** task only. The control task keeps
-//! ticking and keeps feeding while the httpd task erases, so the watchdog stays
-//! armed and a genuinely wedged flash still resets the chip. Suspending it for
-//! the upload would remove the fail-safe for the exact window that most wants
-//! one.
+//! Uploads occupy the single httpd task until complete. Keep them off control:
+//! it must continue ticking and feeding its watchdog while flash is erased.
+//! Do not suspend that watchdog for an upload. Admission and file validation
+//! belong to `cc-machine` and `cc-web`.
 
 // The `unsafe` in this module is eight `esp_ota_*` / `esp_partition_*` calls,
 // and the workspace lint is `unsafe_code = "deny"`, so the allowance is here,
@@ -315,61 +273,20 @@ impl Writer {
         Ok(())
     }
 
-    /// Finish the session and **switch the boot partition**.
+    /// Validate firmware, then select its boot partition.
     ///
-    /// # What this is, precisely
+    /// `esp_ota_end` verifies the image but never writes `otadata`; successful uploads
+    /// must also call `esp_ota_set_boot_partition`. Power loss before selection keeps
+    /// the old slot; after selection it boots the completed, validated image.
     ///
-    /// For a **firmware** session this is the whole power-cut story, and it is
-    /// worth stating exactly what was and was not verified:
-    ///
-    /// * `esp_ota_end` validates the written image (magic byte, segment
-    ///   headers and, when enabled, the SHA-256 of the whole image) — and
-    ///   **that is all it does**. It does *not* select the new slot.
-    ///   `esp_ota_end` is `ota_verify_partition` and cleanup
-    ///   (`esp_ota_ops.c:477-524`); the only writer of `otadata` on the write
-    ///   path is `esp_ota_set_boot_partition`. **This module used not
-    ///   to call it**, and `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is not set in
-    ///   this build, so nothing else switched the slot either — which is why
-    ///   [`Writer::end`] now calls it explicitly.
-    ///   **Measured on a bench ESP32, 2026-10-06:** an upload answered
-    ///   `200 {"success":true,...,"restart":true}`, the device rebooted, and the
-    ///   bootloader logged `Loaded app from partition at offset 0x10000` —
-    ///   `app0`, the slot it was already running from. The image in `app1` was
-    ///   complete and validated, and was not booted. **An OTA through this route
-    ///   did not take effect.**
-    /// * [`Writer::end`] now calls `esp_ota_set_boot_partition` after a
-    ///   successful `esp_ota_end`, so the slot is selected. **The consequence is
-    ///   stated plainly because it is the reason this was not done sooner:**
-    ///   there is no rollback, so a *bad* image in the selected slot is
-    ///   unbootable without USB. Before this call, a bad update cost nothing and
-    ///   a good one did nothing either; now a good one takes effect and a bad
-    ///   one needs a cable. Recovery is `just flash <port>`, and the upload is
-    ///   validated by `esp_ota_end` before the slot moves, so the window is an
-    ///   image that boots and then misbehaves.
-    /// * Therefore: the boundary is **`esp_ota_set_boot_partition`**, not
-    ///   `esp_ota_end` — the latter never touches `otadata`. A power cut before
-    ///   that call leaves `otadata` naming the slot the machine booted from, and
-    ///   it boots that slot again; a power cut before it but during `esp_ota_end`
-    ///   additionally leaves the written image half-written. Either way the
-    ///   machine keeps running what it had.
-    /// * Once [`Writer::end`] has selected the slot (it does, on success), a
-    ///   power cut after that point means the new image is selected and is a
-    ///   complete, validated image. There is no rollback:
-    ///   `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is **not set** in this build's
-    ///   `sdkconfig` (checked: no `BOOTLOADER_APP_ROLLBACK` line at all), so
-    ///   `esp_ota_mark_app_valid_cancel_rollback` is a no-op and a new image that
-    ///   boots and then misbehaves stays selected. This is a **deliberate,
-    ///   recorded limitation**, not an oversight.
-    ///
-    /// For a **filesystem** session there is no boot partition to switch and
-    /// nothing to validate: the bytes are in the partition.
+    /// Rollback is disabled. A new image that boots but misbehaves stays selected;
+    /// recover with `just flash <port>`. Filesystem sessions need no slot selection
+    /// or image validation.
     ///
     /// # Errors
     ///
-    /// [`EndError::Image`] for `esp_ota_end`'s validation error — a truncated
-    /// image, a bad magic byte, a SHA-256 mismatch — and [`EndError::SelectSlot`]
-    /// when the image validated but the `otadata` write that selects it failed.
-    /// They are kept apart so the caller can report which one happened.
+    /// [`EndError::Image`] reports validation failure; [`EndError::SelectSlot`] reports
+    /// a validated image whose boot-partition selection failed.
     pub fn end(mut self) -> Result<(), EndError> {
         match self.kind {
             Kind::Firmware => {

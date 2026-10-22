@@ -1,38 +1,8 @@
-//! The `dry_run` driver: a scenario in, an [`Observation`] out.
+//! Scenario driver using [`Recorder`] instead of GPIO and the real effect applier.
 //!
-//! # This is the only place a scenario touches the reducer
-//!
-//! It wires up exactly what the device's shell wires up — the configuration, the
-//! safety monitor, the PID, the clock — and hands the reducer a
-//! [`Recorder`] where the GPIO would be. Nothing else in the crate calls
-//! [`cc_machine::reduce`], and there is no other exit from it.
-//!
-//! # The actuator guarantee
-//!
-//! [`Recorder`] implements [`cc_machine::Actuators`], whose eleven methods
-//! return `()`. There is no pin behind them, no `cc-hal-esp32` in this crate's
-//! dependency tree, and no way to reach one. A `brew_by_time` scenario therefore
-//! *does* produce `Effect::EnablePump` and the harness *does* see it — and
-//! nothing is energised, because there is nothing to energise.
-//!
-//! The applier is still the real one ([`cc_machine::apply`]), because the
-//! applier is where the order of the effect vector is resolved and a harness
-//! that reordered it would not be testing the thing.
-//!
-//! # The tick order
-//!
-//! One iteration of [`Runner::tick`] is, in order:
-//!
-//! 1. deliver any stimuli due at this timestamp;
-//! 2. run [`cc_safety::reduce`] on the current sample — S1/S2/S3/S4/S5/S5';
-//! 3. fold the outcome in as [`cc_machine::Event::Safety`];
-//! 4. run the PID and fold in [`cc_machine::Event::PidOutput`];
-//! 5. fold in [`cc_machine::Event::Tick`] — the control pass.
-//!
-//! Steps 2-5 are one event each, front to back, which is `cc_machine::lib`'s
-//! documented loop shape. The safety reduce happens **before** the tick so the
-//! verdict the tick's `apply_pid_output` reads is the one for *this* sample,
-//! not the previous one's — which is S1's "same loop" requirement.
+//! Each tick delivers stimuli, reduces safety, applies its verdict, runs the PID,
+//! then sends the control tick. Safety precedes the tick so it uses the current
+//! sample's verdict, as S1 requires. Effect order is resolved by [`cc_machine::apply`].
 
 use std::collections::BTreeMap;
 
@@ -314,33 +284,14 @@ impl Runner {
         cc_machine::Context::new(&self.config, Celsius::new(self.setpoint as f32))
     }
 
-    /// Run the whole scenario and return the observation.
-    ///
-    /// # When it stops
-    ///
-    /// Two rules, and which one applies is the scenario's decision:
-    ///
-    /// * **`duration_ms` set** — run for exactly that long. A scenario whose
-    ///   subject takes a known time (a 25 s brew, a 30 s flash) says so, because
-    ///   the alternative is a heuristic guessing at it.
-    /// * **`duration_ms` absent** — run until the machine **quiesces**: every
-    ///   stimulus delivered and the state unchanged for [`QUIESCE_TICKS`]
-    ///   consecutive ticks.
-    ///
-    /// The heuristic alone is not enough, and finding that out is why `duration_ms`
-    /// exists. A `brew_by_time` scenario is 3 s of pre-infusion, 2 s of pause and
-    /// 25 s of flow; it is *quiet* — one state, no transitions — for all 25 of
-    /// them, so a quiescence rule alone ends the run three seconds in and the
-    /// scenario asserts against a machine that is still brewing. A fixed tail has
-    /// the mirror failure. Timing is part of what the scenario is claiming, so it
-    /// is stated.
-    ///
-    /// [`MAX_TICKS`] is a backstop: a machine that never settles is a bug in the
-    /// reducer or the scenario, and hanging forever hides it.
+    /// Run for explicit `duration_ms`, or until all stimuli are delivered and the
+    /// state is unchanged for [`QUIESCE_TICKS`]. A long brew can look quiescent while
+    /// still active, so timed scenarios need an explicit duration. [`MAX_TICKS`]
+    /// bounds runs that never settle.
     ///
     /// # Errors
     ///
-    /// [`RunError::AssertionFailed`] if any assertion does not hold.
+    /// Returns [`RunError::AssertionFailed`] when a scenario assertion fails.
     pub fn run(mut self) -> Result<Observation, RunError> {
         let duration = self.scenario.duration_ms;
         let mut quiet = 0u32;

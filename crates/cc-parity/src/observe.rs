@@ -1,27 +1,8 @@
-//! What a scenario run produces: a reduced record for the assertions to read.
+//! Reduced observations avoid asserting on irrelevant floating-point differences.
 //!
-//! # Why reduce at all
-//!
-//! An observation is not a log. `SetHeaterDuty(437.25)` on one run and
-//! `SetHeaterDuty(437.2500001)` on the next is the same behaviour, and an
-//! assertion that compared the raw value would fail on the difference. So an
-//! [`Observation`] is a *reduced* view: names, not values, where a value is not
-//! the thing under test.
-//!
-//! Three reductions, each with a reason:
-//!
-//! 1. **State names are [`MachineState::name`] strings**, i.e.
-//!    `BREW_PREINFUSION`, because a scenario asserts on the sequence of states.
-//! 2. **Effect values are dropped, except for the three that carry the safety
-//!    argument.** `SetHeaterDuty` becomes `SetHeaterDuty` with no number,
-//!    because the duty is a float computed from a live probe and no two runs
-//!    agree on it; `EnterState`/`ExitState` keep their state name because the
-//!    transition *is* the observation; `PumpTimeoutFired` keeps its watchdog
-//!    because which watchdog fired is the whole point.
-//! 3. **Timestamps are kept, coarsely.** They are the difference between "the
-//!    pump stopped one loop after the state changed" and "the pump stopped
-//!    immediately", which is a one-loop ordering bug. The driver's clock is
-//!    exact to the millisecond.
+//! State transitions retain [`MachineState::name`] strings; pump timeouts retain
+//! their watchdog. Other effect values are dropped. Millisecond timestamps remain
+//! so assertions can distinguish immediate actions from one-tick delays.
 
 use std::collections::BTreeMap;
 

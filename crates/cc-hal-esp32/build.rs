@@ -1,42 +1,8 @@
-//! Embeds the built web UI into the firmware image.
+//! Embed the gzipped UI in flash; fail if the frontend bundle is missing.
 //!
-//! # Why embedded and not a `LittleFS` partition
-//!
-//! F25's React SPA is built into `ui/packages/frontend/dist`, gzip-compressed
-//! by the `rollup-plugin-gzip` already wired into `vite.config.ts`. Measured on
-//! 2026-09-30 (Vite 8.2.2): 199,270 B gzipped, of which one file — the JS
-//! bundle — is 182,878 B. The uncompressed bundle is ~715 KB, which does NOT
-//! fit anywhere: the app slot had 496,192 B free and the `littlefs` partition
-//! is 393,216 B.
-//!
-//! The gzip bundle fits the app slot with room to spare, so it is embedded with
-//! `include_bytes!` rather than uploaded to `LittleFS`. That buys three things a
-//! filesystem could not:
-//!
-//!   * `/ui` cannot fail. There is no mount, no `uploadfs` step, no corrupted
-//!     partition and no "the UI 404s after a bad upload" failure mode.
-//!   * The asset table is `&'static`, so serving costs **zero RAM**: the bytes
-//!     live in flash and `httpd` streams them out of a stack buffer.
-//!   * The build is hermetic in the sense that matters: the image on the device
-//!     is exactly the bundle in the tree, with no second upload step that can
-//!     silently drift from the app image.
-//!
-//! # What this script does NOT decide
-//!
-//! MIME types and the SPA fallback are decided in `src/web.rs`, not here, so
-//! they are covered by this crate's tests. This script only discovers files,
-//! copies them into `OUT_DIR` (so `include_bytes!` has a stable, in-tree path)
-//! and emits the table.
-//!
-//! # When the bundle is missing
-//!
-//! The build FAILS. A firmware image with no web UI is a silent regression that
-//! looks exactly like "the browser is broken", and this crate's whole point is
-//! that `/ui` is a real answer. Build it first:
-//!
-//! ```sh
-//! pnpm --filter @clevercoffee/frontend build
-//! ```
+//! `include_bytes!` avoids a separate filesystem upload and costs no payload RAM.
+//! Build `ui/packages/frontend` first. This script emits the asset table in
+//! `OUT_DIR`; MIME types and SPA fallback belong to `web.rs`.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;

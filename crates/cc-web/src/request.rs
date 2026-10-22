@@ -1,8 +1,4 @@
-//! Turning a request's fields into a [`Command`]: [`parse_setpoint`],
-//! [`parse_flag`], [`first_of`], [`query_of`] and [`explicit_value`].
-//!
-//! The five small pure functions that stand between an `esp_idf_svc` `Request`
-//! and the control task's queue.
+//! Parse request fields into commands before crossing the control-task queue.
 
 use alloc::string::String;
 

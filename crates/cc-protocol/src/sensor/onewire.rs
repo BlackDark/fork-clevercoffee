@@ -1,19 +1,7 @@
-//! The 1-Wire bus protocol, as pure logic.
+//! 1-Wire CRC, ROM search, commands, scratchpads, and slot timings.
 //!
-//! # What lives here and what does not
-//!
-//! **Everything decidable lives here**, behind the [`OneWireBus`] trait: the CRC, the ROM search,
-//! the command sequences, the scratchpad decode, the fault classification, and the bit-slot timing
-//! *constants*. The only thing that needs a GPIO is [`OneWireBus`] itself, which is implemented
-//! once in `cc-hal-esp32` by bit-banging.
-//!
-//! The alternative -- `esp_idf_hal::onewire` -- was rejected after reading the installed source.
-//! See [`OneWireBus`].
-//!
-//! # Bit order
-//!
-//! 1-Wire is **LSB first** in every byte: the low bit of a command is clocked out first, and a read
-//! assembles the byte from the low bit up. The host tests assert that order bit by bit.
+//! [`OneWireBus`] supplies GPIO operations; the HAL alternative's limitations are
+//! documented on that trait. Every byte is transmitted and assembled LSB first.
 
 use cc_domain::units::Millis;
 

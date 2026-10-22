@@ -1,11 +1,4 @@
-//! The boot repair loop for a stored configuration that is unsafe to run.
-//!
-//! Dropping the whole configuration instead would lose all 98 parameters to fix
-//! one, so the loop reverts the keys `cc_safety::validate_config` names and leaves
-//! the rest alone.
-//!
-//! One pass is not enough: `steam.setpoint` 140 plus `safety.emergency_hysteresis`
-//! 15 exceeds the 150 default of `safety.emergency_temp`. See [`repair_unsafe`].
+//! Boot repair preserves unrelated settings while reverting unsafe keys.
 
 use alloc::string::String;
 use cc_config::config::{repair_unsafe, Config};

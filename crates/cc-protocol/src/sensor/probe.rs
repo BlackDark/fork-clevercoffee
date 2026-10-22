@@ -1,37 +1,8 @@
-//! The vocabulary both temperature drivers report in.
+//! Shared sensor-level readings for both temperature drivers.
 //!
-//! # What this module is for
-//!
-//! `cc-machine` needs a temperature and a fault, and it must not know whether the probe on the
-//! other end of it is a DS18B20 on 1-Wire or a TSIC-306 on `ZACwire`.
-//!
-//! **There is deliberately no trait.** One would have to be implemented once per driver to say what
-//! the two free functions already say, and nothing needs `dyn`: `cc-machine` never holds a boxed
-//! probe. What exists instead, and is host-tested, is the three types below plus
-//! [`ds18b20::as_probe`] and [`tsic306::as_probe`](crate::sensor::tsic306::as_probe). Each driver
-//! keeps its own concrete type -- [`ds18b20::Driver`],
-//! [`tsic306::Tsic306`](crate::sensor::tsic306::Tsic306) -- and `as_probe` collapses one of its
-//! outcomes onto [`ProbeReading`] / `None`. The mapping is a *decision*, and a decision belongs in
-//! a function a test can drive with the driver's own outcome type.
-//!
-//! Neither function can block. Both drivers are non-blocking by construction -- the DS18B20
-//! pipeline never waits for a conversion, and the TSIC-306 has no read call at all, only a
-//! callback-driven waveform -- and `as_probe` takes an already-polled `Poll` / `Outcome`, so there
-//! is nothing here that could sleep or wait.
-//!
-//! # Why `ProbeFault` is one enum and not the union of the two drivers' errors
-//!
-//! The device crates do have richer errors:
-//! [`onewire::OneWireError`](crate::sensor::onewire::OneWireError) carries a
-//! transport error, [`ds18b20::Ds18b20Fault`] distinguishes six sensor faults.
-//! Collapsing them at this boundary would lose the `EspError` a driver got from
-//! a failing peripheral, which is exactly the diagnostic a bring-up needs.
-//!
-//! So the lossless direction is preserved: a transport failure stays the
-//! driver's own error type and never becomes a [`ProbeFault`], because a failing
-//! peripheral is not a sensor reading. [`ProbeFault`] is what a device crate
-//! maps its sensor-level faults onto, and it is the type the *state machine*
-//! sees once it is past the device layer.
+//! `as_probe` maps already-polled outcomes without waiting or dynamic dispatch.
+//! Transport failures retain the driver's richer error type; only sensor-level
+//! faults become [`ProbeFault`], so peripheral diagnostics are not lost.
 
 use core::fmt;
 

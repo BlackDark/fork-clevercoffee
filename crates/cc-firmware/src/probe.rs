@@ -1,20 +1,7 @@
-//! The temperature probe: which driver the configuration names, its bring-up,
-//! and the enum that owns whichever transport it turned out to be.
+//! Configured temperature driver and transport ownership.
 //!
-//! # Why this is its own module
-//!
-//! `main.rs` is the startup order, the task spawns and the watchdog feed.
-//! The probe is none of those: it is one
-//! peripheral with two possible transports behind it, brought up once at boot
-//! and then polled by the control task. Keeping it here means the wiring in
-//! `bring_up` stays readable — a reader sees the pins taken and handed to
-//! `bring_up_temperature_sensor` and nothing else — and the DS18B20 / TSIC-306
-//! argument sits next to the code it argues about.
-//!
-//! **This is a move, not a redesign.** Nothing about the bring-up, the log
-//! lines or the poll loop changed; the `Gpio16` the caller passes in is still
-//! taken in `main.rs` (`cc_hal_esp32::pins::TEMP_SENSOR`), because the wiring is
-//! what `assert_wiring` is checked against.
+//! The caller supplies GPIO16 so pin wiring stays visible in bring-up and can be
+//! checked by `assert_wiring`. Polling remains on the control task.
 
 use core::fmt::Write as _;
 

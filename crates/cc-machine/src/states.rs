@@ -1,26 +1,8 @@
-//! The eighteen states: what each one does on entry, on exit, on update, and when it wants to
-//! transition.
+//! Exhaustive state entry, update, exit, and transition hooks.
 //!
-//! Four functions, one per hook, each a `match` over [`MachineState`] with **no wildcard arm**.
-//! That is the mechanism: adding a 19th state fails to compile here, in [`crate::guards`], and
-//! in `cc_safety::water_flow_allowed` until someone has decided what its entry, exit, update
-//! and transitions are.
-//!
-//! # ADR-0003's contract, in three lines per state
-//!
-//! | | rule | where |
-//! | --- | --- | --- |
-//! | energise | enable hardware on entry | [`on_entry`] |
-//! | reinforce | re-assert it on update | [`update`] |
-//! | release | disable it on exit | [`on_exit`] |
-//!
-//! # What does not follow those three lines
-//!
-//! * **The two error states have no exit release.** They never energise anything, so there is
-//!   nothing to release.
-//! * **Reinforcing is not redundant.** The valve fail-safes run after [`update`] in the same
-//!   tick, so a state that asserts "valve open" and a check that asserts "valve closed" are
-//!   both applied, and the whitelist decides.
+//! Follow ADR-0003: energise on entry, reinforce on update, release on exit.
+//! Error states never energise outputs and need no exit release. Reinforcement
+//! must agree with the valve whitelist because fail-safes run later in the tick.
 
 use cc_domain::state::MachineState;
 
@@ -446,26 +428,10 @@ pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> 
         // to keep running, which is why this state's standby timeout has to keep working.
         MachineState::WaterTankEmpty => {}
 
-        // Re-runs the full emergency shutdown **every tick**, not just on entry: the latch
-        // lives in the actuator facade, and something could re-energise a relay between ticks.
-        //
-        // It also drains on every tick, which the entry drain alone cannot do: a request that
-        // arrives *during* the latch is set after entry has run, and without this it survives to
-        // the recovery tick. Measured on a bench ESP32 on 2026-10-07 -- the machine tripped,
-        // refused the press with `enablePump REFUSED - latched 1`, and then began that same brew
-        // with nobody pressing anything once the probe cooled below the threshold.
-        //
-        // The drain is **unguarded**, and that is deliberate. Guarding it on the latch looks
-        // right and is not: the exit test is `cc_safety::can_clear(temperature)`, and
-        // `cc_safety::reduce` clears the latch earlier in the *same* control period, so on the
-        // recovery tick the latch is already false, a guard would skip the drain, and a request
-        // that arrived in that window would survive into `PID_NORMAL` and start a brew. One tick
-        // wide, and the whole point of the drain is to close exactly that tick.
-        //
-        // Nothing downstream of this state wants a preserved request, and the "never drain
-        // wake-up signals" rule is scoped to `STANDBY`, which is untouched;
-        // [`Requests::clear_all`](crate::machine::Requests::clear_all) deliberately spares
-        // `standby`.
+        // Reassert shutdown and drain action requests every tick, including recovery.
+        // The safety reducer can clear the latch earlier in this same period, so guarding
+        // the drain on that latch would let a last-moment brew request survive recovery.
+        // `clear_all` deliberately preserves the standby request.
         MachineState::EmergencyStop => {
             fx.push(Effect::EmergencyShutdown);
             machine.pid.runtime_enabled = false;

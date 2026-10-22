@@ -1,11 +1,6 @@
-//! [`classify_parameters`] and [`ParameterPost`]: what one `POST /api/parameters`
-//! means, decided without writing anything.
+//! Synchronous parameter validation without access to the control task's store.
 //!
-//! The handler has to answer `200` or `400` **synchronously**, and the `Config`
-//! is the control task's, so the verdict cannot be a function of the store. This
-//! is the verdict as a value, which is why it can be tested on a host and why
-//! `ParameterPost::response` is a method rather than a `match` in the middle of
-//! a socket handler.
+//! [`ParameterPost`] carries the verdict back to the HTTP handler.
 
 use alloc::format;
 use alloc::string::String;

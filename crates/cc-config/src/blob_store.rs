@@ -1,59 +1,11 @@
-//! The NVS wire format: one namespace, one JSON blob, one key.
+//! Atomic configuration storage: one namespace, one JSON blob, one key.
 //!
-//! # Why the store is split in two
+//! [`BlobConfigStore`] owns the format; [`BlobBackend`] supplies the medium.
+//! One NVS entry prevents power loss from leaving a partially updated configuration.
 //!
-//! Everything interesting about *where* the bytes live is separable from
-//! everything interesting about what they mean: the namespace name, the key
-//! name, the JSON encoding, the schema version, and the decision that a namespace
-//! this firmware does not own is not ours. None of that needs an ESP32.
-//!
-//! So [`BlobConfigStore`] owns the format and [`BlobBackend`] owns the medium.
-//! The device implementation of the backend is
-//! `cc_hal_esp32::nvs::EspNvsBlob` — three methods over
-//! `esp_idf_svc::nvs::EspNvs` — and everything else, including every rejection
-//! path, is a host unit test. This is the same split
-//! [`cc_domain::heater`](../../cc_domain/heater/index.html) uses: the decision
-//! is portable, the peripheral is not.
-//!
-//! The store's `load`/`save`/`erase_all` are **inherent methods**, not a trait.
-//! Every caller in the workspace names the concrete
-//! `BlobConfigStore<EspNvsBlob>`, nothing is generic over a store, and there is
-//! no `dyn`. The seam that does get used is one level down, [`BlobBackend`] —
-//! and it already provides the substitution a store trait would have.
-//!
-//! # One blob, not 98 keys
-//!
-//! Writing the parameters one at a time leaves a configuration where some are new
-//! and the rest are old if the power fails mid-save. For a machine that heats to
-//! 150 °C, "some new" is a configuration nobody ever chose. One blob, in one NVS
-//! entry, cannot be half-applied.
-//!
-//! # ⚠ No compatibility with another firmware's NVS, and this is deliberate
-//!
-//! This firmware owns its namespace, and an NVS written by another firmware is
-//! **expected to be ignored and overwritten with defaults**. There is no
-//! migration, no compatibility shim, and no "read the old keys if the new key is
-//! absent" path.
-//!
-//! Three things make this safe rather than merely convenient:
-//!
-//! * **A different namespace cannot collide.** The other firmware uses `config`;
-//!   this uses [`NAMESPACE`]. NVS namespaces are independent key spaces, so such
-//!   a partition is not merely unreadable, it is invisible. A test asserts it.
-//! * **The old keys are not garbage-collected and do not need to be.** They sit
-//!   in a namespace nothing opens. The 20 KB partition is not the constraint
-//!   (a blob is ~2 KB), and erasing another namespace would be a write
-//!   path with its own failure modes for no benefit.
-//! * **A first boot onto such an NVS is indistinguishable from a first boot on a
-//!   blank device**, which is the state a factory reset reaches anyway. The
-//!   operator's saved setpoints are lost once, deliberately, and the reason is
-//!   recorded in the boot log — see [`crate::predecessor`].
-//!
-//! The alternative — importing the other firmware's hashed keys — would mean
-//! shipping its hash function, its key list and its per-parameter type table, and
-//! would make the schema permanently answerable to a file that no longer exists.
-//! That is a large permanent cost for a one-time migration of values that are all
-//! within a whisker of their defaults.
+//! Only [`NAMESPACE`] is opened. Other firmware's settings remain untouched in
+//! their namespace; missing settings use defaults, without migration. The boot
+//! warning is selected by [`crate::predecessor`].
 
 use alloc::collections::BTreeMap;
 use alloc::format;

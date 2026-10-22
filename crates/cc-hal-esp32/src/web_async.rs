@@ -1,75 +1,23 @@
-//! The one `unsafe` seam the SSE stream needs, isolated and justified.
+//! Detached SSE requests let the single httpd task keep serving other routes.
 //!
-//! # Why this exists at all
+//! `esp-idf-svc` 0.53.0 has no HTTP async wrapper; ESP-IDF documents
+//! `httpd_req_async_handler_begin` for concurrent requests (`esp_http_server.h`).
 //!
-//! ESP-IDF's httpd is **one task** for the whole server. `httpd_server_init`
-//! creates exactly one thread (`components/esp_http_server/src/httpd_main.c:533`,
-//! `httpd_os_thread_create(..., "httpd", ..., httpd_thread, ...)`), and
-//! `httpd_thread` is a `while (1) { httpd_server(hd); }` loop over
-//! a single `select()`. Every URI handler runs on that task, one at a time. A
-//! handler that does not return stops the entire web API — which is exactly what
-//! a handler that holds an SSE stream open does.
+//! # Request lifetime
 //!
-//! `esp-idf-svc` 0.53.0 adds nothing here: `EspHttpServer::handler_nonstatic`
-//! (`src/http/server.rs:567-598`) just fills in an `httpd_uri_t` and calls
-//! `httpd_register_uri_handler`, and `to_native_handler` invokes
-//! the closure and then `complete()`s the response. There is no async layer for
-//! HTTP in the crate (the only async scaffolding in the file is the commented
-//! out WebSocket `asynch` sketch at `:1738-1945`).
+//! * Set response headers before `begin`: it copies the header block and request.
+//!   Later changes to the original are not sent. Do not touch the connection again.
+//! * `begin` marks the session busy so httpd stops selecting its socket.
+//! * `httpd_resp_send_chunk` preserves framing and `send_wait_timeout`.
+//! * Complete every detached request on every path. Completion frees the copy and
+//!   re-arms the socket; leaked requests eventually prevent new connections.
 //!
-//! So the handler must return, and something else must do the writing. ESP-IDF
-//! provides exactly that primitive, and it is the documented answer —
-//! `esp_http_server.h:840-873` describes `httpd_req_async_handler_begin` as
-//! "necessary in order to handle multiple requests simultaneously".
+//! # Cross-task writes
 //!
-//! # The three calls, and what each guarantees
-//!
-//! * `httpd_req_async_handler_begin(r, &out)` `malloc`s
-//!   a copy of the request and of its `httpd_req_aux`, **copies the response
-//!   header block across** (`:685-687`, `memcpy(async_aux->resp_hdrs,
-//!   r_aux->resp_hdrs, ...)`), sets the original's `remaining_len` to 0, and
-//!   sets `r_aux->sd->for_async_req = true`. That last flag is the
-//!   whole point: `httpd_process_session` returns early for such a session
-//!   (`httpd_main.c:256-258`, "session is busy in an async task, do not process
-//!   here") and `httpd_sess_set_descriptors` skips its fd
-//!   (`httpd_sess.c:91`), so the httpd task's `select()` stops watching the
-//!   socket entirely and goes back to serving everyone else.
-//! * `httpd_resp_send_chunk` writes one chunk. It is the
-//!   same function `EspHttpConnection::write` calls, so going through it rather
-//!   than a raw `write(2)` keeps the chunked framing and the socket's
-//!   `send_wait_timeout`.
-//! * `httpd_req_async_handler_complete(r)` frees the
-//!   copy, clears `for_async_req` and pokes the control socket so the
-//!   httpd task's `select()` wakes and re-arms the fd. **It must be called on
-//!   every path**, and the header note is explicit that a request left
-//!   incomplete eventually stops the server accepting connections at all
-//!   (`esp_http_server.h:864-866`).
-//!
-//! # Why the header state is set before `begin`, not after
-//!
-//! `begin` copies `resp_hdrs` by value. A header set after `begin` lands in the
-//! *original* request's header block, which is never sent — the copy is what
-//! gets written. So the order in the `/events` handler is load-bearing:
-//! `initiate_response` (status, content type, extra headers) first, `begin`
-//! second, and nothing touches the connection after that.
-//!
-//! # Why calling `httpd_resp_send_chunk` from another task is sound here
-//!
-//! Every `httpd_resp_*` entry point guards on `httpd_valid_req(r)`, which is
-//! `httpd_validate_req_ptr(r)` — a check that the caller is on the httpd
-//! thread — but only when `CONFIG_HTTPD_VALIDATE_REQ` is set
-//! (`esp_httpd_priv.h:361-365`). It is **not** set in this build
-//! (`target/.../out/sdkconfig` has no `HTTPD_VALIDATE_REQ` line at all), so
-//! `httpd_valid_req` is the literal `true` and the cross-task call is permitted.
-//! That is the configuration the async pattern is designed for: the whole point
-//! of `begin` is that the returned request belongs to another thread. **If that
-//! Kconfig is ever enabled, this module's cross-task write must move to the raw
-//! socket fd** ([`sockfd`]), and that is the trigger to revisit it.
-//!
-//! # The `Send` impl
-//!
-//! See [`AsyncReq`]. It is the second `unsafe` in the workspace, after
-//! `crate::zacwire::now_us`, and it is scoped to this module.
+//! `httpd_valid_req` checks thread identity only with `CONFIG_HTTPD_VALIDATE_REQ`.
+//! That option is disabled here. Enabling it requires revisiting this transport
+//! and writing through the raw [`sockfd`] instead. [`AsyncReq`] documents its
+//! exclusive ownership and `Send` safety argument.
 
 // The second `unsafe` in the workspace. `crate::zacwire::now_us` is the first,
 // and the workspace lint is `unsafe_code = "deny"`, so the allowance is here,

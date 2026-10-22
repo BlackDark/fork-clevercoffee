@@ -1,17 +1,6 @@
-//! A brew pressed during the emergency latch must not fire when the latch clears.
+//! Requests made during an emergency latch must not run after recovery.
 //!
-//! **Measured on a bench ESP32, 2026-10-07.** With a bench build (`just bench-flash`, emergency
-//! threshold at 30 °C) the machine was tripped by warming a DS18B20 by hand. A brew press during
-//! the latch was correctly refused -- `enablePump REFUSED - latched 1`, and the pump LED stayed
-//! dark. The probe then cooled below the threshold, the latch cleared, **and the machine started
-//! that same brew with nobody pressing anything.** On a real machine the water is at brewing
-//! temperature and the reservoir is not empty.
-//!
-//! The state drains its action requests on entry and in its update: `AG-REPO-24` ("states that
-//! cannot act on action requests must drain them") plus ADR-0003 rules 2 and 3.
-//!
-//! The drain is not a new policy, and the last test is the contrast that shows it: an empty tank
-//! already drained the same press before the latch did.
+//! Drain action requests on entry and update, per AG-REPO-24 and ADR-0003.
 
 mod common;
 

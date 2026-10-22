@@ -1,9 +1,6 @@
-//! The two fixed-capacity buffers on the MQTT path: [`Payload`], the reused value
-//! buffer, and [`SetCommand`], one inbound `set`.
+//! Fixed-capacity MQTT buffers keep allocation off the control task.
 //!
-//! `heapless::String`, not `String`. Both sit on paths where an allocation is heap
-//! traffic in a task that must not block: `Payload` is written once per topic per
-//! pass on the control task, `SetCommand` crosses from the `esp-mqtt` task to it.
+//! [`Payload`] is reused per topic; [`SetCommand`] crosses from the MQTT task.
 
 use heapless::String as Bounded;
 use log::warn;

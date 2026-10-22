@@ -1,37 +1,13 @@
-//! The HX711 load-cell amplifier: the bit protocol, the moving average, the tare, and a bounded
-//! wait in place of an unbounded spin.
+//! Bounded HX711 polling, smoothing, tare, and calibration.
 //!
-//! # What there is to match
+//! The sign-bit flip converts two's complement to offset binary, where electrical
+//! zero is `0x800000`. Persisted offsets and calibration depend on that convention.
+//! Smoothing drops extremes and divides by a rounded-down power-of-two sample count.
 //!
-//! The arithmetic follows the amplifier's own reference implementation, so a calibration factor
-//! derived the usual way means what it says: the 24 data bits plus the gain-select clocks, the
-//! sign-bit flip that turns the amplifier's two's-complement output into offset binary, the
-//! drop-highest-and-lowest moving average, the round-down-to-a-power-of-two division, and
-//! `(smoothed - tare) / calibration` as the weight. Each is documented where it is implemented.
-//!
-//! # Bounded waits
-//!
-//! Nothing in this driver spins. Cells are clocked from a caller-driven poll, so a slow or absent
-//! amplifier costs one tick rather than the control task: every wait has a deadline the caller
-//! owns, and the deadline is armed when the driver starts rather than when the first sample
-//! arrives. See [`SignalWatchdog`] for the timing and [`Scale`] for the dual-cell alternation.
-//!
-//! # Offset binary
-//!
-//! The amplifier reports two's complement and the sign bit is flipped on read, so `0x800000` is the
-//! electrical zero of the amplifier and a count above it is a load. That convention is reproduced
-//! exactly, because the tare, the calibration and the persisted offsets are all expressed in it.
-//!
-//! # The one quirk kept deliberately
-//!
-//! [`Cell::push`] **discards a raw sample of exactly zero**. Offset-binary zero is `0x800000` on
-//! the wire: the amplifier's most-negative full-scale input, a real reading, and one a reversed
-//! load cell produces routinely. It is kept because it doubles as the plausibility filter for a
-//! data line held low, and because removing a filter that changes every weight on a reversed cell
-//! is not a change to make while bringing a driver up for the first time. [`Cell::push`] returns
-//! whether the sample was accepted and [`Cell::rejected_samples`] counts the refusals, so a driver
-//! that reports its own health can distinguish "the weight has not moved" from "every sample is
-//! being rejected".
+//! Arm readiness deadlines at startup, not the first sample. [`Scale`] alternates
+//! cells; [`SignalWatchdog`] bounds absent-device waits.
+//! [`Cell::push`] deliberately rejects raw zero, also a valid negative full-scale
+//! value. Preserve that plausibility filter and its rejection counter.
 
 use cc_domain::units::Millis;
 

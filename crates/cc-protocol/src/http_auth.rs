@@ -1,48 +1,11 @@
-//! HTTP Basic authentication: header parsing, base64, constant-time compare.
+//! Allocation-free Basic authentication parsing and credential comparison.
 //!
-//! # Why this is in `cc-protocol` and not `cc-hal-esp32`
+//! Authentication is configured at server start; changes require reboot. Empty
+//! credentials deliberately leave the API unauthenticated to avoid UART-only recovery.
 //!
-//! **Because it is the only way to test it.** `cc-hal-esp32` names
-//! `esp_idf_hal`, so it cannot be built for a host target and its `#[test]`
-//! functions are executable *only* by flashing the device
-//! (`crates/cc-hal-esp32/src/device_tests.rs`). A base64 decoder and a
-//! credential comparison are pure string logic with no reason to need a
-//! microcontroller, and shipping them untested would mean shipping the one
-//! piece of this work that a mistake in silently opens or silently closes a
-//! machine's web interface. Here they are `no_std`, allocation-free and covered
-//! by `just test` on the host.
-//!
-//! # The two decisions the caller has to know about
-//!
-//! Both are deliberate:
-//!
-//! * **Authentication is armed once, at web-server start.** Enabling
-//!   `system.auth.enabled` therefore protects nothing until the next boot, and
-//!   `cc_hal_esp32::web::needs_reboot` says so in the `POST /api/parameters` answer.
-//! * **Empty credentials mean no authentication at all** — the whole API is served
-//!   unauthenticated. That is fail-open, and it is chosen because the alternative
-//!   (locking an operator out of their own machine because they enabled auth and then
-//!   did not finish) is worse on a device whose only other console is a UART.
-//!
-//! # Why there is no ESP-IDF auth hook to use instead
-//!
-//! There is not one. `esp-idf-svc` 0.53.0's `src/http/server.rs` has no `auth`, `realm` or
-//! `WWW-Authenticate` anywhere, and neither does ESP-IDF v5.5.5's `components/esp_http_server`:
-//! `esp_http_server` has no authentication concept at all. So this is hand-rolled, and hand-rolled
-//! credential handling is exactly the code that must be constant-time and must be tested.
-//!
-//! # What this deliberately does NOT do
-//!
-//! * **No `Authorization` header is ever logged.** The caller gets a `bool`.
-//! * **No retry limiting, no lockout, no timing-safe *length*.** The compare is
-//!   constant-time over the bytes it compares; the *lengths* are compared
-//!   first, because a username length is not the secret and because a
-//!   fixed-width compare would mean padding a credential to a size an attacker
-//!   chooses.
-//! * **No TLS, and no digest.** Basic auth over plain HTTP sends the credential
-//!   base64-encoded, which is encoding, not encryption. There is no HTTPS listener on this
-//!   firmware either, so Basic auth here is a control against a casual visitor on the local
-//!   network, not a secure interface.
+//! Never log authorization headers. Comparison is constant-time over equal-length
+//! bytes, not lengths; there is no retry limit or lockout. Basic auth is base64,
+//! not encryption, and this firmware has no TLS listener.
 
 /// The realm this firmware challenges with.
 ///

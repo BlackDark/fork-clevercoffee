@@ -1,13 +1,7 @@
-//! A faulted probe: entering `SENSOR_ERROR`, waiting, and recovering.
+//! Sensor-fault recovery delay starts at state entry, not fault clearance.
 //!
-//! The recovery delay is measured from **entry**, not from the moment the fault clears, so a probe
-//! fault that persists for an hour and then clears recovers on the very next tick rather than after
-//! the delay. Recovery still happens only once the error is genuinely clear, because the guard is
-//! re-checked on every tick; it is the *delay* that does not apply.
-//!
-//! Two entries are not equivalent, which is why both are exercised: a probe that reports a fault
-//! takes the machine here and the heater is held off by S1, while an implausible *reading* goes to
-//! `EMERGENCY_STOP` instead. Conflating the two was the defect, so the suite keeps them apart.
+//! A persistent fault can recover immediately once clear. Implausible readings
+//! instead enter emergency stop; keep that path distinct from a reported probe fault.
 
 mod common;
 
@@ -274,22 +268,8 @@ fn an_implausible_reading_goes_to_emergency_stop_not_sensor_error() {
     assert_eq!(h.next_state_this_tick(), Some(MachineState::EmergencyStop));
 }
 
-/// A **plausible** reading from a **faulted** probe must still stop the heater.
-///
-/// This is the safety consequence the probe-fault wiring exists to produce, and it was unreachable
-/// before it: the driver latched its error after ten consecutive bad reads, but nothing consulted
-/// that flag, so `has_temperature_error` stayed `false` and this branch was dead on hardware.
-///
-/// The two cases are deliberately different, and conflating them is the defect:
-///
-/// * an **implausible** reading is S1's job -- see
-///   [`an_implausible_reading_goes_to_emergency_stop_not_sensor_error`] above;
-/// * a **plausible** reading from a probe that has *latched an error* is the driver's job, and it
-///   goes here.
-///
-/// The reading here is 95 °C: mid-range, plausible, and exactly what a probe that read once
-/// and then went silent leaves behind. That is the shape of the failure -- the number looks healthy
-/// and nothing is producing it.
+/// A latched probe fault stops heating even when its last sample is plausible.
+/// Keep this distinct from an implausible reading, which takes the S1 emergency path.
 #[test]
 fn a_plausible_reading_from_a_faulted_probe_stops_the_heater() {
     let mut h = Harness::in_state(MachineState::PidNormal);

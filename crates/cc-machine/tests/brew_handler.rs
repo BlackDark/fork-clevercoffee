@@ -1,15 +1,7 @@
-//! The brew switch, and the valve fail-safe it shares a tick with.
+//! Brew-switch requests and the S5 valve fail-safe.
 //!
-//! A momentary switch requests a start on the press edge and a stop on a second press; a toggle
-//! requests a start on the rising edge and a stop on the falling edge. A switch that is disabled
-//! records its level and requests nothing. An empty tank denies the brew, which is the one
-//! permission check the switch does honour.
-//!
-//! The rest of the file is the S5 valve fail-safe: the water valve is closed whenever the machine
-//! is not brewing, and closing it goes through the actuator port rather than a relay. That second
-//! part is not a style preference. Closing the valve behind the facade's back leaves its internal
-//! bookkeeping believing the valve is open, so the next request to open it is ignored and no
-//! water flows at all.
+//! Valve closes must use the actuator facade; bypassing its cached state can
+//! make the next open request a no-op.
 
 mod common;
 

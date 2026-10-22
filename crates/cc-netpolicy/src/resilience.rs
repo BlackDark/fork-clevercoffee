@@ -1,44 +1,14 @@
-//! The retry and circuit-breaker policy the network tier runs on.
+//! Retry and circuit-breaker decisions with caller-supplied time.
 //!
-//! Each construct has exactly one production configuration:
+//! Backoff uses an exact rational and saturating `u64` arithmetic for deterministic
+//! delays without floating-point rounding.
 //!
-//! | Construct | Configuration |
-//! | --- | --- |
-//! | [`RetryPolicy`] | 10 s initial, 5 min cap, ×2, 5 attempts |
-//! | [`CircuitBreaker`] | 5 failures, 60 s open, 30 s half-open |
-//!
-//! # Two deliberate choices
-//!
-//! ## The backoff multiplier is an exact rational, not a `double`
-//!
-//! The delay is `initial_delay_ms × (num/den)^attempts`, computed in `u64` with
-//! saturating multiplication, so the schedule is a property of the code rather
-//! than of the FPU: `0.1` in `double` is not `0.1`, and a delay derived from it
-//! would move with the floating-point unit. For the production multiplier of 2
-//! the two forms agree bit for bit.
-//!
-//! ## The clock is passed in, never read
-//!
-//! Every method takes `now_ms` explicitly. A default argument that reads a global
-//! clock is untestable, because the test has to know what "now" was.
-//!
-//! # Behaviour that looks like an oversight
-//!
-//! Each of these is reproduced on purpose and pinned by a test:
-//!
-//! * `should_retry` is `current < max`, and a `max` of 0 means unlimited.
-//! * `can_retry_now` is *always true* on the first attempt, whatever
-//!   `last_attempt_ms` is, which is why the first reconnection attempt after a
-//!   drop is immediate.
-//! * `can_attempt` in [`CircuitState::HalfOpen`] admits an attempt only while
-//!   `half_open_attempts == 0`, and nothing ever increments that counter, so a
-//!   half-open breaker admits **every** attempt until one succeeds twice or one
-//!   fails. Pinned by `div_half_open_admits_every_attempt`.
-//! * `update_state` in half-open closes the circuit when the half-open timeout
-//!   has elapsed **and** no attempt was made, on the strength of having not been
-//!   used. Pinned by `div_half_open_closes_on_idleness_not_on_success`.
-//! * `record_failure` while closed resets the failure count to 0 when it opens
-//!   the circuit. Pinned by `div_opening_the_circuit_clears_the_failure_count`.
+//! Intentional edge cases:
+//! * Zero retry limit means unlimited; the first attempt is immediate.
+//! * The half-open attempt counter is never incremented, so every attempt is admitted
+//!   until two successes or one failure.
+//! * An unused half-open circuit closes when its timeout expires.
+//! * Opening a closed circuit resets its failure count.
 
 use core::fmt;
 

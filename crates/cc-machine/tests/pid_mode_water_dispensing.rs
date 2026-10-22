@@ -1,10 +1,4 @@
-//! Hot-water dispensing in `PID_NORMAL`: the same switch as steam water injection, on the other
-//! side of the mode flag.
-//!
-//! In `PID_NORMAL` the hot-water switch runs the pump; in `STEAM_RUNNING` the same physical input
-//! injects water into the boiler. Both are handled by the update of the state the machine is
-//! already in -- there is no `HOT_WATER` state -- so the switch is a level rather than a trigger,
-//! and the pump follows it for as long as it is held.
+//! Held hot-water input drives the pump in `PID_NORMAL`, without another state.
 
 mod common;
 

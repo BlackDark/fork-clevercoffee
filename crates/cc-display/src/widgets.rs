@@ -1,24 +1,8 @@
-//! The shared drawing pieces: the status bar, the thermometer, the temperature
-//! and brew readouts, the progress bar, the icons, and the multi-line message
-//! screens.
+//! Shared readouts, bars, icons, and message screens.
 //!
-//! # Two conventions that are load-bearing
-//!
-//! **The brew-time box is drawn inverted.** The brew-time and brew-weight
-//! readouts set the draw colour to 0, draw a filled box, restore the colour, and
-//! *then* print the label and value on top: a one-line "selected field"
-//! highlight. The box differs between the upright template and the rest:
-//!
-//! | template | box | drawn at |
-//! |----------|-----|-----------|
-//! | Upright | `100 x 10` | `x, y+1` |
-//! | others | `78 x 10` | `x + 50, y+1` |
-//!
-//! **The value column is a hard-coded offset, not a measured one.** It is
-//! [`VALUE_COLUMN_OFFSET`], and the width the column reserves for its label and
-//! value is [`VALUE_COLUMN_WIDTH`]. Both numbers assume the measured label width
-//! pinned by a test in [`crate::lang`]; change the label and those coordinates go
-//! wrong silently, which is why `check_column_offsets` exists.
+//! Brew readouts draw an inverted box before text. [`VALUE_COLUMN_OFFSET`] and
+//! [`VALUE_COLUMN_WIDTH`] depend on measured label widths; label changes need
+//! `check_column_offsets`, not only framebuffer bounds checks.
 
 use crate::display::{Display, DISPLAY_WIDTH, STATUS_BAR_Y_POS};
 use crate::fmt::{format_fixed, format_int, format_padded2, truncate_to_i32};
@@ -131,21 +115,9 @@ pub fn display_temperature_info(
         l.current_temp
     });
 
-    // The value and its `°C` unit, laid out so neither can leave the frame.
-    //
-    // **Measured in ink, not in advance.** `"°C"` advances 12 px in
-    // `profont11` but *inks* 17 (`Font::ink_box` returns `x 0..16`): the advance
-    // excludes the trailing side bearing, so a layout computed from `str_width`
-    // puts the last three columns of the `C` outside the panel. The first fix for
-    // this used `str_width` and reduced the unit's offset from 31 to 30, which
-    // moved it two pixels and left it still clipped — the measurement was the
-    // wrong quantity.
-    //
-    // So: the unit is placed to **end one pixel inside the frame**, and the
-    // value is right-aligned to two pixels before it. Where the original column
-    // has room for both (the Scale template, whose value column is 50 rather than
-    // 84) the original placement is kept untouched, so that layout does not move
-    // at all.
+    // Use ink bounds: `°C` advances 12 px but inks 17 in profont11.
+    // End the unit one pixel inside the frame, then right-align the value two pixels
+    // before it. Preserve the original placement where the wider Scale column fits.
     let (value_right, unit_x) = value_and_unit_columns(coords.current_value_x);
     draw_right_aligned(
         d,

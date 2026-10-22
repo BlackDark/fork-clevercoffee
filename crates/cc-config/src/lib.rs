@@ -1,67 +1,16 @@
-//! The typed configuration schema, the configuration value, the store trait,
-//! and JSON import/export.
+//! Typed configuration, schema validation, atomic storage, and JSON exchange.
 //!
-//! # Why configuration is a value
+//! [`Config`] is a value; [`BlobConfigStore`] persists it as one blob to avoid
+//! partial updates. [`schema`] controls persistence as well as validation: a field
+//! missing from the registry cannot survive a reboot.
 //!
-//! [`Config`] is a plain struct of typed fields which implements
-//! `Serialize`/`Deserialize`, and [`BlobConfigStore`] moves whole values. Every
-//! other decision here follows from that: with no global mutable state a test
-//! needs no fixture reset, and a failed write cannot leave a half-updated
-//! machine.
+//! Credentials remain plaintext in storage and JSON, but [`Secret`] redacts logs.
+//! Other firmware's NVS namespace is ignored; [`predecessor`] selects the boot warning.
+//! Cross-parameter safety validation belongs to `cc-safety`, through
+//! [`Config::safety_view`], to keep dependencies one-way.
 //!
-//! The rejected alternative is one global mutable object per parameter, each
-//! writing itself to NVS from inside its own setter. It fails in two ways that
-//! show up as defects rather than as design taste: a per-parameter write opens
-//! and closes the NVS namespace once per value, and a parameter that is not in
-//! the store's list cannot be persisted at all, so it silently resets on every
-//! reboot. That second failure is why `safety.emergency_temp` and
-//! `safety.emergency_hysteresis` are registered here (see the table below),
-//! *and* why a registration is the thing the schema test pins rather than the
-//! presence of the field.
-//!
-//! # What is deliberately the same
-//!
-//! * **The keys.** The dotted names, verbatim, because an operator's existing
-//!   `config.json` has to keep resolving. See [`schema`].
-//! * **The defaults and ranges.** [`Config::default`] sets the factory values
-//!   and [`schema`] carries the range each parameter accepts.
-//! * **The JSON shape.** Nested objects, integers for enums, so
-//!   `docs/example_config.json` imports unchanged.
-//! * **The secret fields.** Four parameters are plaintext in NVS. They are
-//!   plaintext here too — the machine has to be able to *use* them — but wrapped
-//!   in [`Secret`] so that no log line, `Debug` dump or panic message can print
-//!   one. The type itself lives in `cc-domain` ([`cc_domain::secret`]) because
-//!   the UART provisioning parser has a fifth credential that is not part of a
-//!   `Config` at all.
-//!
-//! # What is deliberately different
-//!
-//! | # | Change | Why |
-//! | --- | --- | --- |
-//! | 1 | `safety.emergency_temp` and `safety.emergency_hysteresis` are registered | a parameter that is not registered cannot be persisted, so it resets on every reboot |
-//! | 2 | One JSON blob instead of one NVS key per parameter | atomic, readable, and 1/98th of the NVS traffic. [`blob_store`] |
-//! | 3 | A bad value rejects the whole import | a warn-and-continue import answers `success` and leaves the machine on defaults |
-//! | 4 | Text parameters have one storage-length bound | one bound the writer enforces beats eight constants nothing checks. See [`json`]. |
-//! | 5 | Credentials redact in `Debug`/`Display` | a credential in a log line or a panic message is a disclosure with no local symptom |
-//! | 6 | An NVS written by another firmware is ignored, not migrated — but a boot that finds one says so | see [`predecessor`] |
-//!
-//! Cross-parameter safety validation lives in `cc-safety`
-//! (`validate_config` / `load_or_default`), not here, because `cc-config` may
-//! not depend on it. [`Config::safety_view`] is the hand-off.
-//!
-//! # Dependencies
-//!
-//! `serde` + `serde_json` (with `alloc`) and `cc-domain`. `serde_json` is
-//! `alloc`-based and the configuration is a single serialised blob read once at
-//! boot, so the crate is `no_std + alloc` rather than `no_std`; the measurement
-//! that sizes it is `docs/example_config.json` — 1814 B in compact JSON, against
-//! the 20 KB NVS partition and [`MAX_CONFIG_BYTES`]. `heapless` is **not** used:
-//! its only natural home here would be the dotted key type, and a `&'static str`
-//! in a `const` schema plus a borrowed key for JSON lookup is both smaller and
-//! simpler than a `heapless::String<64>`. The four credential fields stay
-//! `alloc::string::String` because a credential has no length the firmware can
-//! bound: a fixed-capacity type would reject configurations the running firmware
-//! accepts.
+//! The crate uses `no_std + alloc`: JSON and credential strings need owned storage;
+//! schema keys are static strings, so fixed-capacity key buffers would add overhead.
 
 #![no_std]
 #![forbid(unsafe_code)]

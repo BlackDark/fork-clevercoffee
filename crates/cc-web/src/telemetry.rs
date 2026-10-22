@@ -1,16 +1,7 @@
-//! [`Telemetry`] and [`Command`]: the two types every HTTP handler is a function
-//! of, and the whole of the network→control surface.
+//! Values crossing the HTTP/control boundary: [`Telemetry`] and [`Command`].
 //!
-//! Neither type names `esp_idf_svc`, and `Telemetry` is what `Snapshot` carries,
-//! so the payload is portable even though the cell that holds it is not. See the
-//! crate root.
-//!
-//! # One `Telemetry`, not two
-//!
-//! The control task builds a [`Telemetry`] directly, and it is the only such type.
-//! A second struct with a field-by-field translation between the two is a cost
-//! paid on every publish, and the translation's only source of drift — two sets of
-//! field names for one set of facts — is not a separation between layers.
+//! The control task builds the shared telemetry type directly, avoiding duplicate
+//! payload types and field-by-field translations that can drift.
 
 /// The telemetry every handler reads.
 ///

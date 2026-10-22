@@ -1,6 +1,4 @@
-//! The whole MQTT surface — topic layout, registry membership, phase partition,
-//! payload limits, intervals — as host tests, because all of it is a pure function
-//! of the configuration. Nothing here needs a board.
+//! Host tests for MQTT topics, membership, plan partitioning, and payload budgets.
 
 #![allow(
     clippy::wildcard_imports,

@@ -1,34 +1,9 @@
-//! The registry that lets the **on-target** runner execute this crate's unit
-//! tests. Off unless `device-tests` is on.
+//! On-target test registry, enabled only by `device-tests`.
 //!
-//! # Why this exists at all
-//!
-//! Every test in this crate used to be type-checked by `just lint-esp32` and
-//! executed by **nothing**. `cargo test` cannot reach this crate: it names
-//! `esp_idf_hal`, so it does not compile for a host target, and the host test
-//! recipe (`just test`) lists only the portable crates. Two real device bugs
-//! shipped through that gap — a provisioning password window that lasted zero
-//! milliseconds, and console output lost across `esp_restart()` — each with a
-//! test that had never been run.
-//!
-//! `#[test]` is a compiler builtin that **deletes** the function unless the
-//! crate is being built with `--test`, so a non-test target cannot call these
-//! functions. The two changes that make them callable are:
-//!
-//! * each test module is `#[cfg(any(test, feature = "device-tests"))] pub mod`
-//!   instead of `#[cfg(test)] mod`, and
-//! * each test is `#[cfg_attr(test, test)] pub fn` instead of `#[test] fn`.
-//!
-//! Both are inert unless the feature is on, so the shipped `firmware` binary is
-//! byte-for-byte unaffected — `device-tests` is never enabled for it.
-//!
-//! # The list is checked, not trusted
-//!
-//! A hand-written list is exactly the kind of thing that goes stale silently,
-//! so `scripts/device-test-audit.py` (`just test-audit`, which `just lint-esp32`
-//! runs) fails the build if this list and the `#[cfg_attr(test, test)]` markers
-//! in `src/*.rs` disagree in either direction. Adding a test and forgetting to
-//! register it is a build failure, not a quietly skipped test.
+//! `#[test]` functions disappear outside a test harness. Public functions marked
+//! `#[cfg_attr(test, test)]` let the device runner call them without `cargo test`.
+//! `just test-audit` checks registration in both directions; shipped firmware never
+//! enables the feature.
 
 use crate::{
     actuators, display, heap, ota, provisioning, scale, switches, task, telnet, time, web, wifi,

@@ -1,25 +1,8 @@
-//! The ABP2 pressure sensor and the debounced switches, over ESP-IDF.
+//! ABP2 I²C and switch GPIO transport for portable protocol decisions.
 //!
-//! # What is here and what is not
-//!
-//! The decisions — when to read, the conversion arithmetic, the debounce state
-//! machine — are in [`cc_protocol::abp2`] and [`cc_domain::switch`] and are
-//! host-tested there. This file supplies the two things those need from the
-//! outside world: an I²C bus, and a pin.
-//!
-//! # I²C: the count the HAL does not give you
-//!
-//! `cc_protocol::abp2::I2cBus::read` returns how many bytes were actually read,
-//! because a short read is a real failure on a shared bus. `hal::i2c`'s own `read`
-//! does **not** return a count — it takes a `&mut [u8]` and returns
-//! `Result<(), EspError>`
-//! (`esp-idf-hal-0.47.0/src/i2c.rs:295-312`) — so [`Abp2I2c`] counts what it
-//! got itself. On ESP-IDF a short read surfaces as an `EspError` from
-//! `i2c_master_cmd_begin` rather than as a short buffer, so the count here is
-//! the buffer length on success and the error is propagated on failure; the
-//! short-read branch is therefore a defensive assertion rather than the main
-//! path. It is kept because it costs nothing and it is the branch that matters
-//! on a bus where a device can NACK mid-transfer.
+//! The HAL read returns `Result<(), EspError>`, not a byte count. ESP-IDF reports
+//! short transfers as errors, so [`Abp2I2c`] returns the buffer length on success
+//! and propagates failures to the protocol's short-read guard.
 
 use cc_domain::hardware::{SwitchMode, SwitchType};
 use cc_domain::switch::Debounced;

@@ -1,34 +1,8 @@
-//! Pure domain vocabulary for the Clever Coffee firmware: units, enums, the 18 machine
-//! states, error codes, the PID controller, and the compile-time policy whitelists.
+//! Shared units, machine vocabulary, PID arithmetic, and heater policy.
 //!
-//! # Where this sits in the layering
-//!
-//! ```text
-//!   cc-domain ──> cc-protocol ──> cc-hal-esp32
-//!     │
-//!     ├──> cc-safety ──> cc-machine ──┐
-//!     └──> cc-config, cc-display ─────┴─> cc-hal-esp32
-//! ```
-//!
-//! **This is the crate at the bottom, and it stays small.** It is the vocabulary
-//! the rest of the firmware speaks: a temperature has a type, the machine is in
-//! one of eighteen states, an error has a code, and a PID has a mode. Nothing
-//! here decodes a byte, drives a pin, or holds a ring of samples -- those are
-//! `cc-protocol` (protocols over bytes) and `cc-netpolicy` (link, publish and retry
-//! policy). The four change for different reasons: a vocabulary, a wire format, a link
-//! policy and a control policy.
-//!
-//! # Rules
-//!
-//! * `no_std`, no `alloc`, and **no dependency is on by default**.
-//!   The single optional dependency is `serde`, off unless a crate that already
-//!   depends on it turns it on, and it exists for one reason: `Secret<T>`'s
-//!   transparent `Serialize`/`Deserialize` impls, which `cc-config` needs to
-//!   round-trip the four credential fields. See [`secret`].
-//! * This crate must never name `esp_idf_svc`, `esp_idf_hal` or `esp_idf_sys`.
-//!   A CI grep enforces that.
-//! * Every unit is a newtype, never a bare `f32`. Mixing millimetres with
-//!   inches is the class of bug the type system is here to prevent.
+//! Keep byte protocols in `cc-protocol` and network scheduling in `cc-netpolicy`.
+//! This crate has no default dependencies or allocation. Optional `serde` supports
+//! [`secret`] serialization without coupling provisioning to configuration.
 
 #![no_std]
 #![forbid(unsafe_code)] // already denied workspace-wide; restated for clarity

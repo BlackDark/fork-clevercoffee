@@ -1,55 +1,14 @@
-//! The NVS backend: [`EspNvsBlob`].
+//! NVS transport for [`cc_config::BlobConfigStore`].
 //!
-//! # What this file is
+//! `EspDefaultNvsPartition::take()` erases and reinitializes full or newer-version
+//! partitions, with a warning. Namespace and wire-format policy belong to `cc-config`.
 //!
-//! The entire device half of the configuration store, and it is about thirty
-//! lines because everything worth testing — the namespace, the key, the JSON
-//! encoding, the schema version, the predecessor-written-NVS behaviour — lives in
-//! `cc_config::BlobConfigStore` and is a host test. This is the same split
-//! `heater.rs` uses: the decision is portable, the peripheral is not.
+//! `set_blob` erases, writes, then commits; NVS copy-on-write preserves the previous
+//! page before commit. `get_blob` returns a shortened slice without shrinking the
+//! buffer, so query `blob_len` first to size it.
 //!
-//! # The API, verified against the installed crate
-//!
-//! From `esp-idf-svc` 0.53.0 `src/nvs.rs`:
-//!
-//! * `EspDefaultNvsPartition::take()` → `Result<Self, EspError>`, and
-//!   `take_with(reinit: bool)` underneath it. `take()` passes `reinit = true`,
-//!   which means a partition that is full (`ESP_ERR_NVS_NO_FREE_PAGES`) or from
-//!   a newer NVS version (`ESP_ERR_NVS_NEW_VERSION_FOUND`) is **erased and
-//!   re-initialised** rather than reported (`nvs.rs:76-96`). That is the right
-//!   default here: a 20 KB partition holding one 2 KB blob cannot legitimately
-//!   be full, and a partition from a newer NVS version is one this firmware
-//!   cannot read anyway. The boot log says so when it happens, because
-//!   `esp-idf-svc` logs a `warn!` at `nvs.rs:86-88`.
-//! * `EspNvs::new(partition, namespace, read_write)` → opens the namespace.
-//! * `EspNvs::blob_len(name)` → `Ok(None)` if the key is absent,
-//!   `ESP_ERR_NVS_NOT_FOUND` is mapped to `None` inside (`nvs.rs:349-365`).
-//! * `EspNvs::get_blob(name, buf)` → `Ok(None)` if absent.
-//! * `EspNvs::set_blob(name, buf)` → erases the key, sets it, commits.
-//! * `EspNvs::erase_all()` → erases and commits.
-//!
-//! Two of those are worth a second look:
-//!
-//! * **`set_blob` erases first** (`nvs.rs:398-410`). `nvs_erase_key` followed by
-//!   `nvs_set_blob` followed by one `nvs_commit` is still atomic from a reader's
-//!   point of view, because NVS is copy-on-write at page granularity and the
-//!   commit is the only thing that publishes the new page. A power cut before
-//!   the commit leaves the previous page intact. This is the property
-//!   `BlobConfigStore::save` promises, and
-//!   `a_failed_save_leaves_the_previous_configuration_in_place` pins.
-//! * **`get_blob` does not shrink its buffer.** It writes `len` into the `inout`
-//!   length parameter and returns `&buf[..len]`, so the buffer must be at least
-//!   as large as the stored value. `blob_len` first is therefore not an
-//!   optimisation, it is the only way to size the read buffer without a
-//!   `MAX_BLOB_BYTES` heap allocation on every boot.
-//!
-//! # `EspNvs` is `Send` but not `Sync`
-//!
-//! `unsafe impl<T: NvsPartitionId> Send for EspNvs<T>` exists (`nvs.rs:576`)
-//! and there is no `Sync`. So the store can be *moved* to the diagnostics task
-//! but not *shared*. It is therefore owned by one task — the firmware's network
-//! task — and the web server reaches it through the same bounded command queue
-//! everything else uses, not by borrowing it.
+//! `EspNvs` is `Send`, not `Sync`: move ownership to one task and use command queues
+//! instead of sharing the store.
 
 use alloc::vec;
 use alloc::vec::Vec;

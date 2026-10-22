@@ -1,35 +1,7 @@
-//! The deliberate behaviour differences this crate can demonstrate, one test each.
+//! Pin intentional behavior, including quirks that must not be silently corrected.
 //!
-//! The point of the file is that a deliberate difference from the machine this firmware replaces
-//! cannot be read as a bug and quietly reverted: the behaviour is asserted here.
-//!
-//! # The other half: what was deliberately *not* changed
-//!
-//! Some behaviours that look like defects were left alone on purpose, and those tests are the more
-//! valuable half of this file, because "we left this alone" is the claim most likely to be
-//! reversed by someone who finds it surprising. Each one says so in its own doc comment.
-//!
-//! The differences:
-//!
-//! * the pump watchdogs: [`div1_the_pump_timeouts_are_armed`],
-//!   [`div1_the_watchdogs_arm_only_while_the_pump_is_commanded_on`],
-//!   [`div1_the_watchdogs_re_arm_after_a_release`].
-//! * [`div2_the_steam_valve_is_whitelist_gated`] -- the steam valve.
-//! * [`div3_the_water_valve_is_tank_gated`] -- the water valve and the tank.
-//! * [`a_sleep_request_is_honoured_with_the_pid_disabled`],
-//!   [`the_sleep_request_is_consumed_and_not_repeated`],
-//!   [`waking_from_standby_still_works_with_the_pid_disabled`] -- sleep with the PID off.
-//! * [`div39_backflush_fill_and_flush_reassert_their_hardware`] -- fill and flush.
-//!
-//! And the behaviours left alone:
-//!
-//! * [`the_emergency_debounce_needs_three_readings`] -- three readings above the threshold.
-//! * [`the_live_emergency_thresholds_are_the_defaults`] -- 150 °C to trip, 100 °C to recover.
-//! * [`the_sensor_error_recovery_delay_is_measured_from_entry`] -- a persistent fault recovers at
-//!   once.
-//! * [`the_water_switch_does_not_wake_the_machine_from_standby`] -- the water switch only extends
-//!   the timer.
-//! * [`the_power_off_happens_before_the_standby_request`] -- one tick of pump after the shutdown.
+//! Individual cases document watchdog arming, valve gating, sleep behavior,
+//! debounce, and recovery timing.
 
 mod common;
 

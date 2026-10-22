@@ -1,54 +1,12 @@
-//! Over-the-air update admission, and the hardware shutdown that has to happen before a
-//! single byte is written to flash.
+//! OTA admission and full hardware shutdown before flash writes.
 //!
-//! # What this is for
+//! Decide on the control task's live state, not an HTTP telemetry snapshot that
+//! may be a tick stale. Refuse while water or steam could flow.
 //!
-//! **An OTA must leave pump and valve off.** A machine reflashed mid-brew, or booting with
-//! the 3-way valve energised, is the hardware damage `AGENTS.md`'s Hardware Control
-//! Invariants exist to prevent. This module is that requirement as code, and it is the
-//! **only** place the answer is decided. An admitted session is stricter than a heater-only
-//! shutdown in four ways.
-//!
-//! # Why it is a pure function, and why that is the point
-//!
-//! An OTA is requested over HTTP, on the httpd task. That task **cannot** actuate
-//! anything: the actuators belong to the control task, and every other route reaches
-//! hardware the same way -- a `cc_web::Command` the control task drains on its next tick.
-//! So "may I flash right now?" cannot be answered where the request arrives; it can only
-//! be answered *about the state the machine is actually in*. [`admit`] is that answer: a
-//! `MachineState` in, an admission out, no I/O and no clock.
-//!
-//! That makes the whole safety decision a host test, which is the only reason to trust it.
-//! The alternative -- asking "is the pump on?" from the httpd task -- would be answered
-//! against a telemetry snapshot up to one control period stale, which is the hole
-//! [`begin_session`] exists to close.
-//!
-//! # Why [`Effect::SafeHardwareShutdown`], and not the emergency shutdown
-//!
-//! `safe_hardware_shutdown` means *heater off, pump off, valve closed, LEDs off, **not**
-//! latched*, and OTA start is one of its triggers. [`begin_session`] returns it, and the
-//! two reboot paths in `cc-firmware/src/main.rs` apply it directly for the same reason.
-//!
-//! It is not [`Effect::EmergencyShutdown`], and the difference is not cosmetic.
-//! `emergency_shutdown` latches: `Actuators::enable_pump` and every sibling refuse until
-//! something explicitly clears it, so a machine flashed and recovered into would come back
-//! **permanently dead** with no way out over the network. `safe_hardware_shutdown` turns
-//! the relays off and leaves the machine able to run again -- which is what an OTA wants,
-//! because an OTA that fails halfway must leave a machine the operator can still talk to.
-//!
-//! # What refusing adds over a shutdown alone
-//!
-//! A shutdown stops the hardware; it does not stop the flash. Water flowing against a
-//! closed valve, and a valve opening again in the tick after the shutdown was applied, are
-//! both still wrong while 1.8 MB of flash is erased:
-//!
-//! * [`admit`] refuses while water or steam could be flowing, so the machine is quiescent
-//!   before anything is erased.
-//! * `begin_session` emits the full shutdown -- pump, valve **and** heater -- through the
-//!   real applier, never a heater-only effect.
-//!
-//! A refusal is not a failure of the feature: the UI polls `/api/ota/status` and shows the
-//! message, and the operator flashes again in thirty seconds.
+//! [`begin_session`] emits [`Effect::SafeHardwareShutdown`]: heater and pump off,
+//! valve and LEDs off, without latching. Emergency shutdown would prevent recovery
+//! after a failed upload. Shutdown alone is insufficient if the next tick could
+//! reopen a valve; admission must also require a quiescent machine.
 use cc_domain::state::MachineState;
 
 use crate::effect::{Effect, Effects};
@@ -101,56 +59,15 @@ impl Admission {
     }
 }
 
-/// May the machine be flashed **right now**, from this state?
+/// Classify the live control-task state immediately before starting OTA.
 ///
-/// # The rule
+/// Refuse water-flow states and `SteamRunning`; the water whitelist alone misses
+/// the shared valve during steam. `BrewFinished` is quiescent, while
+/// `BackflushFlushing` still has an open valve despite its stopped pump.
 ///
-/// Refuse whenever water or steam could be flowing: the six water-flowing states plus
-/// [`MachineState::SteamRunning`].
-///
-/// It is **not** the same predicate, and the difference is the point:
-/// `water_flow_allowed` answers *"may this state open the valve?"*, which is a
-/// question about the future, and `STEAM_RUNNING` answers no. `admit` answers
-/// *"is anything energised right now?"*, which is a question about the present,
-/// and `STEAM_RUNNING` answers yes. Asking the whitelist would have answered
-/// the wrong question and passed the one state where a 3-way valve is open.
-///
-/// # A `match` with no `_` arm
-///
-/// The same mechanism as [`cc_safety::water_flow_allowed`]: an 18th state is a **compile
-/// error** here until it is classified. That is the whole argument for this function being
-/// a `match` rather than `!state.is_brew_state()`, which would compile silently and quietly
-/// admit a new water-flow state.
-///
-/// # What is admitted, and why those states are safe
-///
-/// `PidNormal`, `PidDisabled`, `Standby`, `EmergencyStop`, `SensorError`,
-/// `EepromError`, `WaterTankEmpty`, `BrewFinished`, `BackflushIdle` and
-/// `BackflushFinished` all admit, and the common reason is the same in every
-/// case: **nothing is energised**. `BrewFinished` is the one that needs its argument
-/// spelled out, because it is a brew state and reads like an oversight: the shot is over,
-/// the group has been drained, and the pump is off. `BackflushFlushing` is *not* admitted
-/// even though its pump is off, because its **valve** is open, and the valve is half of
-/// S8.
-///
-/// # A note on what this cannot see
-///
-/// This reads a state, not a pin. It is the strongest statement available
-/// without the control task stalling for a tick, and the belt to its braces is
-/// [`begin_session`]: whatever this admitted, the shutdown that follows drives
-/// the pump and the valve to their inactive levels through the applier, on the
-/// control task, before any flash write is attempted. Admission decides whether
-/// it is *reasonable* to flash; the shutdown is what makes it *safe*.
-///
-/// # Why the state must be read **here** and not where the request arrived
-///
-/// A verdict is only good for the instant it was computed. The httpd task cannot
-/// read a live state — it sees a telemetry snapshot up to one control period old
-/// — and in the tick that follows, the machine is still fully live: it honours a
-/// `brew_start` off MQTT, or a brew-switch press, and `BrewPreinfusion`'s
-/// `on_entry` opens the water valve. A state that has *moved into* a refused one
-/// by then must refuse the flash, which is why [`begin_session`] takes the state
-/// and can refuse rather than emitting unconditionally.
+/// The exhaustive match forces new states to choose. This checks state, not pins;
+/// [`begin_session`] also shuts down outputs before flash writes. Never rely on
+/// an earlier HTTP snapshot: a brew can begin before the next control tick.
 #[must_use]
 pub const fn admit(state: MachineState) -> Admission {
     match state {
@@ -368,25 +285,10 @@ mod tests {
         );
     }
 
-    /// 🔴 **A state that moved into a refused one between the request and the
-    /// apply means no flash.** The P0 this function's signature exists for.
+    /// Recheck admission after the request: a newly active state must refuse OTA.
     ///
-    /// The old shape returned `Effects` unconditionally, so a caller could ask
-    /// for a session's effects from any state at all and got the shutdown
-    /// either way. The httpd task asked against a telemetry snapshot up to one
-    /// control period old, and the control task applied the result one tick
-    /// later — a tick in which the operator could hit the brew switch, entering
-    /// `BREW_PREINFUSION`, whose `on_entry` opens the water valve. The tick's
-    /// one ordered effect pass then applied `SafeHardwareShutdown` and
-    /// `OpenWaterValve` back to back, the second overwriting the first, and the
-    /// flash erased 1.8 MB with the valve open.
-    ///
-    /// So the rule is asserted over **every** state, from a request that was
-    /// admitted, and both halves are asserted: a refused state yields **no
-    /// effects at all** — not an empty list, which a caller could mistake for
-    /// "nothing to do, carry on" — and it yields the refusal `admit` names. A
-    /// caller that carried on regardless would satisfy "nothing was applied"
-    /// and still erase the running image mid-brew, which is the failure itself.
+    /// Assert both the refusal reason and absence of session effects. An empty effect
+    /// list alone could be mistaken for permission to continue flashing.
     #[test]
     fn a_state_that_moved_into_a_refused_one_after_the_request_starts_nothing() {
         // The request-time check, against the state the operator saw: admitted.

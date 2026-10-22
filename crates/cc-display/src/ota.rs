@@ -1,25 +1,8 @@
-//! The OTA screen.
+//! OTA status screens and width-bounded error text.
 //!
-//! Three mutually exclusive renderings, chosen by the OTA state, plus the one
-//! non-trivial piece of logic here: [`truncate_to_width`].
-//!
-//! # Truncation
-//!
-//! The error message is an arbitrary string from the HTTP layer and the screen is
-//! 128 px wide, so it has to be cut to fit. The rule is:
-//!
-//! * peel one character off the end and re-test until the remainder fits. That is
-//!   O(n^2), but n is a short error string and matching the panel's existing
-//!   behaviour matters more than the cost;
-//! * a message that already ends in `".."` is left as-is even if it is still too
-//!   wide, because that suffix says the truncation already ran; and
-//! * the `length() > 3` guard keeps the `"..."` suffix from being *longer* than
-//!   what it replaced, so an over-wide 3-character message stays over-wide rather
-//!   than becoming `"..."`.
-//!
-//! This is the one place in the display layer whose input is a runtime string, and
-//! it is a `&str` here: the device builds it from the OTA manager, and a host test
-//! can pass any string.
+//! [`truncate_to_width`] removes trailing characters until text fits. It preserves
+//! an existing `".."` suffix and stops at three characters rather than growing a
+//! short string into `"..."`. Width checks are quadratic but messages are short.
 
 use crate::display::{Display, DISPLAY_WIDTH};
 use crate::fmt::{format_int, format_uint};

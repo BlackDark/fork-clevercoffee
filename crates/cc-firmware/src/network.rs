@@ -1,45 +1,13 @@
-//! R3 bring-up: NVS, Wi-Fi, provisioning, MQTT, HTTP and SSE.
+//! Network bring-up and the stored-configuration safety check.
 //!
-//! # Where the fail-closed rule is wired, and why here
+//! `cc-config` and `cc-safety` cannot depend on each other, so firmware joins them
+//! through [`cc_config::Config::safety_view`]. Rejected blobs remain stored for
+//! diagnosis through `/api/nvs-debug`; defaults run instead and rejection is logged.
 //!
-//! `cc-config` and `cc-safety` are **siblings**: `cc-config` may not depend on
-//! `cc-safety` (CI-enforced), and `cc-safety` may not depend on `cc-config` —
-//! `SafetyConfig` is a five-field hand-off view ([`cc_config::Config::safety_view`]),
-//! not a `Config`. So neither can host the join.
-//!
-//! The join lives in `cc-firmware`, and that is the right place for three
-//! reasons:
-//!
-//! 1. **It is a boot-order decision, not a storage decision.** Whether an unsafe
-//!    stored configuration is *discarded and kept* (run the defaults, and on the next
-//!    boot discover the same blob and discard it again) or *discarded and erased* is a
-//!    question about what the firmware then does, and that is startup policy.
-//!    [`bring_up_config`] makes the choice explicitly and logs which one it made.
-//! 2. **`cc-firmware` is the only crate that may know the startup order.** Every other
-//!    crate takes its configuration as a value.
-//! 3. **It is fifteen lines and it runs once per boot, in one place**, where the log
-//!    line that reports a discarded configuration belongs. The safety *decision* is not
-//!    here and is fully tested in `cc-safety`.
-//!
-//! The decision that an unsafe blob is **kept on disk rather than erased** is deliberate
-//! and worth naming: erasing it destroys the evidence, so the next boot reports
-//! `Defaults` instead of `DiscardedUnsafe` and the operator never learns that their
-//! configuration was rejected. The blob is inert — the firmware runs the defaults
-//! regardless — and `GET /api/nvs-debug` still shows it, so the diagnosis survives a
-//! reboot. Rejection is also reported at `warn`.
-//!
-//! # The task layout
-//!
-//! | Task | Owns | Cadence |
-//! | --- | --- | --- |
-//! | control | the heater, the watchdog, the temperature probe, and the telemetry publish | [`crate::main::CONTROL_PERIOD_MS`] (10 ms) |
-//! | network | the radio, the monitor, MQTT | [`cc_hal_esp32::wifi::MONITOR_PERIOD_MS`] (1 s) |
-//! | provisioning | the UART reader and the staged credential | 50 ms while armed, otherwise off |
-//! | httpd | the REST API and the SSE stream | ESP-IDF's own task |
-//! | esp-mqtt | the MQTT session | ESP-IDF's own task |
-//!
-//! The control task is the only watchdog subscriber and the only feeder, and the only
-//! thing that may open the heater gate. Nothing in this module touches an actuator.
+//! Network code cannot actuate outputs. Only the control task subscribes to the
+//! watchdog and opens the heater gate.
+//! Control runs every 10 ms, network monitoring every second, and provisioning
+//! polls every 50 ms while armed. HTTP and MQTT use ESP-IDF's own tasks.
 
 use core::fmt::Write as _;
 use std::sync::{Arc, Mutex};
@@ -261,33 +229,14 @@ impl Default for Network {
     }
 }
 
-/// Start the HTTP server and return the handle.
-///
-/// # Where this is called from, and why it matters
-///
-/// `EspHttpServer` holds a `*mut c_void` (`esp-idf-svc` `src/http/server.rs:338`)
-/// and is therefore **neither `Send` nor `Sync`**, so it cannot be moved to
-/// another thread. It is also not `Sync`, so it cannot go in a `static`.
-///
-/// That leaves exactly one place it can live: the thread that constructed it,
-/// held in a local. Which is fine and needs no `unsafe`, because `main` blocks
-/// on `control.join()` for the life of the process — the handle's lifetime is
-/// the process's lifetime by construction, and `EspHttpServer::drop`
-/// (`server.rs:732-736`) never runs. The alternative, a `Box::leak`, would
-/// achieve the same thing with a comment explaining why it is safe; a local is
-/// the same guarantee with the compiler checking it.
-///
-/// The handlers themselves do run on ESP-IDF's httpd task and are `Send +
-/// 'static` closures over `Arc`s — that is `server.rs:530-538`'s requirement,
-/// and it is what the `Arc<dyn Fn(Command) + Send + Sync>` sink is for.
+/// Keep the HTTP handle on its constructing thread: `EspHttpServer` is neither
+/// `Send` nor `Sync`. The startup thread joins control for the process lifetime,
+/// so a local handle stays alive without leaking it. Handlers are static `Send`
+/// closures over shared values.
 ///
 /// # Errors
 ///
-/// [`EspError`] from `EspHttpServer::new` or any `httpd_register_uri_handler`.
-/// `ESP_ERR_HTTPD_HANDLERS_FULL` is the one worth naming: it fires at boot if
-/// the route table outgrows its budget, and
-/// `cc_hal_esp32::web::the_route_table_fits_the_servers_handler_budget` is the
-/// host test that catches it before a flash.
+/// Returns [`EspError`] on creation or registration, including handler-budget overflow.
 pub fn start_http(
     network: &Network,
     config: &Config,
@@ -321,31 +270,10 @@ pub fn start_http(
     Ok(web)
 }
 
-/// Publish the radio's readings into the shared snapshot.
+/// Update radio fields while preserving control's telemetry fields.
 ///
-/// The radio is `Sta`, which is a live handle to the netif and the driver. The control
-/// task publishes a [`Telemetry`] it builds itself and has no handle on `Sta`. So the
-/// holder of the radio publishes these four fields, and the control task leaves them
-/// alone — which it does by *not writing them*, because [`Shared::publish`] is a
-/// whole-slot replace, so the two publishers have to agree on who owns which fields.
-/// That agreement is the four fields on [`Telemetry`] the control task's own publish
-/// leaves at their defaults.
-///
-/// **This is what `/api/status`'s `wifiAssociated`, `wifiSignal`, `wifiOffline` and `ip`
-/// come from.** Without it those fields stay at their defaults, so a machine associated
-/// at −53 dBm reports `wifiAssociated: false, wifiSignal: 0, ip: null`.
-///
-/// Note the ownership consequence, because it is the part that bites later: the snapshot
-/// is a single slot and both publishers write it, so the two must not race. They do not —
-/// both `publish` and `publish_radio` are called from the control task, sequentially, and
-/// each is one [`Snapshot`] write over the whole slot.
-///
-/// **This function must stay on a slow cadence.** It does four `esp-idf` FFI round-trips
-/// and, on the old `String` field, one heap allocation. Called from every 10 ms control
-/// tick it was both a performance defect and the write side of a use-after-free: the
-/// reassignment `free()`d the previous IP buffer the httpd task could be reading. The
-/// caller now gates it on the same 1 s [`crate::main::WIFI_POLL_MS`] the radio poll uses,
-/// which is the only cadence any of these values can change at.
+/// Both publishers must run sequentially on control because snapshot replacement
+/// is whole-slot. Gate radio FFI reads on the one-second poll, not every 10 ms tick.
 pub fn publish_radio(shared: &Shared, sta: Option<&Sta>) {
     // Read-modify-write, so this cannot be a bare `set`. Both publishers are on
     // the control task and are sequential, which is what makes the
@@ -495,46 +423,13 @@ impl core::fmt::Debug for Handoff {
     }
 }
 
-/// Write a staged credential, and report whether it took.
+/// Persist staged credentials on the store-owning control task.
 ///
-/// Runs on the control task, which owns the store, and is the **only** place a
-/// credential reaches NVS. The load/modify/save is one blob write, so it is
-/// atomic from a reader's point of view and a failed save leaves the previous
-/// configuration in place — the property
-/// `cc_config::blob_store`'s own test pins.
-///
-/// A `Corrupt` load is *not* treated specially: the stored blob will not decode,
-/// so the defaults are written with the new credential on top, which is the same
-/// thing the boot path already does.
-///
-/// # 🔴 This is the deepest stack the control task ever reaches, and it is why
-/// [`CONTROL_STACK_BYTES`](crate::CONTROL_STACK_BYTES) is 16 KB
-///
-/// The load and the save are both a whole ~2 KB JSON document, and between them
-/// a whole `Config` is live on the stack: three frames of `Config` deep, inside
-/// serde, inside this call. Measured on the device with
-/// `uxTaskGetStackHighWaterMark` at the top of the tick that reaches here:
-///
-/// | `CONTROL_STACK_BYTES` | min free stack at `handoff.take()` | outcome |
-/// |---|---|---|
-/// | 8 KB | **68 B** | dies inside `store.save()` |
-/// | 32 KB | 23 408 B | stores the credential and reboots |
-///
-/// The 8 KB case is the bug this section exists for, and it presented as
-/// something else entirely. A stack overflow on this chip calls `abort()`, which
-/// reboots it as `rst:0xc (SW_CPU_RESET)` **and prints nothing** — the panic
-/// handler has no stack to run on. So the log a person reads after a `wifi apply`
-/// shows a clean run, then a reset, and — because the task watchdog's five-second
-/// trip on `IDLE1` is a steady background condition on this board, unrelated to
-/// provisioning — a `task_wdt` line a few seconds earlier. It reads as "the
-/// watchdog ate the credential". It did not: the watchdog never fired for this
-/// task, and the credential was lost to the reboot.
-///
-/// The timings from the same run, for the record: `store.load()` 15 ms,
-/// `store.save()` **66 ms**, `apply_staged` 85 ms in total. That is nine times
-/// the 10 ms control period, so the loop stalls while the blob is written; it is
-/// bounded and well inside the 5 s watchdog timeout, and it is the same store
-/// write the web UI's `POST /api/parameters` already performs on this task.
+/// Load/modify/save is one atomic blob update; an undecodable blob uses defaults.
+/// Nested serde needs about 8.6 KB of stack; [`CONTROL_STACK_BYTES`](crate::CONTROL_STACK_BYTES)
+/// reserves 16 KB. Exhaustion can reset silently before the panic handler runs.
+/// Measured load/save took 15/66 ms, 85 ms total: longer than one control period
+/// but bounded within the five-second watchdog timeout.
 pub fn apply_staged(
     store: &mut BlobConfigStore<EspNvsBlob>,
     staged: Staged,

@@ -1,18 +1,7 @@
-//! Per-glyph advances measured from real U8g2 2.36.18.
+//! Frozen glyph advances measured with U8g2 2.36.18 `getStrWidth`.
 //!
-//! A `probeW2` run against U8g2 measured, for every embedded font and every
-//! code point 0x20..=0x7E, `U8G2::getStrWidth` on a one-character string.
-//!
-//! For a single glyph U8g2's width loop reduces to
-//! `delta_x - delta_x + width + x_offset`, so this table pins both the advance
-//! and the trailing adjustment for each character. A wrong RLE header, a wrong
-//! signed-field decode or a wrong first-code offset shows up here as a single
-//! number, and the printed string made of those characters shows up in the
-//! goldens.
-//!
-//! **Frozen**: the probe that measured it is not in the tree. A font added to the
-//! crate needs that probe re-run against U8g2 2.36.18 before its row can exist. Do
-//! not hand-edit an existing row: it is what catches a decoder bug.
+//! Single-glyph width is `width + x_offset` after the advance cancels. The original
+//! `probeW2` is not in this tree; new fonts need remeasurement. Never hand-edit rows.
 
 pub const GLYPH_WIDTHS: [(&str, [i32; 95]); 10] = [
     (

@@ -1,34 +1,9 @@
-//! The in-memory configuration value.
+//! Typed configuration with nested JSON matching `docs/example_config.json`.
 //!
-//! # Structure
-//!
-//! The 98 fields and their defaults below are the schema's parameters, one field
-//! each. The nesting is chosen so that a `serde_json` serialisation of [`Config`]
-//! is **byte-compatible with the documented export format** for every key: a
-//! dotted key `pid.regular.kp` becomes `{"pid":{"regular":{"kp":…}}}`, which is the
-//! shape `docs/example_config.json` carries and the shape the import test parses.
-//! `schema::SCHEMA` is the flat view of the same registry, and a test asserts the
-//! two agree.
-//!
-//! # Field types
-//!
-//! * `bool`, `i32` and `f64` for the three scalar kinds. A numeric parameter that
-//!   is not a count is an `f64`, which avoids a lossy round trip through `f32`.
-//! * Rust enums from `cc-domain` for the enumerations. They serialise as their
-//!   integer discriminant, which is what the wire format carries.
-//! * `Secret<String>` for the four credentials. See [`crate::Secret`].
-//! * `String` for the remaining text parameters: a fixed-capacity type here would
-//!   reject configurations that have no length bound to begin with; see `schema`'s
-//!   module documentation.
-//!
-//! # Accessors
-//!
-//! The fields are public, so the typed accessor *is* the field access
-//! (`config.brew.setpoint` is a `f64`, and it is impossible to pass it where a
-//! `Bar` belongs). On top of that, [`Config`] provides named accessors for the
-//! handful of values that are *derived* rather than stored — the PID gains the
-//! firmware actually computes, the safety view, the heater window — so that
-//! nobody has to re-derive them and get it subtly wrong.
+//! Dotted schema keys map to nested fields; enums serialize as integer discriminants.
+//! Non-count numbers use `f64` to avoid a lossy `f32` round trip. Credentials use
+//! [`crate::Secret`]; other text uses `String` with the storage bound in [`crate::json`].
+//! Derived accessors centralize PID gains, safety settings, and heater timing.
 
 use alloc::string::String;
 use alloc::vec::Vec;

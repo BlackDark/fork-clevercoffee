@@ -1,8 +1,6 @@
-//! [`Registry`]: the publishable topics and how each is retained. [`PlanView`]: the
-//! flattened three-phase plan the budgeted pass walks.
+//! Publish membership and retain flags derived from [`Config`].
 //!
-//! [`Registry::from_config`] is a pure function of the [`Config`], so all of
-//! membership is host-testable.
+//! [`PlanView`] flattens the registry into the budgeted pass's three phases.
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;

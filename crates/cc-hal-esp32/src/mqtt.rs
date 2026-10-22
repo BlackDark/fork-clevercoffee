@@ -1,64 +1,13 @@
-//! MQTT: the client, the inbound command channel, and the time-budgeted
-//! publish.
+//! ESP-IDF MQTT client, inbound channel, and budgeted publisher.
 //!
-//! # What is here and what is not
+//! [`cc_mqtt`] supplies topics and buffers; [`cc_netpolicy::mqtt`] supplies the cursor;
+//! [`cc_config::discovery`] supplies Home Assistant payloads.
 //!
-//! The *policy* — the three-phase incremental publish under a 10 ms budget and
-//! the retained / not-retained split — is in [`cc_netpolicy::mqtt`],
-//! host-tested. The Home Assistant discovery payloads are in
-//! [`cc_config::discovery`], also host-tested, because a malformed discovery
-//! payload is *silently* ignored by Home Assistant and is exactly the failure a
-//! device-only test cannot catch.
-//!
-//! # What lives in `cc-mqtt`
-//!
-//! `Topics`, `ParamTopic`, `Registry`, `PlanView`, `Payload`, `SetCommand`, the
-//! intervals and `interval_for` / `is_configured` are pure functions of a
-//! [`Config`] and a [`cc_domain::state::MachineState`], and this file names
-//! `esp_idf_svc`, so `just test` could not reach them: the registry that pins
-//! the 32 parameters and 13 sensors was verified only by flashing a board. They
-//! now live in [`cc_mqtt`], whose crate root states the boundary and names what
-//! stayed here. This module **re-exports** them, so the two consumers
-//! (`cc-firmware`'s `mqtt_link`, and every `cc_hal_esp32::mqtt::` path in prose)
-//! are unchanged by the move.
-//!
-//! What stayed is what genuinely needs ESP-IDF: the client handle, the
-//! callback channel, and the publisher — because its budget is a claim about
-//! this firmware's 10 ms control period, and it reads the clock to make it.
-//!
-//! # The three things that are easy to lose
-//!
-//! 1. **The publish is incremental under a time budget.** See
-//!    [`cc_netpolicy::mqtt`] — the budget is a safety property, not an
-//!    optimisation: the publish shares a task with the heater, so a long call is
-//!    a heater window missed. [`Feed::service`] walks a cursor over the three
-//!    phases, resumed across calls, with a [`TIME_BUDGET_MS`] budget on each
-//!    call.
-//! 2. **The buffer is 1024 bytes, raised for discovery.** See [`BUFFER_BYTES`].
-//! 3. **The value-change dedupe.** A topic whose value has not changed is not
-//!    published, which is what stops a machine with a steady temperature from
-//!    republishing thirty identical topics five times a second. See [`Feed`].
-//!
-//! # Brewing does not stop publishing
-//!
-//! An earlier revision of this file carried a `BREWING` flag that made every
-//! `publish` a no-op while a brew was running. That was wrong: the connection
-//! bookkeeping stops *reconnect attempts* during a brew, and the publish itself
-//! has no brew guard — it *selects a 500 ms interval* while a brew state is
-//! active. The flag was never set by any caller, so the behaviour was already
-//! right; the comment was not. See [`interval_for`].
-//!
-//! # Whether this ever connected to a broker
-//!
-//! **It did not, until the client was moved into the control task.**
-//! [`Client::new`] was called in `bring_up` and the client was
-//! dropped at the end of the `match` arm that created it — `EspMqttClient` has
-//! an `impl Drop` that calls `esp_mqtt_client_destroy`
-//! (`esp-idf-svc` `src/mqtt/client.rs:742-747`), so it was destroyed
-//! microseconds after `esp_mqtt_client_start`, and nothing anywhere called
-//! `publish`, `publish_online`, `discovery_due`, `due_for_reconnect` or
-//! `subscribe`. The client now lives in the control task, which drives it from
-//! its 10 ms tick.
+//! [`Feed::service`] resumes within [`TIME_BUDGET_MS`] because it shares the heater's
+//! control task. Reuse buffers, retain value-change deduplication, and keep
+//! [`BUFFER_BYTES`] large enough for discovery. Brewing changes publish cadence
+//! through [`interval_for`]; it suppresses reconnect attempts, not publishing.
+//! The client must outlive its creation scope: dropping it destroys the session.
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;

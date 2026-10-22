@@ -1,30 +1,8 @@
-//! The global transition guards, in a fixed order.
+//! Global guards in priority order: emergency, sensor fault, empty tank, PID off.
 //!
-//! Four conditions are checked before a state considers its own transitions:
-//!
-//! ```text
-//! emergency stop  -> EMERGENCY_STOP   (no exclusions)
-//! sensor error    -> SENSOR_ERROR     (no exclusions)
-//! tank not full   -> WATER_TANK_EMPTY (except WATER_TANK_EMPTY and STANDBY)
-//! PID not wanted  -> PID_DISABLED     (except the eight states listed below)
-//! ```
-//!
-//! # The exclusion lists are `match`es with no wildcard arm
-//!
-//! "This state is excluded" is a property of the *value* here, expressed by two `match`es
-//! with no `_` arm -- the same mechanism [`cc_safety::water_flow_allowed`] uses. Adding a
-//! 19th state therefore fails to compile in four places (this file,
-//! [`cc_safety::water_flow_allowed`], [`states::on_entry`](crate::states::on_entry),
-//! [`states::on_exit`](crate::states::on_exit)) instead of silently inheriting whichever
-//! behaviour the new variant happened to fall into.
-//!
-//! # The order is load-bearing
-//!
-//! Emergency beats sensor error beats tank-empty beats PID-disabled. More than one can be
-//! true at once -- a dry tank *and* a hot boiler *and* a dead probe -- and the order decides
-//! which state the operator sees. It is pinned by
-//! `guards::emergency_beats_sensor_error`, `guards::sensor_error_beats_tank_empty` and
-//! `guards::tank_empty_beats_pid_disabled` in `tests/exhaustive_state_event.rs`.
+//! Several may hold at once; ordering decides the visible state. Exhaustive
+//! exclusion matches force new states to choose how each guard applies.
+//! The empty-tank guard excludes `STANDBY` so a dry machine can still sleep.
 
 use cc_domain::state::MachineState;
 

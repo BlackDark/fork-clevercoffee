@@ -1,16 +1,7 @@
-//! Unit newtypes.
+//! Physical-unit newtypes prevent mixing quantities at call boundaries.
 //!
-//! Every physical quantity in the firmware is wrapped. A bare `f32` in a
-//! function signature is a defect waiting to happen: passing millimetres where
-//! inches are expected is a class of bug the type system is here to prevent.
-//!
-//! Two different kinds of bound live here, and they must not be confused:
-//!
-//! * **Sensor validity** — the range outside which a *reading* cannot be
-//!   believed. `Celsius::is_plausible` is the one safety path S1 depends on.
-//! * **Configuration range** — the range a *user setting* may take. Those live
-//!   with the parameter that owns them, in `cc-config`, not here, because they
-//!   are policy rather than physics.
+//! Sensor plausibility bounds live here; configurable setting ranges belong to
+//! `cc-config`. Do not use configuration limits to decide whether a reading is real.
 
 /// Define a `f32` newtype with a physical validity range and a `Display` impl.
 macro_rules! float_unit {

@@ -1,40 +1,8 @@
-//! A counting global allocator, shared by the bench and the test.
+//! Thread-local allocation counters shared by the benchmark and regression gate.
 //!
-//! Included by the bench (which reports a number for a human to watch over time)
-//! and by the matching `tests/` file (which gates the build). Keeping it in ONE
-//! place matters: a gate that measures something subtly different from the
-//! number a human watches is worse than no gate at all.
-//!
-//! Why allocations and not nanoseconds is argued on the bench's own header.
-//!
-//! # It counts the calling THREAD, not the process
-//!
-//! A `#[global_allocator]` sees every allocation in the process, and the libtest
-//! harness is a process-wide concurrent program: it spawns the test body on its
-//! own thread and keeps working on the main thread. Counting the whole process
-//! therefore attributes harness work to whatever the test happens to be doing.
-//! Measured on this file, under CPU load: `a_frame_does_not_allocate` failed
-//! **62 of 80** runs (and 1 of 20 in a lighter session, 0 of 30 idle), reporting
-//! `rendering 60 frames allocated 4 times (900 bytes)`. After the change below,
-//! 0 of 80 under the same load. Instrumenting the allocator to print the thread
-//! id showed the test body running on `ThreadId(2)` and **all four allocations
-//! on `ThreadId(1)`** — 148/16 B from `test::term::termininfo`'s capability
-//! table, 608/8 B from `VecDeque<TimeoutEntry>::push_back` in `test::run_tests`,
-//! and 48/8 B plus 96/8 B from `run_test`'s spawn. Nothing in `cc-display`
-//! allocated at all.
-//!
-//! So the counters below are thread-local and only the thread that reads them is
-//! measured. This is not a narrowed assertion: `assert_eq!(allocs, 0)` still
-//! fails on the first heap byte the *rendering* thread touches, which is the
-//! only way a frame can reach the allocator — `templates::render` never spawns a
-//! thread, and on the device it runs entirely on the display task. A concurrent
-//! allocation from elsewhere in the process was never evidence about a frame
-//! anyway; it was noise.
-//!
-//! `const { Cell::new(..) }` with a `Drop`-less type means the `thread_local!`
-//! below compiles to a plain thread-local static: no lazy initialisation, no
-//! destructor registration, and so no allocation and no re-entry. That is what
-//! makes it safe to touch from inside a `GlobalAlloc`.
+//! Process-wide counting includes libtest's concurrent allocations. Measure only
+//! the rendering thread; rendering does not spawn work. Const-initialized,
+//! destructor-free cells avoid allocator re-entry during counter access.
 
 #![allow(
     unsafe_code,

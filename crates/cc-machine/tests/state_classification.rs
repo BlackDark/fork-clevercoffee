@@ -1,18 +1,7 @@
-//! The four state predicates, pinned where the machine depends on them.
+//! State categories as used by the machine.
 //!
-//! `cc-domain`'s `state.rs` owns the predicates (`is_brew_state`, `is_steam_state`,
-//! `is_backflush_state`, `is_manual_flush_state`). This file re-tests the classification against
-//! the *machine's* use of it, so a change to the machine that quietly depends on a different
-//! categorisation fails here.
-//!
-//! One predicate deliberately disagrees with the safety whitelist: `is_brew_state` is a range
-//! test that includes `BREW_FINISHED`, and `cc_safety::water_flow_allowed` excludes it. The
-//! machine depends on that difference in two places, so
-//! [`water_flow_excludes_brew_finished_but_the_brew_predicate_does_not`] checks both sides.
-//!
-//! [`the_classification_partitions_all_eighteen_states`] asserts the partition rather than a list
-//! of examples: the four categories plus the eight uncategorised states account for all
-//! eighteen, with nothing in two categories and nothing in none.
+//! `BREW_FINISHED` is a brew state but is excluded from the water-flow whitelist;
+//! the reducer depends on that distinction.
 
 use cc_domain::state::MachineState;
 

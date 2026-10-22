@@ -1,25 +1,7 @@
-//! The Wi-Fi log stream's portable half: the heap shed, the bounded ring that
-//! carries lines from the logger to the socket, and the line format.
+//! Portable log shedding, bounded backlog, and wire formatting.
 //!
-//! # Why the policy is here
-//!
-//! Three of the four pieces of a log stream need no chip: whether a given free heap
-//! permits a write ([`Shed`]), what a client that stops reading costs the machine
-//! ([`Ring`]), and what a line looks like on the wire ([`line()`]). They live here
-//! because `just test` names this crate, while `cc-hal-esp32` does not compile for a
-//! host target at all — so this is the half that runs on every commit.
-//!
-//! The fourth — the socket — is `cc_hal_esp32::telnet`, and it is device-only. That
-//! split is the point, not a compromise: the policy is reviewable without reading a
-//! `lwip_bind`.
-//!
-//! # Budget
-//!
-//! [`RING_ENTRIES`] x [`ENTRY_BYTES`] is 4 KB of static RAM for the whole log
-//! backlog. The entry holds the formatted line *including* its prefix, because the
-//! prefix is written straight into the entry rather than into a buffer of its own.
-//! Both numbers are static-RAM decisions on a ~320 KB machine, so neither is a
-//! tuning knob.
+//! The HAL owns sockets. [`RING_ENTRIES`] times [`ENTRY_BYTES`] reserves 4 KB of
+//! static RAM, including formatted prefixes; changing either changes the RAM budget.
 
 use core::fmt::Write;
 
@@ -165,41 +147,12 @@ impl Default for Shed {
     }
 }
 
-/// The bounded hand-off between the logging path and the telnet task.
+/// Bounded log hand-off: drop and count newest lines instead of waiting on a client.
 ///
-/// # Why a ring and not a channel
-///
-/// The producer is whichever task happened to log — usually the control task at
-/// priority 5 — and the consumer is the telnet task at a lower priority
-/// (`cc_hal_esp32::task`'s `TELNET_PRIO`). **The producer must never wait for the
-/// consumer**, and a client that has stopped reading must not be able to make the
-/// control tick wait either. A full ring therefore *drops the newest line and counts
-/// it*, and [`Ring::push`] returns rather than blocking.
-///
-/// The alternative — holding a lock across the socket write — would put a network
-/// write on the control tick's critical path.
-///
-/// # Why this is `&mut self` and not `&self`
-///
-/// Because it lives in a `no_std`, `forbid(unsafe_code)` crate and is reached from
-/// several tasks, the only safe way to get "another task may append" is a lock the
-/// caller owns. `cc_hal_esp32::telnet` holds the real one in a `Mutex` and states
-/// the argument at the call site; it is the same rule `cc_firmware`'s `slots.rs`
-/// states for the three locks the control task takes:
-///
-/// > do not block on a lock whose critical section is unbounded, and do not
-/// > block on a lock a higher-priority task holds.
-///
-/// Neither half is violated here. The critical section is a bounded
-/// [`ENTRY_BYTES`]-byte copy with no allocation and no syscall, so it is
-/// microseconds; and the only other holder is the telnet task at priority 2, so
-/// `FreeRTOS` priority inheritance boosts it to the control task's 5 for the
-/// duration of a memcpy and it then releases.
-///
-/// An atomics-per-byte ring would also be lock-free and would also be correct.
-/// It was not chosen: 256 relaxed `store`s per line on the control tick's
-/// logging path is a cost with no measured benefit over a memcpy, and the
-/// memcpy is the one a reader can check by reading it.
+/// The caller owns synchronization. Hold its lock only for an allocation-free
+/// [`ENTRY_BYTES`]-byte copy, never a socket write. The lower-priority telnet
+/// consumer can inherit control's priority until that bounded copy completes;
+/// an unbounded or higher-priority holder would violate control's lock budget.
 #[derive(Debug)]
 pub struct Ring {
     lines: heapless::Deque<heapless::String<ENTRY_BYTES>, RING_ENTRIES>,

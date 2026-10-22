@@ -1,84 +1,13 @@
-//! The Wi-Fi telnet log stream: the listener, and ADR-0002's heap-aware shed.
+//! UART-first logging with a bounded telnet backlog and heap-aware shedding.
 //!
-//! # What is here
+//! [`Fanout::log`] writes UART0 before copying into [`RING`]. A socket failure or
+//! heap shed must never suppress the console. Calling the logger's `enabled`
+//! filter alone does not write a record.
 //!
-//! A [`RING_ENTRIES`]-entry ring plus a listener on port 23, with ADR-0002's
-//! shed between the ring and the socket.
-//!
-//! # The shed is a soft one, and that is the ADR's decision
-//!
-//! ADR-0002 decision 5: below 30 KB of free heap the telnet stream skips its
-//! socket writes while the console keeps working, and resumes when the heap
-//! recovers. It is deliberately **soft** — the connection stays open, because an
-//! active close appears in the operator's terminal as "Connection reset by peer",
-//! which is indistinguishable from a network fault and sends the investigation in
-//! the wrong direction.
-//!
-//! "The console keeps working" is the half that matters here, and it is a
-//! *promise about a second sink*, not about this one: the shed below ([`Shed`],
-//! applied in [`Server::flush`]) drops a ring entry before it is written to the
-//! socket, and the UART0 write in [`Fanout::log`] has already happened by then
-//! and is not reachable from it. **UART0 is written first**, and only then does
-//! the Wi-Fi client get a say.
-//!
-//! **Shed, and do not crash** is what this implements.
-//!
-//! # The split, and why it is this split
-//!
-//! The *policy* — [`cc_web::telnet`]: [`Shed`](cc_web::telnet::Shed)'s two
-//! edges, the bounded [`Ring`](cc_web::telnet::Ring), and the line format — is
-//! portable and host-tested, because `just test` names `cc-web` and this crate
-//! does not compile for a host target. Finding 3.2 was precisely that the policy
-//! shipped here with nothing consuming it, and so with nothing testing it: the
-//! device suite could only assert whichever branch the real heap happened to be
-//! on, which on a machine with 180 KB free is always "allow".
-//!
-//! The *transport* is here and is device-only: `esp-idf-svc` 0.53.0 has no
-//! TCP-listener service (`io` is stdio, `tls` is a client), so a telnet server
-//! is a small `esp-idf-sys` socket binding. That is `unsafe`, this workspace
-//! denies `unsafe_code`, and the exception is written out at the call site for
-//! the reason `heap.rs` and `time.rs` write theirs out.
-//!
-//! # The producer cannot block
-//!
-//! [`init_log`] installs a [`log::Log`] that writes every record to UART0
-//! **and** copies it into [`RING`]. That tee is the producer: [`Fanout`] holds
-//! an `EspIdfLogger` — the only writer of UART0 in this dependency set — and
-//! calls its `log`, then pushes its own formatted line into the ring. The ring
-//! push is a claim, a bounded copy and a return; a full ring drops the newest
-//! line and counts it. So a terminal that has stopped
-//! reading costs the control tick a copy and a counter, and never a wait —
-//! which is the whole of what "a slow/absent client must not block anything but
-//! itself" asks for.
-//!
-//! The tee exists because `esp_idf_svc::log` owns the process-global `log`
-//! logger and there is one of those per process. `log::set_logger` succeeds
-//! exactly once, so the stream cannot be attached *beside* the ESP-IDF logger;
-//! it has to wrap it.
-//!
-//! **Composing is the whole of it, and getting that wrong is invisible.** An
-//! earlier version of this file delegated only [`log::Log::enabled`] to a
-//! freshly built `EspIdfLogger` and kept the record for the ring. `enabled` is
-//! the filter, not the sink: nothing was ever written to UART0, the boot log
-//! and the OTA refusals reached the operator only if a telnet client happened
-//! to be attached, and the ring then held the last 16 lines and dropped the
-//! rest. No host test can see it and the device-test binary was green because
-//! it installs `esp_idf_svc::log::init_from_env()` rather than this.
-//!
-//! # The client cap
-//!
-//! [`cc_web::telnet::MAX_CLIENTS`] is **1**: a second connection *replaces* the
-//! first. That is also the only thing standing between a debug channel and the
-//! heap exhaustion ADR-0002 documents: the socket count must not grow with how
-//! many terminals are open.
-//!
-//! # The other half of the OOM fix is not here
-//!
-//! Shedding only helps if the thing being shed would otherwise have been
-//! affordable. The half that makes a 19 KB `/api/parameters` response affordable
-//! is ADR-0002 decision 2 — serialise once, stream it, never build a `String`
-//! intermediate — and that is [`crate::web`]. A machine that sheds the log and
-//! still aborts on an API request has fixed neither half.
+//! ADR-0002 requires skipping socket writes below the heap floor and resuming
+//! without closing the connection. One client is allowed; a new connection replaces
+//! the old one. [`cc_web::telnet`] owns the portable ring, shed, and line format.
+//! The producer must not block on the socket.
 
 #![allow(
     unsafe_code,
@@ -218,34 +147,11 @@ pub static STATS: Stats = Stats::new_const();
 /// is strictly better than restarting the machine.
 pub static RING: Mutex<Ring> = Mutex::new(Ring::new());
 
-/// The `log::Log` the firmware installs: `esp_idf_svc`'s UART0 logger, plus a
-/// copy of every record into [`RING`].
+/// Process-global logger teeing accepted records to UART0, then [`RING`].
 ///
-/// `static` for the same reason [`RING`] is: `log::set_logger` takes a
-/// `&'static` reference, and it may only be called once per process.
-///
-/// # Why the composition, and not a replacement
-///
-/// `EspIdfLogger::log` is the only thing in this dependency set that writes a
-/// `log` record to UART0: it builds an `EspStdout` over libc's `stdout` and
-/// `fwrite`s the ESP-IDF-formatted line (`esp-idf-svc/src/log.rs:360-391`).
-/// A `Fanout` that only *delegated `enabled`* to it and kept the record for
-/// the ring would be a filter composed with a ring, not a tee — the console
-/// would go silent and every line would live or die by the 16-entry
-/// [`RING`]. So `Fanout` **holds** an `EspIdfLogger` and calls its `log` on
-/// every accepted record; the ring push is the second sink, not the only one.
-///
-/// # Why holding one `EspIdfLogger` is safe to share
-///
-/// The `()` filter backend is a unit struct with no state at all
-/// (`esp-idf-svc/src/log.rs:275-279`), and `EspStdout` takes and releases
-/// newlib's recursive `stdout` lock per record, so two tasks
-/// logging concurrently serialise in libc exactly as they did when a fresh
-/// `EspIdfLogger` was constructed per call. `EspIdfLogger::new` is a `const fn`
-/// (`:315`), so the one instance is built into the `static` with no lazy
-/// initialiser and no `Once` on the logging path. `esp_idf_svc` itself shares
-/// one the same way — `static LOGGER: EspIdfLogger = EspIdfLogger::new(())`
-/// (`:296`).
+/// Call `EspIdfLogger::log`, not only its filter. Its stateless filter and newlib's
+/// per-record stdout lock permit sharing; const initialization avoids lazy work
+/// on the logging path.
 static FANOUT: Fanout = Fanout {
     console: EspIdfLogger::new(()),
 };
@@ -312,30 +218,14 @@ const fn level_of(level: log::Level) -> cc_web::telnet::Level {
     }
 }
 
-/// Install the fan-out logger, replacing `esp_idf_svc::log::init_from_env`.
+/// Install the UART0/ring logger with `RUST_LOG` level mapping.
 ///
-/// `FANOUT` *wraps* `EspIdfLogger` rather than replacing it, so after this
-/// returns every record goes to UART0 and to [`RING`]. Nothing here suppresses
-/// the console half — see [`Fanout`] for the composition and for what is lost
-/// if it is dropped.
+/// Do not call `esp_idf_svc::log::init_from_env` first: it claims the one global
+/// logger. Reuse its level mapping while installing [`Fanout`] as the sink.
 ///
 /// # Errors
 ///
-/// [`log::SetLoggerError`] if a logger is already installed. It is returned
-/// rather than ignored because the alternative is a machine whose telnet stream
-/// silently shows nothing, which is exactly the failure finding 3.2 is about.
-///
-/// # Why the `RUST_LOG` handling is repeated
-///
-/// `esp_idf_svc::log::init_from_env` reads `RUST_LOG` and *then* claims the
-/// process-global `log` logger, so calling it and installing a tee afterwards is
-/// impossible — and calling it instead leaves no way to reach the ring. What is
-/// duplicated here is only the *level mapping*; the writer is `FANOUT`'s
-/// `EspIdfLogger`, which is the same type `init_from_env` installs
-/// (`esp-idf-svc/src/log.rs:296`, `:415-417`). The mapping below is therefore
-/// the same one `esp-idf-svc/src/log.rs:415-429` performs, and it is here
-/// rather than in a shared helper because that crate is a dependency and this
-/// is eleven lines.
+/// Returns [`log::SetLoggerError`] if a logger is already installed.
 pub fn init_log() -> Result<(), log::SetLoggerError> {
     log::set_logger(&FANOUT)?;
     log::set_max_level(
@@ -852,29 +742,9 @@ pub mod tests {
         const { assert!(TASK_STACK_BYTES >= 4096) };
     }
 
-    /// The regression this file's module docs are about, asserted on the half a
-    /// test can see.
-    ///
-    /// The bug: `Fanout` delegated `log::Log::enabled` to an `EspIdfLogger` and
-    /// kept the record for the ring, so nothing was ever written to UART0. No
-    /// assertion on a log *level* would have caught that — `enabled` was always
-    /// correct. What is assertable is the composition's contract, in two parts:
-    ///
-    /// 1. **Both sinks answer the same filter.** `Fanout::enabled` must be the
-    ///    composed logger's answer for every level, so a record cannot reach
-    ///    the ring that UART0 would refuse (the disagreement the module docs
-    ///    call out), nor the reverse.
-    /// 2. **A record the filter accepts still lands in the ring.** The console
-    ///    call is a plain statement before the push, so it cannot consume or
-    ///    replace the record; this asserts the ring half survived the change.
-    ///
-    /// What is NOT assertable here, and why: whether bytes appear on the wire.
-    /// `EspIdfLogger::log` writes through newlib's `stdout` to the ROM console
-    /// (`esp-idf-svc/src/log.rs:369-390`), and there is no read-back path from
-    /// Rust to UART0 TX. The only proof is off-target — an operator's serial
-    /// monitor, or `firmware_tests::the_console_reaches_the_wire_before_a_reboot`
-    /// in `cc-device-tests`, which reads the wire from the host. This case is the
-    /// half that can run without a human holding a USB cable.
+    /// Check filter agreement and ring delivery for accepted records.
+    /// UART0 bytes cannot be read back here; wire delivery requires the host device
+    /// test or serial observation. Filter checks alone do not prove console output.
     #[cfg_attr(test, test)]
     pub fn the_fanout_is_one_filter_over_two_sinks() {
         // (1) One filter, for every level, in both directions.

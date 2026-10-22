@@ -1,20 +1,8 @@
-//! The temperature-history ring.
+//! Temperature history filled by the control task and read by HTTP.
 //!
-//! # Why it is here and not in the HTTP layer
-//!
-//! The ring is a **value** with no dependencies at all. The configuration and the
-//! machine live in the control task and no HTTP handler may reach into either, so
-//! the ring cannot be filled from the HTTP side. Keeping it here also means the
-//! arithmetic that decides what a client sees is host-testable, where a ring
-//! living in the httpd task would only be testable on hardware.
-//!
-//! # The two numbers that are not arbitrary
-//!
-//! * [`CAPACITY`] = 600, which is 30 minutes of history at the sample cadence.
-//! * [`SKIP_INTERVAL`] = 2: two samples are dropped and the third kept, so one
-//!   point lands every three samples. The UI assumes exactly that spacing and
-//!   reconstructs timestamps as `now - 3 * i` seconds, which makes the skip part
-//!   of the wire contract rather than an optimisation.
+//! [`CAPACITY`] holds 30 minutes. [`SKIP_INTERVAL`] drops two samples before keeping
+//! one; the UI reconstructs timestamps at three-second intervals, so this cadence
+//! is part of the wire contract.
 
 /// How many points the ring keeps.
 pub const CAPACITY: usize = 600;

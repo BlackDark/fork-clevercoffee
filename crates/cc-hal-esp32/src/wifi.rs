@@ -1,39 +1,9 @@
-//! Wi-Fi station mode: bring-up, the hostname ordering, and the monitor.
+//! Wi-Fi transport driven by [`cc_netpolicy::wifi::Monitor`].
 //!
-//! # What is here and what is not
-//!
-//! Two decisions live elsewhere and are host-tested there:
-//!
-//! * the retry / circuit-breaker / offline-mode decision is
-//!   [`cc_netpolicy::wifi::Monitor`]; this file performs the ESP-IDF call it asks
-//!   for and nothing else.
-//! * the four-bucket signal mapping is [`cc_netpolicy::wifi::Signal`].
-//!
-//! The captive portal is **not here**, and the reason is at the bottom of this
-//! file: it is a decision rather than an omission.
-//!
-//! # The hostname ordering, and why it is structural here
-//!
-//! The hostname must be applied before the association starts, so the DHCP
-//! client identifier matches the configuration. Setting it after the association
-//! starts applies it to the *next* association, and the symptom is a machine
-//! whose name changes when its DHCP lease renews, months later.
-//!
-//! In `esp-idf-svc` the ordering is not something to get right by discipline —
-//! it is a property of the types. There is no public `set_hostname` on the
-//! Wi-Fi driver: `EspNetif::set_hostname` is **private**
-//! (`esp-idf-svc` 0.53.0 `src/netif.rs:624`, no `pub`). The hostname reaches the
-//! netif only as `DHCPClientSettings::hostname` in the netif's construction
-//! configuration, applied inside `EspNetif::new_with_conf` at
-//! `netif.rs:387,489-490` — that is, when the netif is *created*, which is
-//! necessarily before `wifi.start()` and therefore before any association. So
-//! [`Sta::new`] cannot construct the wrong order, and
-//! `cc_netpolicy::wifi::ConnectionOrder::hostname_is_before_association` is a test
-//! of the reasoning rather than a guard on a call sequence.
-//!
-//! It is still worth stating out loud, because the alternative is a future
-//! editor reaching for the raw `esp_netif_set_hostname` — which is `unsafe`,
-//! which this workspace denies, and which would be the wrong place anyway.
+//! Construct the netif with `DHCPClientSettings::hostname` before starting Wi-Fi:
+//! DHCP identity is captured at association. `EspNetif::set_hostname` is private
+//! in `esp-idf-svc` 0.53.0, so construction enforces the required order.
+//! Captive-portal tradeoffs are recorded below.
 
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -249,29 +219,7 @@ impl Sta {
         self.monitor.is_offline()
     }
 
-    /// Start an association with `ssid` and `password`.
-    ///
-    /// An empty password means an open network.
-    ///
-    /// # Errors
-    ///
-    /// `ESP_ERR_INVALID_ARG` for an SSID longer than 32 bytes or a password
-    /// longer than 64 — the widths of `wifi_sta_config_t::ssid` and
-    /// `::password`. Rejected here rather than truncated, because a truncated
-    /// SSID associates with the *wrong network*.
-    /// The auth mode and PMF the station offers.
-    ///
-    /// **Both defaults were wrong on this machine.** `ClientConfiguration`'s
-    /// `auth_method` defaults to [`AuthMethod::WPA2Personal`] and its `pmf_cfg`
-    /// to [`PmfConfiguration::NotCapable`], because that is what a
-    /// *compile-time* default should be. Taken with `..Default::default()` — which
-    /// is what this call used to do — the station announced **WPA2 only, no
-    /// PMF**, and an AP that offers WPA3 would not associate: no `wifi:state:`
-    /// transitions at all, a 10 s timeout, five retries, offline.
-    ///
-    /// So the station says [`AuthMethod::WPA2WPA3Personal`] and advertises PMF
-    /// as **capable and required** — which is what WPA3 needs, and which a WPA2
-    /// AP tolerates, because PMF is negotiated rather than demanded by the peer.
+    /// Security profile for the configured WPA2 AP; PMF is optional.
     fn station_security() -> (AuthMethod, PmfConfiguration) {
         // **`WPA2Personal`, and the log is why.**
         //
@@ -296,6 +244,8 @@ impl Sta {
     }
 
     /// Start an association with `ssid` and `password`.
+    ///
+    /// An empty password means an open network.
     ///
     /// # Errors
     ///

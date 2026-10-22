@@ -1,22 +1,7 @@
-//! The shot counter and the backflush reminder, end to end.
+//! Shot counting through the real reducer and applier, with modeled persistence.
 //!
-//! # What is real here and what is modelled
-//!
-//! **Real:** the reducer's increment, the qualification rule
-//! ([`cc_machine::maintenance::qualifies_as_counted_shot`]), the effect the reducer emits, and
-//! [`cc_machine::apply`]'s routing of it. Every case below drives a machine through a real brew and
-//! a real transition, so a regression in any of those fails here.
-//!
-//! **Modelled:** the store and the shell's write. `Nvs` below stands in for the NVS partition, and
-//! `Side` is the shape of the firmware's side channel plus the control task's one drain step.
-//! Neither is host-testable where it lives -- the store is an `EspNvs` reached through the control
-//! task's `&mut`, and the side channel is in a device crate -- so the protocol is re-implemented
-//! here and the real implementations are held to it by review rather than by this file. What is
-//! *not* modelled is the part that once failed: the increment and the effect.
-//!
-//! The counter only earns its place if the storage survives a reboot, so "reboot" here means
-//! the stored bytes are read back and handed to a fresh machine -- the same shape `Control::boot`
-//! (`cc-firmware/src/control.rs`) has.
+//! The store and shell hand-off are fakes; these tests do not execute their device
+//! implementations. Reboot reads stored bytes into a fresh machine.
 
 mod common;
 

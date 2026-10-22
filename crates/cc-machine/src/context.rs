@@ -1,23 +1,7 @@
-//! What the reducer is told, as a pure value.
+//! Read-only transition inputs, separate from the machine's own state.
 //!
-//! [`Context`] is the *read-only world* the machine can see. It holds only the values that
-//! can change a transition decision, so the set is deliberately small: pull anything in here
-//! that does not change a transition's outcome and the reducer stops being auditable.
-//!
-//! # What is **not** here, and why
-//!
-//! * **Sensor values.** They are
-//!   [`Event::SensorUpdated`](crate::event::Event::SensorUpdated) payloads, not context.
-//!   Reading them out of a shared sensor object inside the transition check would make the
-//!   decision depend on *when* it was read relative to the sensor update. Here they are an
-//!   explicit event, so every decision is a decision about a specific sample.
-//! * **The clock.** The reducer never reads one. [`Event::Tick`](crate::event::Event::Tick)
-//!   carries the reading (see `lib.rs`).
-//! * **The current state.** That is [`Machine::state`](crate::machine::Machine::state), not
-//!   the context -- it is the thing being reduced, not the context it is reduced in.
-//! * **The safety verdict.** That is [`Event::Safety`](crate::event::Event::Safety), because
-//!   S1 is stateful (a three-reading debounce) and the latch has to be part of the machine's
-//!   memory.
+//! Sensor samples, safety verdicts, and clock readings arrive as explicit events
+//! so decisions cannot depend on when shared state happened to be read.
 use cc_config::Config;
 use cc_domain::units::Celsius;
 

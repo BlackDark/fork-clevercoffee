@@ -1,39 +1,8 @@
-//! The control loop's shell: the reducer, the PID, and the clock.
+//! Control tick: sense, decide, actuate, then publish to slow consumers.
 //!
-//! # What this is
-//!
-//! The tick, written out. Four steps, in this order:
-//!
-//! ```text
-//! SENSE   the shell reads hardware into plain values
-//! DECIDE  fold events through cc_machine::reduce
-//! ACT     cc_machine::apply -> cc_hal_esp32::Actuators
-//! NOTIFY  publish telemetry to the slow consumers
-//! ```
-//!
-//! Everything in DECIDE is a pure function in `cc-machine`, with a host test suite
-//! behind it. Everything in ACT is [`cc_hal_esp32::Actuators`], which is the only
-//! code in the firmware that can change an actuator pin. The shell's job is to
-//! be the *only* thing that knows both exist.
-//!
-//! # Why the PID lives here and not in the reducer
-//!
-//! `cc-domain`'s [`Controller`] is a **value**, and `cc-machine` takes its output
-//! as [`cc_machine::Event::PidOutput`] — a number the shell computed. So the
-//! division is deliberate: the reducer decides whether a duty may *reach* the
-//! heater, and the shell decides what the duty *is*.
-//!
-//! `apply_pid_output`'s own documentation records the one visible consequence:
-//! this firmware gates the emitted `SetHeaterDuty` rather than emitting the value
-//! and zeroing it microseconds later. Same machine state, strictly safer ordering.
-//!
-//! # The clock
-//!
-//! One clock, read once per tick, published to the reducer as
-//! [`cc_machine::Event::Tick`] and to the actuator facade as
-//! [`cc_hal_esp32::Actuators::set_now`]. The reducer never reads a clock and the
-//! facade's methods take none, so this is the only place the two can be made to
-//! agree.
+//! The shell computes PID duty; the reducer decides whether it may reach the heater.
+//! Read one clock value per tick and share it with both the reducer and actuator
+//! facade so their safety deadlines agree.
 
 use cc_config::Config;
 use cc_domain::pid::{Controller, ControllerDirection, Mode, ProportionalOn};

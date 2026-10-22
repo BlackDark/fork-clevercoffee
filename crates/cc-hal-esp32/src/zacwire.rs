@@ -1,74 +1,15 @@
-//! The `ZACwire` edge capture: sampling a `TSIC-306`'s waveform on one GPIO.
+//! Polled `ZACwire` edge capture; no TSIC-306 hardware validation yet.
 //!
-//! # 🔴 Not exercised on hardware, and why that is a real gap
+//! GPIO16 currently carries DS18B20 traffic, so this capture is not brought up.
+//! Host waveform tests do not establish that a real TSIC-306 works.
 //!
-//! **No TSIC-306 is fitted to the machine this was written on.** The probe is a
-//! DS18B20 (family `0x28`, ROM `286937aacd78af41`, measured), and it shares
-//! GPIO16 with the 1-Wire bus ([`crate::pins::TEMP_SENSOR`]), so the
-//! capture is not even brought up in the firmware build. Every claim below is
-//! either read out of the installed sources or host-tested against a
-//! synthesised waveform. **None of it is evidence that a TSIC-306 works.** See
-//! [`cc_protocol::sensor::tsic306`]'s module docs, which say the same thing from
-//! the protocol side.
+//! The app note recommends at least 128 kHz strobe sampling; [`BURST_POLL_US`] is
+//! 7 µs. Poll slowly while idle, then burst until [`BURST_HOLD_US`] after the last
+//! edge. Nominal transmissions last 2.75 ms every 100 ms, limiting busy polling.
 //!
-//! # The app note asks for an ISR; this is a poller, and why
-//!
-//! `ATTSic_E2.3.0.pdf` §1.4 recommends a falling-edge interrupt that measures
-//! `Tstrobe` and then waits for the next nine edges. This does not do that, for
-//! two reasons, both checked against the installed sources rather than assumed.
-//!
-//! **1. This firmware's ISRs do "nothing beyond one GPIO write"**, and a bit-sampling ISR is a
-//! busy-wait loop with a sampled decision in it. The constraint wins.
-//!
-//! **2. `esp-idf-hal` 0.47 exposes no safe way to get a timestamped GPIO edge
-//! callback, and this workspace denies `unsafe_code`.** Read from
-//! `esp-idf-hal-0.47.0/src/gpio.rs`:
-//!
-//! * [`PinDriver::enable_interrupt`](esp_idf_hal::gpio::PinDriver::enable_interrupt)
-//!   registers a *private* `handle_isr` that only pokes an
-//!   internal `PIN_NOTIF` and, under `feature = "alloc"`, an
-//!   `unsafe`-obtained `PIN_ISR_HANDLER`. There is no `attach_interrupt`.
-//! * The PCNT unit's [`PcntUnitDriver::subscribe`](esp_idf_hal::pcnt::PcntUnitDriver::subscribe)
-//!   *is* safe, and it does take a callback — but PCNT is a **counter**, not a
-//!   timer: it fires when a watched count is reached, so firing on *every* edge
-//!   means re-arming a watch point from inside the callback, which has a window
-//!   in which an edge is lost. And the callback's `WatchEventData` carries a
-//!   **count**, not a timestamp, so the ISR would have to read a clock itself.
-//! * Neither path gives microseconds. `esp-idf-hal` 0.47 has **no** `esp_timer`
-//!   module (checked: `src/timer.rs` and `src/delay.rs` have no such re-export),
-//!   so the only route to `esp_timer_get_time()` is the FFI symbol, which is
-//!   `unsafe` to call.
-//!
-//! So the capture is a **poller**, and — this is the part that makes a poller the
-//! *right* answer rather than a compromise — **the app note's own recommendation
-//! for acquiring `Tstrobe` is a sampling rate, not an interrupt**:
-//!
-//! > It is recommended, however, that the sampling rate of the `ZACwire` signal
-//! > when acquiring the start bit be at least 16x the nominal baud rate. Because
-//! > the nominal baud rate is 8 kHz, a 128 kHz sampling rate is recommended when
-//! > acquiring Tstrobe. (app note §1.3)
-//!
-//! 128 kHz is a 7.8 µs period. [`BURST_POLL_US`] is 7.
-//!
-//! # Why polling is cheap here, which is the non-obvious part
-//!
-//! The naive worry is that a 128 kHz poll loop is 125 000 iterations a second
-//! forever, which on a 240 MHz Xtensa is a large and permanent tax. It is not,
-//! because **the sensor is silent most of the time**: it transmits one 2.75 ms
-//! burst every 100 ms, i.e. 10 Hz (app note §1.4). The line idles high
-//! otherwise, so a poller that watches it slowly when nothing is happening and
-//! switches to 7 µs only after it sees an edge costs about
-//!
-//! ```text
-//!   idle:   1 poll / ms          ->    1 000 polls / s
-//!   burst:  1 poll / 7 us, ~2.75 ms per 100 ms  ->  ~39 000 polls / s averaged
-//!   total:  ~40 000 polls / s, of which ~28 000 are at 7 us
-//! ```
-//!
-//! — about **3 % duty**, and it is *self-limiting*: the burst is entered by an
-//! edge and left [`BURST_HOLD_US`] after the last one, so a disconnected probe
-//! costs 1 000 polls a second and nothing more. A permanently-present sensor
-//! costs the same, because the burst ends with the transmission.
+//! The HAL has no safe timestamped GPIO callback. PCNT reports counts, not times,
+//! and rearming per edge creates a loss window. Polling avoids a bit-waiting ISR;
+//! microsecond timestamps still require the locally justified timer FFI.
 //!
 //! [`Idle`]: Sampler::Idle
 

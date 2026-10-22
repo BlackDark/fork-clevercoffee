@@ -1,40 +1,12 @@
-//! Frozen reference vectors for [`crate::pid::Controller`]: the expected heater outputs, and the
-//! evidence that this controller reproduces the reference implementation bit for bit.
+//! Frozen PID outputs generated as IEEE-754 bit patterns by the reference library.
 //!
-//! The expected values in the tables below were **generated, never typed by hand**. A
-//! small program compiled the reference PID library against a hand-driven clock, replayed
-//! a fixed input sequence and printed one line per step as the IEEE-754 bit pattern of the
-//! resulting `double`, so nothing was lost in transcription and the two can be compared
-//! exactly as well as approximately.
+//! Neither generator nor reference library is in this tree; regeneration requires
+//! rebuilding them, not deriving expected values from this controller.
 //!
-//! **The tables are frozen.** That program and the reference library it compiled are not in
-//! this tree, so the vectors cannot be regenerated here; they are the record of what the
-//! reference did, kept because a controller's arithmetic has to be checked against something
-//! other than itself. Re-deriving them means rebuilding that program. What runs on every
-//! `just test` is this file: the same input sequences replayed against
-//! [`crate::pid::Controller`] and compared with the frozen vectors.
-//!
-//! The five scenarios are the reference's, one for one:
-//!
-//! * **A** -- the production `P_ON_E` configuration and a boiler warm-up, including
-//!   output saturation in both directions, integrator limiting, recovery, and a `u32`
-//!   millisecond wrap across zero.
-//! * **B** -- the brew-detection `P_ON_M` tuning, including the mid-run proportional-mode
-//!   switches the firmware performs.
-//! * **C** -- manual/automatic bumpless transfer, mid-run re-tuning and limit changes, and
-//!   a rejected negative tuning.
-//! * **D** -- upstream defect D-PID-1: a sub-second sample time makes the `P_ON_E`
-//!   derivative divisor zero and the output `NaN`. **This firmware fixes that**, so
-//!   `SCENARIO_D_ORACLE` holds the reference's vector and the test asserts the
-//!   divergence. See the [`crate::pid`] module documentation.
-//! * **E** -- the other half of D-PID-1: the shipped 1000 ms window driven on deliberately
-//!   ragged timestamps, the only way this controller can differ at the production window.
-//!
-//! [`TOLERANCE`] of 1e-6 is an acceptance bound, not the measured agreement: on scenarios
-//! A, B and C every one of the 42 steps matches the reference bit for bit, so the
-//! **maximum |delta| is 0.0**. [`assert_scenario`] requires that as well, so the tolerance
-//! exists only to make a future floating-point contraction difference visible as a failure
-//! rather than as a silent drift.
+//! Scenarios cover production warm-up and clock wrap, brew tuning and mode changes,
+//! manual/automatic transfer and rejected tuning, sub-second divisor behavior, and
+//! late production-window ticks. The last two assert intentional divergence.
+//! Agreement scenarios require bit-exact results as well as [`TOLERANCE`].
 
 // `alloc` is linked for tests only. The library itself uses no allocation at all; a
 // growable log of parity results is a test convenience, not a runtime requirement, and
