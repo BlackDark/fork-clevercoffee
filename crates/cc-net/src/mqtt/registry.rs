@@ -5,10 +5,10 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use crate::mqtt::cursor::{Item, Plan};
 use cc_config::Config;
-use cc_netpolicy::mqtt::{Item, Plan};
 
-use crate::topics::{ParamTopic, Topics, BACKFLUSH_ON, CALIBRATION_ON, STEAM_MODE, TARE_ON};
+use crate::mqtt::topics::{ParamTopic, Topics, BACKFLUSH_ON, CALIBRATION_ON, STEAM_MODE, TARE_ON};
 
 /// The topics to publish, and how each is retained.
 ///

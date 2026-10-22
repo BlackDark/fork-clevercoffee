@@ -7,14 +7,10 @@
 //! critical section. Snapshot reads must copy and restore the value atomically;
 //! a destructive read would make a second poll in one control period report defaults.
 
-#![no_std]
-#![forbid(unsafe_code)]
-#![deny(missing_docs)]
-
-extern crate alloc;
-
 pub mod auth;
 pub mod help;
+pub mod history;
+pub mod http_auth;
 pub mod ota;
 pub mod parameters;
 pub mod payload;

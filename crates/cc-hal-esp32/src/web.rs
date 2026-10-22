@@ -1,6 +1,6 @@
 //! ESP-IDF routes, chunked responses, shared snapshots, and SSE transport.
 //!
-//! [`routes`] is the registration table; [`cc_web`] owns portable payloads and parsing.
+//! [`routes`] is the registration table; [`cc_net::web`] owns portable payloads and parsing.
 //! Handlers read snapshots and queue commands rather than accessing control state.
 //!
 //! Follow [ADR-0002](../../../docs/adr/0002-wifi-logging-ota-memory-architecture.md):
@@ -38,18 +38,18 @@ use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 
 use cc_config::Config;
-use cc_protocol::http_auth::WWW_AUTHENTICATE;
-// The application tier lives in `cc-web`, which is `no_std` and host-testable.
+use cc_net::web::http_auth::WWW_AUTHENTICATE;
+// The application tier lives in `cc-net`, which is `no_std` and host-testable.
 // These are the payload builders and the two shared types; what stayed here is
 // route registration, the chunked writers, the broadcaster and the httpd
-// `Configuration`. See `cc_web`'s crate root for the boundary and for why
+// `Configuration`. See `cc_net::web`'s crate root for the boundary and for why
 // `Snapshot` did not move with them.
-use cc_web::{
+use cc_net::web::{
     classify_parameters, error_body, explicit_value, first_of, health_json, mime_for,
     nvs_debug_json, parameter_help, parse_flag, parse_setpoint, query_of, status_json,
     temperatures_json, unavailable_json, upload_response, weight_json, Auth, Kind, ParameterPost,
 };
-pub use cc_web::{
+pub use cc_net::web::{
     parameters_json, Command, Telemetry, MAX_CONFIG_UPLOAD_BYTES, MAX_PARAMETER_BODY_BYTES,
     MAX_PARAMETER_PAIRS,
 };
@@ -241,7 +241,7 @@ pub struct Shared {
     /// reports as LOST rather than as a failure. It is the same lesson as the
     /// 1 KB `Display` framebuffer and the 7.2 KB `history_json` return value:
     /// anything this size is heap or it is a crash.
-    pub history: Mutex<alloc::boxed::Box<cc_netpolicy::history::History>>,
+    pub history: Mutex<alloc::boxed::Box<cc_net::web::history::History>>,
     /// How many control commands the control task has applied.
     ///
     /// The ack every command caller waits on. A command is a **request**: the
@@ -265,7 +265,7 @@ impl Shared {
     pub fn new() -> Self {
         Self {
             telemetry: Snapshot::new(),
-            history: Mutex::new(alloc::boxed::Box::new(cc_netpolicy::history::History::new())),
+            history: Mutex::new(alloc::boxed::Box::new(cc_net::web::history::History::new())),
             applied: AtomicU32::new(0),
             reboot_requested: AtomicBool::new(false),
             large_responses: AtomicU32::new(0),
@@ -728,7 +728,7 @@ pub fn history_json(shared: &Shared) -> String {
     let (points, len) = match shared.history.lock() {
         Ok(guard) => {
             let len = guard.len();
-            let mut copy = alloc::boxed::Box::new([cc_netpolicy::history::Point::default(); 600]);
+            let mut copy = alloc::boxed::Box::new([cc_net::web::history::Point::default(); 600]);
             for (i, point) in copy.iter_mut().enumerate().take(len) {
                 if let Some(p) = guard.get(i) {
                     *point = p;
@@ -1157,7 +1157,7 @@ impl Web {
                 move |mut req| {
                     // `free_heap()` is an FFI read, so the renderer takes it as
                     // an argument rather than calling it itself — see
-                    // `cc_web::payload::status_json`. The bytes are unchanged.
+                    // `cc_net::web::payload::status_json`. The bytes are unchanged.
                     let body = status_json(&shared.snapshot(), free_heap());
                     respond(req.connection(), 200, &body)
                 },
@@ -1222,7 +1222,7 @@ impl Web {
                     // version and byte count — so nothing is lost and a `Send +
                     // 'static` handler needs no shared NVS handle at all.
                     // Both heap readings are arguments for the same reason
-                    // `status_json`'s is; see `cc_web::payload::nvs_debug_json`.
+                    // `status_json`'s is; see `cc_net::web::payload::nvs_debug_json`.
                     let body = nvs_debug_json(
                         &described,
                         cc_config::SCHEMA.len(),
@@ -2294,7 +2294,7 @@ struct OtaFailure {
     /// 400 for a malformed body, 500 for a device-side failure.
     status: u16,
     /// The `StatusMessage` for `GET /api/ota/status`.
-    message: cc_web::ota::StatusMessage,
+    message: cc_net::web::ota::StatusMessage,
     /// The body `result.message`, which the UI shows verbatim.
     text: &'static str,
 }
@@ -2325,7 +2325,7 @@ struct OtaFailure {
 fn ota_stream(
     session: &crate::ota::Session,
     writer: &mut crate::ota::Writer,
-    reader: &mut cc_web::ota::PartReader,
+    reader: &mut cc_net::web::ota::PartReader,
     req: &mut Request<&mut EspHttpConnection<'_>>,
 ) -> Result<(), OtaFailure> {
     let mut buf = [0u8; crate::ota::OTA_CHUNK_BYTES];
@@ -2351,21 +2351,21 @@ fn ota_stream(
         if let Err(err) = parsed {
             return Err(OtaFailure {
                 status: 400,
-                message: cc_web::ota::StatusMessage::Read(err),
+                message: cc_net::web::ota::StatusMessage::Read(err),
                 text: err.message(),
             });
         }
         if flash_error.is_some() {
             return Err(OtaFailure {
                 status: 500,
-                message: cc_web::ota::StatusMessage::Flash,
+                message: cc_net::web::ota::StatusMessage::Flash,
                 text: "Write failed",
             });
         }
         // 0 rather than a guess for `total`: a browser's `Content-Length` covers
         // the multipart envelope, so it is not the image length. Only bytes
         // received are reported.
-        session.note_progress(cc_web::ota::Phase::Uploading, writer.written(), 0);
+        session.note_progress(cc_net::web::ota::Phase::Uploading, writer.written(), 0);
     }
     Ok(())
 }
@@ -2390,31 +2390,31 @@ fn ota_stream(
 /// part's headers, and the headers arrive *inside* the body, so the only way to
 /// learn it is to read at least that far.
 fn ota_validate(
-    reader: &cc_web::ota::PartReader,
+    reader: &cc_net::web::ota::PartReader,
     written: usize,
     kind: Kind,
 ) -> Result<(), OtaFailure> {
     if let Err(err) = reader.finish() {
         return Err(OtaFailure {
             status: 400,
-            message: cc_web::ota::StatusMessage::Read(err),
+            message: cc_net::web::ota::StatusMessage::Read(err),
             text: err.message(),
         });
     }
     if let Some(name) = reader.filename() {
-        if !cc_web::ota::extension_allowed(name, kind) {
+        if !cc_net::web::ota::extension_allowed(name, kind) {
             return Err(OtaFailure {
                 status: 400,
-                message: cc_web::ota::StatusMessage::BadExtension(kind),
-                text: cc_web::ota::StatusMessage::BadExtension(kind).message(),
+                message: cc_net::web::ota::StatusMessage::BadExtension(kind),
+                text: cc_net::web::ota::StatusMessage::BadExtension(kind).message(),
             });
         }
     }
-    if !cc_web::ota::fits(kind, written) {
+    if !cc_net::web::ota::fits(kind, written) {
         return Err(OtaFailure {
             status: 400,
-            message: cc_web::ota::StatusMessage::BadSize(kind),
-            text: cc_web::ota::StatusMessage::BadSize(kind).message(),
+            message: cc_net::web::ota::StatusMessage::BadSize(kind),
+            text: cc_net::web::ota::StatusMessage::BadSize(kind).message(),
         });
     }
     Ok(())
@@ -2494,12 +2494,12 @@ fn ota_open_session(
     // answer to this route's only question, which is whether `esp_ota_begin`
     // may run. No answer, no flash.
     let Some(admission) = session.take_verdict() else {
-        session.finish_err(cc_web::ota::StatusMessage::Refused(NO_ANSWER_REFUSAL));
+        session.finish_err(cc_net::web::ota::StatusMessage::Refused(NO_ANSWER_REFUSAL));
         return Err(NO_ANSWER_REFUSAL);
     };
     if let crate::ota::Admission::Refused(refusal) = admission {
         info!("ota: refused — {}", refusal.message());
-        session.finish_err(cc_web::ota::StatusMessage::Refused(refusal.message()));
+        session.finish_err(cc_net::web::ota::StatusMessage::Refused(refusal.message()));
         return Err(refusal.message());
     }
     Ok(())
@@ -2533,9 +2533,9 @@ fn ota_upload_route(
     // reads from, and the borrow checker is right that the header does not
     // outlive it.
     let content_type: Option<String> = req.header("Content-Type").map(String::from);
-    let Some(boundary) = cc_web::ota::PartReader::boundary_of(content_type.as_deref()) else {
-        session.finish_err(cc_web::ota::StatusMessage::Read(
-            cc_web::ota::ReadError::NoPart,
+    let Some(boundary) = cc_net::web::ota::PartReader::boundary_of(content_type.as_deref()) else {
+        session.finish_err(cc_net::web::ota::StatusMessage::Read(
+            cc_net::web::ota::ReadError::NoPart,
         ));
         return respond(
             req.connection(),
@@ -2543,13 +2543,13 @@ fn ota_upload_route(
             &upload_response(false, "No firmware file provided"),
         );
     };
-    let mut reader = cc_web::ota::PartReader::new(boundary);
+    let mut reader = cc_net::web::ota::PartReader::new(boundary);
 
     // 5. The erase.
     let mut writer = match crate::ota::Writer::begin(kind) {
         Ok(writer) => writer,
         Err(err) => {
-            session.finish_err(cc_web::ota::StatusMessage::Flash);
+            session.finish_err(cc_net::web::ota::StatusMessage::Flash);
             error!("ota: could not open the {kind:?} slot: {err}");
             return respond(
                 req.connection(),
@@ -2590,7 +2590,7 @@ fn ota_upload_route(
     match writer.end() {
         Ok(()) => {
             info!("ota: {kind:?} update complete — {written} B");
-            session.note_progress(cc_web::ota::Phase::Processing, written, written);
+            session.note_progress(cc_net::web::ota::Phase::Processing, written, written);
             session.finish_ok();
             respond(
                 req.connection(),
@@ -2606,8 +2606,8 @@ fn ota_upload_route(
         // fix. `StatusMessage::Flash` already exists for the second.
         Err(err @ (crate::ota::EndError::Image(_) | crate::ota::EndError::SelectSlot(_))) => {
             let status = match err {
-                crate::ota::EndError::Image(_) => cc_web::ota::StatusMessage::Invalid,
-                crate::ota::EndError::SelectSlot(_) => cc_web::ota::StatusMessage::Flash,
+                crate::ota::EndError::Image(_) => cc_net::web::ota::StatusMessage::Invalid,
+                crate::ota::EndError::SelectSlot(_) => cc_net::web::ota::StatusMessage::Flash,
             };
             session.finish_err(status);
             error!("ota: {kind:?} finalise failed — {err}");
@@ -2774,7 +2774,7 @@ pub mod tests {
             }
             if path.starts_with("/api") {
                 assert!(
-                    cc_web::help::wants_json_not_found(path),
+                    cc_net::web::help::wants_json_not_found(path),
                     "{path} is advertised but the JSON 404 does not cover it"
                 );
             }
@@ -2790,7 +2790,7 @@ pub mod tests {
     /// rather than being answered.
     #[cfg_attr(test, test)]
     pub fn every_registered_route_is_in_the_raw_handlers_own_table() {
-        // `cc_web::help::ROUTE_PATHS` is a compile-time list, because the `extern
+        // `cc_net::web::help::ROUTE_PATHS` is a compile-time list, because the `extern
         // "C"` handler that consults it cannot capture one. `routes()` is the
         // runtime list the server actually registers, and this is what stops the
         // two drifting: a path in `routes()` and missing from `ROUTE_PATHS` would
@@ -2798,11 +2798,11 @@ pub mod tests {
         // is someone adding a route here and not there.
         for (path, _) in routes() {
             assert!(
-                cc_web::help::ROUTE_PATHS.contains(&path),
+                cc_net::web::help::ROUTE_PATHS.contains(&path),
                 "{path} is registered but the raw 404/405 handler does not know it"
             );
         }
-        for path in cc_web::help::ROUTE_PATHS {
+        for path in cc_net::web::help::ROUTE_PATHS {
             assert!(
                 routes().iter().any(|(registered, _)| registered == path),
                 "{path} is in the raw handler's table but no handler is registered"

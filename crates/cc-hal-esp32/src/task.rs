@@ -45,7 +45,7 @@ use std::sync::Mutex;
 use esp_idf_hal::task::queue::Queue;
 use esp_idf_hal::task::thread::ThreadSpawnConfiguration;
 
-use cc_web::Command;
+use cc_net::web::Command;
 
 /// The queue depth: `Queue<Command, 32>`.
 pub const COMMAND_QUEUE_DEPTH: usize = 32;
@@ -249,7 +249,7 @@ pub const PROVISION_PRIO: u8 = 4;
 /// terminal; a client that has stopped reading is a condition to *drop* lines
 /// for, never to spend the machine's time on. So it sits below the display
 /// task's 3 and below provisioning's 4, and the ring
-/// ([`cc_web::telnet::Ring`]) is what keeps a stalled client off the control
+/// ([`cc_net::web::telnet::Ring`]) is what keeps a stalled client off the control
 /// tick entirely: the producer claims a slot, copies, and returns, whatever the
 /// socket is doing.
 ///

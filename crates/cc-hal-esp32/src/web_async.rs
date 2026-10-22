@@ -411,7 +411,7 @@ extern "C" fn sse_handler(req: *mut httpd_req_t) -> esp_idf_sys::esp_err_t {
             return refuse(
                 req,
                 c"401 Unauthorized",
-                cc_protocol::http_auth::WWW_AUTHENTICATE,
+                cc_net::web::http_auth::WWW_AUTHENTICATE,
             );
         }
 
@@ -515,7 +515,7 @@ pub(crate) fn register_raw_api_not_found(
     // the wrong method and ESP-IDF raises `405` rather than `404` — the `404`
     // handler above never ran, and the client got `text/html` instead of JSON.
     // Registering the same handler for `405` puts the decision back in our
-    // hands: `cc_web::help::unmatched` tells a mistyped URL (a `404`) from a
+    // hands: `cc_net::web::help::unmatched` tells a mistyped URL (a `404`) from a
     // real route with a method it lacks (an honest `405`).
     //
     // SAFETY: as above — same signature, same enum member
@@ -575,11 +575,11 @@ extern "C" fn not_found_handler(
     // SAFETY: `req` is live on the httpd task and both branches write a complete
     // response through ESP-IDF's own accessors.
     unsafe {
-        match cc_web::help::unmatched(path) {
-            cc_web::help::Unmatched::NotApi => {
+        match cc_net::web::help::unmatched(path) {
+            cc_net::web::help::Unmatched::NotApi => {
                 return httpd_resp_send_err(req, error, c"Not found".as_ptr());
             }
-            cc_web::help::Unmatched::Api => {
+            cc_net::web::help::Unmatched::Api => {
                 // The status is set **explicitly**, and it has to be: ESP-IDF
                 // does not put one on the request before calling a custom error
                 // handler, so `httpd_resp_send` alone answers `200`. Without it,
@@ -590,7 +590,7 @@ extern "C" fn not_found_handler(
                     return ESP_FAIL;
                 }
             }
-            cc_web::help::Unmatched::Served => {
+            cc_net::web::help::Unmatched::Served => {
                 // A real route with a method it does not have. `405` is the
                 // honest status and only the body was wrong — but it still has
                 // to be written, for the reason above.
@@ -604,7 +604,7 @@ extern "C" fn not_found_handler(
         }
         // `not_found_json()` is a `&'static str`, so the pointer below outlives
         // the send and cannot dangle.
-        let body = cc_web::help::not_found_json();
+        let body = cc_net::web::help::not_found_json();
         httpd_resp_send(
             req,
             body.as_ptr().cast(),

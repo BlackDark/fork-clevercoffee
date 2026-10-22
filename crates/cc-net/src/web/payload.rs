@@ -7,7 +7,7 @@ use core::fmt::Write as _;
 use cc_config::schema::{ParamValue, SCHEMA};
 use cc_config::Config;
 
-use crate::telemetry::Telemetry;
+use crate::web::telemetry::Telemetry;
 
 // ============================================================== /api/status
 
@@ -244,7 +244,7 @@ pub fn unavailable_json(feature: &str, task: &str) -> String {
 ///
 /// `helpText` is a fourth case and it is **not** a data gap:
 /// [`cc_config::schema::ParamSpec::help`] carries every string, and
-/// `GET /api/parameter-help` serves them — see [`crate::help`]. This body omits the
+/// `GET /api/parameter-help` serves them — see [`crate::web::help`]. This body omits the
 /// field for **size**: the strings are ~9 KB, and this body is already a `String`
 /// of measured tens of KB, built in one allocation on a part with 320 KB of RAM.
 /// Adding 50% to a body whose consumer renders without it is the wrong trade; a

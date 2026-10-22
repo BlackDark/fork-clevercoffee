@@ -42,7 +42,7 @@ pub fn parameter_help(name: Option<&str>) -> (u16, String) {
 /// The JSON `404` for a `/api/` path that matched no route.
 ///
 /// `{"error": "…"}` **with a space after the colon**, where this crate's
-/// [`crate::payload::error_body`] emits none. Clients byte-compare this body, so it
+/// [`crate::web::payload::error_body`] emits none. Clients byte-compare this body, so it
 /// is kept exactly as it is rather than normalised through the builder.
 ///
 /// Non-`/api/` paths keep ESP-IDF's own plain-text `404`.

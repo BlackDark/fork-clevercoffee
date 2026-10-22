@@ -1,0 +1,31 @@
+[package]
+name = "cc-net"
+description = "The network tier as pure functions: HTTP, MQTT, Wi-Fi, provisioning."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Compiles `web::http_auth::tests_support`, the base64 encoder `cc-hal-esp32`'s
+# on-target authentication tests need. Only `cc-hal-esp32/device-tests` enables
+# it; no shipped image does.
+device-tests = []
+
+[dependencies]
+cc-domain.workspace = true
+cc-config.workspace = true
+# `Telemetry::ip` is a `heapless::String<15>`, so a snapshot copy is a bounded
+# memcpy with no allocator traffic.
+heapless.workspace = true
+# `Auth::from_config` warns when authentication is enabled with no credentials.
+log.workspace = true
+
+[dev-dependencies]
+# The payload tests parse what they assert on: the key set is the contract,
+# not the byte order.
+serde_json = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true

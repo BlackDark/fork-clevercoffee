@@ -1,6 +1,6 @@
 //! Shared units, machine vocabulary, PID arithmetic, and heater policy.
 //!
-//! Keep byte protocols in `cc-protocol` and network scheduling in `cc-netpolicy`.
+//! Keep byte protocols in `cc-protocol` and the network tier in `cc-net`.
 //! This crate has no default dependencies or allocation. Optional `serde` supports
 //! [`secret`] serialization without coupling provisioning to configuration.
 

@@ -146,7 +146,7 @@ fn the_unmatched_decision_ignores_the_query_string() {
 fn the_error_bodies_are_valid_json_objects() {
     // The point of the 404 being JSON is that a client can parse it, so the
     // test asserts it parses as one object with the expected key rather than
-    // eyeballing the string. `cc-web` has no JSON parser — it only ever emits —
+    // eyeballing the string. `cc-net` has no JSON parser — it only ever emits —
     // so this checks the two structural properties a hand-rolled object needs.
     for body in [
         not_found_json().to_string(),

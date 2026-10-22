@@ -2,8 +2,8 @@
 
 use alloc::sync::Arc;
 
+use crate::web::http_auth::{self, MAX_CREDENTIAL_BYTES};
 use cc_config::Config;
-use cc_protocol::http_auth::{self, MAX_CREDENTIAL_BYTES};
 use log::warn;
 
 /// The HTTP Basic credential check for every route on this server.

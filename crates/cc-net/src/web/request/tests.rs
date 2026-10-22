@@ -2,7 +2,7 @@
 
 use super::*;
 
-use crate::telemetry::Telemetry;
+use crate::web::telemetry::Telemetry;
 
 // ==================================================== the setpoint route
 
@@ -151,8 +151,8 @@ fn a_query_string_and_a_body_carry_the_same_parameter() {
     fields.extend(cc_config::form::parse_form("pid.regular.kp=2.5"));
     assert_eq!(fields.len(), 2);
     assert!(matches!(
-        crate::classify_parameters(&fields),
-        crate::ParameterPost::Updated { .. }
+        crate::web::classify_parameters(&fields),
+        crate::web::ParameterPost::Updated { .. }
     ));
 }
 

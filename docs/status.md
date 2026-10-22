@@ -87,7 +87,7 @@ page.
   `cc_config::schema::PARAM_COUNT` is 98 (`schema.rs:92`) and pinned by
   `assert_eq!(SCHEMA.len(), PARAM_COUNT)` (`schema.rs:1858`), by
   `crates/cc-config/tests/config_schema.rs:43` and by
-  `crates/cc-web/src/help/tests.rs:91`.
+  `crates/cc-net/src/web/help/tests.rs:91`.
 - **A machine flashed from the C++ says why its Wi-Fi is gone.** On a boot where
   this firmware's own store is empty, it opens the C++'s `config` namespace
   read-only, takes one key name, and — if there was one — prints a single `warn`
@@ -98,7 +98,7 @@ page.
   `cc_hal_esp32::nvs::probe_predecessor` (the check). Nothing is read but a key
   name; nothing is written. The line reaching a telnet reader untruncated is
   pinned by
-  `cc_web::telnet::tests::the_predecessor_boot_lines_are_not_truncated_on_the_wire`,
+  `cc_net::web::telnet::tests::the_predecessor_boot_lines_are_not_truncated_on_the_wire`,
   against the real formatter rather than a copied byte count.
   **Verified by test and by reading the code; the line has not been seen on a
   board.**

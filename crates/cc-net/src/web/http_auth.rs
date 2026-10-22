@@ -40,7 +40,7 @@ pub const MAX_CREDENTIAL_BYTES: usize = 256;
 /// # Examples
 ///
 /// ```
-/// use cc_protocol::http_auth::authorized;
+/// use cc_net::web::http_auth::authorized;
 ///
 /// let mut scratch = [0u8; 64];
 /// // base64("admin:admin")

@@ -2,7 +2,7 @@
 
 use alloc::string::String;
 
-use crate::telemetry::Command;
+use crate::web::telemetry::Command;
 
 /// The `POST /api/setpoint` field, parsed through the **schema's** bound.
 ///

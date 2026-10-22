@@ -10,10 +10,10 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use crate::mqtt::cursor::{Item, Phase, Plan};
 use cc_config::Config;
-use cc_netpolicy::mqtt::{Item, Phase, Plan};
 
-use crate::*;
+use crate::mqtt::*;
 
 fn plan_of(config: &Config) -> Plan<'static> {
     // A `Plan` and its `Registry` need the same lifetime, which cannot be built by

@@ -6,7 +6,7 @@
 //!
 //! ADR-0002 requires skipping socket writes below the heap floor and resuming
 //! without closing the connection. One client is allowed; a new connection replaces
-//! the old one. [`cc_web::telnet`] owns the portable ring, shed, and line format.
+//! the old one. [`cc_net::web::telnet`] owns the portable ring, shed, and line format.
 //! The producer must not block on the socket.
 
 #![allow(
@@ -39,7 +39,7 @@ use esp_idf_sys::{
 };
 use log::{debug, info, warn};
 
-use cc_web::telnet::{Decision, Ring, Shed, MAX_CLIENTS, MAX_FLUSH_PER_PASS, RING_ENTRIES};
+use cc_net::web::telnet::{Decision, Ring, Shed, MAX_CLIENTS, MAX_FLUSH_PER_PASS, RING_ENTRIES};
 
 use crate::heap::free_heap;
 use crate::time::now_ms;
@@ -62,11 +62,11 @@ pub const HEARTBEAT_INTERVAL_MS: u32 = 30_000;
 /// 256 B, because a log line rarely exceeds 200 characters (ADR-0002 decision 1).
 /// A longer line is truncated at the buffer's end rather than split across two
 /// entries, which is the ADR's own "messages are dropped" acceptance.
-pub use cc_web::telnet::ENTRY_BYTES as LINE_BUFFER_BYTES;
+pub use cc_net::web::telnet::ENTRY_BYTES as LINE_BUFFER_BYTES;
 
 /// The free-heap floor, re-exported so the paths that guard "the machine is
 /// tight" cannot drift. ADR-0002 decision 5.
-pub use cc_web::telnet::SHED_FLOOR_BYTES as HEAP_SHED_BYTES;
+pub use cc_net::web::telnet::SHED_FLOOR_BYTES as HEAP_SHED_BYTES;
 
 /// How long the listener task sleeps between passes, in milliseconds.
 ///
@@ -126,7 +126,7 @@ pub static STATS: Stats = Stats::new_const();
 
 /// The bounded hand-off from the logging path to the listener task.
 ///
-/// In a [`Mutex`], and the lock is the argument [`cc_web::telnet::Ring`] makes
+/// In a [`Mutex`], and the lock is the argument [`cc_net::web::telnet::Ring`] makes
 /// in its own docs. Stated here too because this is the place a reviewer has to
 /// check it against `cc_firmware`'s `slots.rs`, whose rule is:
 ///
@@ -177,7 +177,7 @@ impl log::Log for Fanout {
             // be shed, and a full ring must never be able to cost the console a
             // line.
             self.console.log(record);
-            let line = cc_web::telnet::line(
+            let line = cc_net::web::telnet::line(
                 level_of(record.level()),
                 now_ms(),
                 record.metadata().target(),
@@ -208,13 +208,13 @@ impl log::Log for Fanout {
 ///
 /// `log` has no `FATAL` or `SILENT`, so the mapping is by name and not by
 /// ordinal.
-const fn level_of(level: log::Level) -> cc_web::telnet::Level {
+const fn level_of(level: log::Level) -> cc_net::web::telnet::Level {
     match level {
-        log::Level::Error => cc_web::telnet::Level::Error,
-        log::Level::Warn => cc_web::telnet::Level::Warning,
-        log::Level::Info => cc_web::telnet::Level::Info,
-        log::Level::Debug => cc_web::telnet::Level::Debug,
-        log::Level::Trace => cc_web::telnet::Level::Trace,
+        log::Level::Error => cc_net::web::telnet::Level::Error,
+        log::Level::Warn => cc_net::web::telnet::Level::Warning,
+        log::Level::Info => cc_net::web::telnet::Level::Info,
+        log::Level::Debug => cc_net::web::telnet::Level::Debug,
+        log::Level::Trace => cc_net::web::telnet::Level::Trace,
     }
 }
 
@@ -686,7 +686,7 @@ pub mod tests {
         // The heap module documents this as one number with two subscribers.
         // If `cc-hal-esp32` grew its own copy, ADR-0002's "two constants for one
         // judgement is how they drift" would already have happened.
-        assert_eq!(HEAP_SHED_BYTES, cc_web::telnet::SHED_FLOOR_BYTES);
+        assert_eq!(HEAP_SHED_BYTES, cc_net::web::telnet::SHED_FLOOR_BYTES);
         assert_eq!(crate::web::HEAP_FLOOR_BYTES, HEAP_SHED_BYTES);
     }
 
@@ -703,7 +703,7 @@ pub mod tests {
 
     #[cfg_attr(test, test)]
     pub fn a_shed_engages_below_the_floor_and_recovers_above_it() {
-        // The state machine is tested for real in `cc-web` on a host, where both
+        // The state machine is tested for real in `cc-net` on a host, where both
         // edges are reachable. What is worth asserting here is that this crate's
         // `account` counts exactly the sheds the decision reports, and that the
         // real heap on a device (100-200 KB) is above the floor.

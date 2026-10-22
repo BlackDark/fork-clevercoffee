@@ -1,4 +1,4 @@
-//! Wi-Fi transport driven by [`cc_netpolicy::wifi::Monitor`].
+//! Wi-Fi transport driven by [`cc_net::wifi::Monitor`].
 //!
 //! Construct the netif with `DHCPClientSettings::hostname` before starting Wi-Fi:
 //! DHCP identity is captured at association. `EspNetif::set_hostname` is private
@@ -9,7 +9,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use core::net::Ipv4Addr;
 
-use cc_netpolicy::wifi::{Action, ConnectionOrder, Monitor, Signal};
+use cc_net::wifi::{Action, ConnectionOrder, Monitor, Signal};
 use esp_idf_hal::delay::FreeRtos;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::ipv4;
@@ -189,7 +189,7 @@ impl Sta {
 
     /// The received signal strength in dBm, or -100 when none is reported.
     ///
-    /// -100 keeps the bucket arithmetic in [`cc_netpolicy::wifi::Signal`] on one
+    /// -100 keeps the bucket arithmetic in [`cc_net::wifi::Signal`] on one
     /// continuous scale rather than introducing a separate "no reading" case.
     #[must_use]
     pub fn rssi(&self) -> i32 {

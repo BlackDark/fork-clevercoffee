@@ -28,7 +28,7 @@ use cc_domain::units::{Celsius, Millis};
 use cc_hal_esp32::display_shared::SharedBus;
 use cc_hal_esp32::time::now_ms;
 use cc_machine::{Effect, Effects, Event, MachineChannels};
-use cc_web::Telemetry;
+use cc_net::web::Telemetry;
 use esp_idf_hal::delay::FreeRtos;
 use esp_idf_hal::task::watchdog::{TWDTConfig, TWDTDriver, WatchdogSubscription, TWDT};
 use log::{debug, error, info, warn};
@@ -475,7 +475,7 @@ impl ControlLoop {
         if now_ms().wrapping_sub(self.cadence.parameters) >= PARAMETERS_PUBLISH_MS {
             self.cadence.parameters = now_ms();
             self.parameters
-                .publish_live(cc_web::parameters_json(&self.config));
+                .publish_live(cc_net::web::parameters_json(&self.config));
         }
         // The scale's events. Its NVS commit must not sit between the reducer's
         // decision and the pins, so it is here, after them.
@@ -700,7 +700,7 @@ impl ControlLoop {
                 // Now, not on the next heartbeat: a UI that refetches on save would
                 // otherwise read the old value back and the toggle would spring back.
                 self.parameters
-                    .publish_live(cc_web::parameters_json(&self.config));
+                    .publish_live(cc_net::web::parameters_json(&self.config));
             }
         }
         self.parameters.note_applied();

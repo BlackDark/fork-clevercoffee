@@ -43,7 +43,7 @@ pub struct Telemetry {
     /// Whether a brew is running.
     ///
     /// A different fact from [`Self::steam_mode`], not another name for it; see
-    /// [`crate::payload::status_json`].
+    /// [`crate::web::payload::status_json`].
     pub brewing: bool,
     /// Whether the machine is in standby.
     pub standby: bool,

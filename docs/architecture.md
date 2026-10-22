@@ -29,9 +29,7 @@ TB
         SENSOR["cc-protocol<br/>DS18B20, TSIC-306, HX711"]
         DISP["cc-display<br/>layout, framebuffer"]
         CONF["cc-config<br/>98-parameter schema"]
-        WEB["cc-web<br/>HTTP handlers"]
-        MQTT["cc-mqtt<br/>topics, publish registry"]
-        NET["cc-netpolicy<br/>link policy"]
+        NET["cc-net<br/>HTTP, MQTT, Wi-Fi policy"]
     end
 
     subgraph dev["Device — the only place that may name esp_idf"]
@@ -54,16 +52,15 @@ TB
     MACH --> PID
     MACH --> SAFE
     HAL -.->|"applies"| MACH
-    WEB --> DOM
-    MQTT --> DOM
-    WEB --> CONF
+    NET --> DOM
+    NET --> CONF
     PARITY -.->|"in-process"| MACH
 ```
 
 Three boundaries carry the design, and each one is enforced rather than merely
 documented.
 
-**Nothing portable names ESP-IDF.** `cc-domain` through `cc-mqtt` are `#![no_std]`
+**Nothing portable names ESP-IDF.** The portable crates are `#![no_std]`
 and may not import `esp_idf_{hal,svc,sys}`. A CI check strips comments first, so
 a crate can still explain why it avoids ESP-IDF. The payoff is that the state
 machine, the PID and every sensor protocol run in a normal `cargo test`.
@@ -119,16 +116,14 @@ this design than anything else.
 | `cc-machine` | the reducer, the per-subsystem handlers, the effects | I/O, clock, hardware |
 | `cc-safety` | whether an actuator may be energised | what the machine wants to do |
 | `cc-protocol` | DS18B20, TSIC-306, HX711, ABP2 as state machines over bytes | the devices themselves |
-| `cc-netpolicy` | what the link should do next | the radio |
 | `cc-display` | layout, framebuffer, glyph atlases | the panel |
 | `cc-config` | the 98-parameter schema and the store | the flash |
-| `cc-web` | HTTP handlers as pure functions of a snapshot | the HTTP server |
-| `cc-mqtt` | topic layout, publish registry | the broker |
+| `cc-net` | HTTP and MQTT payloads, topic registry, Wi-Fi and retry policy, provisioning protocol | sockets, the radio, the broker |
 | `cc-hal-esp32` | pins, actuators, I²C, SPI, wifi, NVS, the web server | any decision |
 | `cc-firmware` | boot order and the 10 ms task | logic of its own |
 
-`cc-web` and `cc-mqtt` are pure functions of a telemetry snapshot, which is why
-they can be unit tested for an application that runs on one microcontroller.
+`cc-net` is pure functions of a telemetry snapshot, which is why
+it can be unit tested for an application that runs on one microcontroller.
 
 ## Tools that are not firmware
 

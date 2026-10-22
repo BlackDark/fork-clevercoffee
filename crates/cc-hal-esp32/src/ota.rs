@@ -1,4 +1,4 @@
-//! Stream socket chunks through [`cc_web::ota::PartReader`] into flash.
+//! Stream socket chunks through [`cc_net::web::ota::PartReader`] into flash.
 //!
 //! [`OTA_CHUNK_BYTES`] is a stack buffer; parser carry stays bounded independently
 //! of image size. Never buffer the whole image on the device heap.
@@ -7,7 +7,7 @@
 //! Uploads occupy the single httpd task until complete. Keep them off control:
 //! it must continue ticking and feeding its watchdog while flash is erased.
 //! Do not suspend that watchdog for an upload. Admission and file validation
-//! belong to `cc-machine` and `cc-web`.
+//! belong to `cc-machine` and `cc-net`.
 
 // The `unsafe` in this module is eight `esp_ota_*` / `esp_partition_*` calls,
 // and the workspace lint is `unsafe_code = "deny"`, so the allowance is here,
@@ -36,7 +36,7 @@ use esp_idf_sys::{
     esp_partition_type_t_ESP_PARTITION_TYPE_DATA, esp_partition_write,
 };
 
-pub use cc_web::ota::{Kind, ReadError};
+pub use cc_net::web::ota::{Kind, ReadError};
 
 /// The read buffer, and therefore the entire heap-independent memory an upload
 /// costs.
@@ -190,7 +190,7 @@ impl Writer {
                 let size = capacity(kind);
                 // SAFETY: `partition` is non-null (checked) and names a real data
                 // partition; `offset` is 0 and `size` is that partition's own
-                // length, both from `cc_web::ota::capacity` and the table, so the
+                // length, both from `cc_net::web::ota::capacity` and the table, so the
                 // range is inside it, and the erase covers the whole partition.
                 let rc = unsafe { esp_partition_erase_range(partition, 0, size) };
                 match EspError::from(rc) {
@@ -223,7 +223,7 @@ impl Writer {
     /// # Errors
     ///
     /// The flash driver's error — `ESP_ERR_FLASH_OP_FAIL` on a write failure.
-    /// A `run` longer than [`cc_web::ota::capacity`] is refused **here**, before
+    /// A `run` longer than [`cc_net::web::ota::capacity`] is refused **here**, before
     /// the driver refuses it, so the caller gets a message naming the partition
     /// rather than a driver code.
     pub fn write(&mut self, run: &[u8]) -> Result<(), EspError> {
@@ -378,8 +378,8 @@ impl core::fmt::Display for EndError {
 /// The destination's capacity, from the partition table.
 const fn capacity(kind: Kind) -> usize {
     match kind {
-        Kind::Firmware => cc_web::ota::MAX_FIRMWARE_BYTES,
-        Kind::Filesystem => cc_web::ota::MAX_FILESYSTEM_BYTES,
+        Kind::Firmware => cc_net::web::ota::MAX_FIRMWARE_BYTES,
+        Kind::Filesystem => cc_net::web::ota::MAX_FILESYSTEM_BYTES,
     }
 }
 
@@ -421,7 +421,7 @@ pub enum Admission {
 /// that aborts a flash mid-write. The flash handle is not in here, so nothing
 /// about the write itself depends on this lock being healthy.
 pub struct Session {
-    status: Mutex<cc_web::ota::Status>,
+    status: Mutex<cc_net::web::ota::Status>,
     /// The kind of the update in flight, set by [`Session::claim`] and read by
     /// [`Session::note_progress`].
     ///
@@ -448,7 +448,7 @@ impl Session {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            status: Mutex::new(cc_web::ota::Status::default()),
+            status: Mutex::new(cc_net::web::ota::Status::default()),
             kind: Mutex::new(None),
             busy: AtomicBool::new(false),
             verdict: Mutex::new(None),
@@ -479,9 +479,9 @@ impl Session {
             *slot = Some(kind);
         }
         if let Ok(mut status) = self.status.lock() {
-            *status = cc_web::ota::Status {
-                phase: cc_web::ota::Phase::Uploading,
-                ..cc_web::ota::Status::default()
+            *status = cc_net::web::ota::Status {
+                phase: cc_net::web::ota::Phase::Uploading,
+                ..cc_net::web::ota::Status::default()
             };
         }
         true
@@ -517,7 +517,7 @@ impl Session {
     }
 
     /// Note progress.
-    pub fn note_progress(&self, phase: cc_web::ota::Phase, uploaded: usize, total: usize) {
+    pub fn note_progress(&self, phase: cc_net::web::ota::Phase, uploaded: usize, total: usize) {
         // Read the kind before the status lock, so the two never nest.
         let kind = self
             .kind
@@ -536,14 +536,14 @@ impl Session {
             // firmware floor. It means a large image's bar reaches ~90 % and then
             // jumps to 100 on success, which is the behaviour the operator is
             // used to.
-            status.progress = cc_web::ota::progress_percent(kind, uploaded);
+            status.progress = cc_net::web::ota::progress_percent(kind, uploaded);
         }
     }
 
     /// Record a successful finish and ask for the restart.
     pub fn finish_ok(&self) {
         if let Ok(mut status) = self.status.lock() {
-            status.phase = cc_web::ota::Phase::Complete;
+            status.phase = cc_net::web::ota::Phase::Complete;
             status.progress = 100;
             status.error = None;
         }
@@ -554,9 +554,9 @@ impl Session {
     }
 
     /// Record a failure and release the session.
-    pub fn finish_err(&self, message: cc_web::ota::StatusMessage) {
+    pub fn finish_err(&self, message: cc_net::web::ota::StatusMessage) {
         if let Ok(mut status) = self.status.lock() {
-            status.phase = cc_web::ota::Phase::Error;
+            status.phase = cc_net::web::ota::Phase::Error;
             status.error = Some(message);
         }
         self.busy.store(false, Ordering::Release);
@@ -564,10 +564,11 @@ impl Session {
 
     /// A copy of the status, for `GET /api/ota/status`.
     #[must_use]
-    pub fn status(&self) -> cc_web::ota::Status {
-        self.status
-            .lock()
-            .map_or_else(|_| cc_web::ota::Status::default(), |status| status.clone())
+    pub fn status(&self) -> cc_net::web::ota::Status {
+        self.status.lock().map_or_else(
+            |_| cc_net::web::ota::Status::default(),
+            |status| status.clone(),
+        )
     }
 
     /// Whether a successful update asked for a reboot, and clear the request.
@@ -599,7 +600,7 @@ impl Default for Session {
 pub mod tests {
     use super::{Admission, Session};
     use alloc::string::String;
-    use cc_web::ota::{Kind, Phase, StatusMessage};
+    use cc_net::web::ota::{Kind, Phase, StatusMessage};
 
     #[cfg_attr(test, test)]
     pub fn a_session_refuses_a_second_claim_while_one_is_running() {
@@ -720,7 +721,7 @@ pub mod tests {
     /// 🔴 The claimed kind reaches the progress bar.
     ///
     /// The arithmetic is host-tested
-    /// (`progress_is_scaled_against_each_kinds_own_floor` in `cc-web`); this is
+    /// (`progress_is_scaled_against_each_kinds_own_floor` in `cc-net`); this is
     /// the half only this crate can see — that [`Session::claim`]'s kind is the
     /// one `note_progress` scales against. It was the defect: the kind was
     /// written and never read, so a filesystem upload was scaled against the

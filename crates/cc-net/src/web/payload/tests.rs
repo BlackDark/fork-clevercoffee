@@ -4,7 +4,7 @@ use super::*;
 
 use alloc::vec::Vec;
 
-use crate::telemetry::Telemetry;
+use crate::web::telemetry::Telemetry;
 use cc_config::schema::SCHEMA;
 
 #[test]

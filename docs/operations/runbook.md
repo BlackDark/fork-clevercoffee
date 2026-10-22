@@ -599,7 +599,7 @@ order after any change to the control loop, the display task or the HTTP layer.
     and **no** `Authorization` header may appear in the telnet log. Now clear the
     username or the password and reboot again: the API is **open**, with a boot
     warning. That is deliberate: `Auth::from_config` warns and serves around it
-    (`crates/cc-web/src/auth.rs`).
+    (`crates/cc-net/src/web/auth.rs`).
 
 9. **The UI logs in without a code change.** With auth on, open `http://<device>/ui/`
     in a browser: it must raise the native credential prompt, and after that the

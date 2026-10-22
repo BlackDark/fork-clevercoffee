@@ -3,8 +3,8 @@
 **The device's outward faces: 28 HTTP endpoints, an event stream, an MQTT
 registry, and a React app served from flash.**
 
-Everything here is a pure function of a telemetry snapshot. `cc-web` and
-`cc-mqtt` do not touch a socket — they take the machine's state and return what
+Everything here is a pure function of a telemetry snapshot. `cc-net` does
+not touch a socket — they take the machine's state and return what
 the response should be. That is why the HTTP layer can be unit
 tested for an application that runs on one microcontroller, and why the same
 handlers are testable against the mock server in `ui/` without hardware.
@@ -90,9 +90,8 @@ Three of them are dormant: registered, persisted, and never exercised.
 
 ## MQTT
 
-`cc-mqtt` holds the topic layout, the publish registry and the value buffers — 19
-assertions that ran only under the on-target test runner before it was extracted
-into its own portable crate.
+`cc_net::mqtt` holds the topic layout, the publish registry and the value buffers,
+host-tested.
 
 Publishing is real and runs. The transport, the auth and the Home Assistant
 discovery surface are a different matter; see

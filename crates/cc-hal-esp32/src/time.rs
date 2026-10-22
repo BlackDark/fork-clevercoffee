@@ -36,7 +36,7 @@ pub fn now_us() -> u32 {
 
 /// Milliseconds since boot.
 ///
-/// Every `cc_netpolicy::resilience` and `cc_netpolicy::wifi` entry point takes
+/// Every `cc_net::resilience` and `cc_net::wifi` entry point takes
 /// one of these as its `now_ms`.
 ///
 /// A full 32 bits wrap every 49.7 days. Every deadline in this firmware is

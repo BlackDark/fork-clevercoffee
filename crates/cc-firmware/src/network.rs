@@ -21,8 +21,8 @@ use cc_hal_esp32::provisioning::{self, Action, Session};
 use cc_hal_esp32::time::now_ms;
 use cc_hal_esp32::web::{Shared, Sse, Web};
 use cc_hal_esp32::wifi::Sta;
+use cc_net::web::{temperatures_json, Command};
 use cc_safety::ConfigOrigin;
-use cc_web::{temperatures_json, Command};
 use log::{info, warn};
 
 use esp_idf_hal::delay::FreeRtos;

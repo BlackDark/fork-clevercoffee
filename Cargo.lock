@@ -219,10 +219,9 @@ dependencies = [
  "cc-domain",
  "cc-hal-esp32",
  "cc-machine",
- "cc-netpolicy",
+ "cc-net",
  "cc-protocol",
  "cc-safety",
- "cc-web",
  "embuild",
  "esp-idf-hal",
  "esp-idf-svc",
@@ -238,11 +237,9 @@ dependencies = [
  "cc-display",
  "cc-domain",
  "cc-machine",
- "cc-mqtt",
- "cc-netpolicy",
+ "cc-net",
  "cc-protocol",
  "cc-safety",
- "cc-web",
  "display-interface",
  "esp-idf-hal",
  "esp-idf-svc",
@@ -265,19 +262,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "cc-mqtt"
+name = "cc-net"
 version = "0.1.0"
 dependencies = [
  "cc-config",
  "cc-domain",
- "cc-netpolicy",
  "heapless",
  "log",
+ "serde_json",
 ]
-
-[[package]]
-name = "cc-netpolicy"
-version = "0.1.0"
 
 [[package]]
 name = "cc-parity"
@@ -304,18 +297,6 @@ name = "cc-safety"
 version = "0.1.0"
 dependencies = [
  "cc-domain",
-]
-
-[[package]]
-name = "cc-web"
-version = "0.1.0"
-dependencies = [
- "cc-config",
- "cc-domain",
- "cc-protocol",
- "heapless",
- "log",
- "serde_json",
 ]
 
 [[package]]

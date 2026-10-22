@@ -111,7 +111,7 @@ impl ParameterPost {
 /// authentication decision is taken once, when the server starts, so enabling
 /// `system.auth.enabled` protects **nothing** until the machine restarts — an
 /// operator who sets it, sees `200`, and is still serving an open API.
-/// [`crate::Auth::from_config`] makes the decision at boot, so this list has to say
+/// [`crate::web::Auth::from_config`] makes the decision at boot, so this list has to say
 /// so, and `requiresRebootKeys` in the `POST /api/parameters` answer is where it
 /// says it.
 ///
