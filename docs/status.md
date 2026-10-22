@@ -238,7 +238,9 @@ recorded below.
 - **The steam LED is unwired.** GPIO1 is the UART console TX. GPIO32 is the scale data line. Whether another pin is worth a solder joint is Potential. [`attention.md`](attention.md).
 - **The Acaia BLE scale is out of scope.** It was measured and does not fit; it
   needs a decision (R3-18).
-  The HX711 **is** implemented, and no scale is fitted to the board.
+  The HX711 **is** implemented, and no scale is fitted to the board. Since
+  `2ad8d15` a calibration request reads `hardware.sensors.scale.known_weight`
+  live rather than the boot-time value; unverified on hardware for that reason.
 - **`just flash <port>` now writes both app slots, so it always wins** — the
   defect it fixes (#16) is that it used to write only `app0` while `otadata` kept
   selecting whichever slot the last update chose, so on a board that had taken an
