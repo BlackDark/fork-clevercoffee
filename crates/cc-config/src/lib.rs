@@ -33,11 +33,11 @@ pub mod form;
 pub mod json;
 pub mod predecessor;
 pub mod schema;
-pub mod secret;
 pub mod store;
 
 pub use assign::{parse as parse_parameter, Applied, AssignError};
 pub use blob_store::{BlobBackend, BlobConfigStore, KEY as NVS_KEY, NAMESPACE as NVS_NAMESPACE};
+pub use cc_domain::secret::Secret;
 pub use config::Config;
 pub use json::{
     document_pairs, json_export, json_import, live_value, values_for, ImportError, LiveValue,
@@ -45,7 +45,6 @@ pub use json::{
 };
 pub use predecessor::{PredecessorProbe, CPP_NAMESPACE};
 pub use schema::{ParamKind, ParamSpec, ParamValue, SCHEMA};
-pub use secret::Secret;
 pub use store::StoreError;
 
 /// An enumeration that travels over the wire as its integer discriminant.

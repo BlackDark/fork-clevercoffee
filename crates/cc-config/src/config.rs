@@ -16,7 +16,7 @@ use cc_domain::process::BrewMode;
 use cc_domain::system::{DisplayTemplate, Language, LogLevel};
 use serde::{Deserialize, Serialize};
 
-use crate::secret::Secret;
+use crate::Secret;
 
 /// Revert one key to [`Config::default`]. `false` for any other key.
 ///

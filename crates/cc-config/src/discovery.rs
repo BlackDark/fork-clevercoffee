@@ -695,9 +695,8 @@ mod tests {
         // world-readable on a shared broker, so a payload carrying one would be
         // a leak with no local symptom.
         let mut config = Config::default();
-        config.mqtt.password = crate::secret::Secret::new(alloc::string::String::from("brokerpw"));
-        config.system.auth.password =
-            crate::secret::Secret::new(alloc::string::String::from("httppw"));
+        config.mqtt.password = crate::Secret::new(alloc::string::String::from("brokerpw"));
+        config.system.auth.password = crate::Secret::new(alloc::string::String::from("httppw"));
         for message in all(&config) {
             assert!(!message.payload.contains("brokerpw"), "{}", message.topic);
             assert!(!message.payload.contains("httppw"), "{}", message.topic);
