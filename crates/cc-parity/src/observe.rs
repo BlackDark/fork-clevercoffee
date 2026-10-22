@@ -261,7 +261,7 @@ mod tests {
         o.push_effect("DisablePump", &Effect::DisablePump, 1);
         o.push_effect("EnablePump", &Effect::EnablePump, 2);
         assert_eq!(o.occurrences("EnablePump"), [0, 2]);
-        assert!(o.occurrences("OpenSteamValve").is_empty());
+        assert_eq!(o.occurrences("OpenSteamValve"), Vec::<usize>::new());
     }
 
     #[test]
