@@ -166,7 +166,7 @@ pub(crate) fn persist_config(
 ///
 /// Events — a completed tare, a new factor — are the opposite of a reading: dropping one
 /// loses an operator's action, so they come over a queue that is drained every tick. **The
-/// weight is not one of them**: it is [`crate::scale_weight`], a reading, taken at step 4
+/// weight is not one of them**: it is `control_task::scale_weight`, a reading, taken at step 4
 /// with the temperature and the pressure, because the only consumer of the number,
 /// `Sensors::brew_weight`, is read by the same tick that decides on it.
 ///

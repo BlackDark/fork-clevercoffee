@@ -310,7 +310,7 @@ pub fn publish_radio(shared: &Shared, sta: Option<&Sta>) {
 
 /// Publish the SSE `new_temps` event, if an HTTP server is running.
 ///
-/// Called from the control task at [`crate::main::SSE_INTERVAL_MS`]. It reads the
+/// Called from the control task at the SSE interval (1 s). It reads the
 /// snapshot the control task has *just* published, so the frame cannot disagree with
 /// `/api/status`.
 ///
@@ -426,7 +426,7 @@ impl core::fmt::Debug for Handoff {
 /// Persist staged credentials on the store-owning control task.
 ///
 /// Load/modify/save is one atomic blob update; an undecodable blob uses defaults.
-/// Nested serde needs about 8.6 KB of stack; [`CONTROL_STACK_BYTES`](crate::CONTROL_STACK_BYTES)
+/// Nested serde needs about 8.6 KB of stack; `bring_up::CONTROL_STACK_BYTES`
 /// reserves 16 KB. Exhaustion can reset silently before the panic handler runs.
 /// Measured load/save took 15/66 ms, 85 ms total: longer than one control period
 /// but bounded within the five-second watchdog timeout.
@@ -544,11 +544,11 @@ pub fn run_provisioning(serial: cc_hal_esp32::provisioning::Serial<'_>, handoff:
 /// **This does not reset the machine, and that is the fix, not an omission.** An
 /// earlier revision staged the credential and then called `esp_restart()`
 /// immediately, which is a race the operator loses every time: the control task
-/// wakes every [`crate::main::CONTROL_PERIOD_MS`], so a reset issued microseconds after
+/// wakes every [`crate::control_task::CONTROL_PERIOD_MS`], so a reset issued microseconds after
 /// `Handoff::stage` resets the machine *before* it has read the slot, and the
 /// credential is silently lost with a success reply already on the console. The
 /// reboot belongs to the control task, which owns the store and knows whether
-/// the write worked; see the `handoff.take()` arm of `control_task`.
+/// the write worked; see `ControlLoop::take_console_credential`.
 fn stage_and_stop(
     serial: &cc_hal_esp32::provisioning::Serial<'_>,
     handoff: &Handoff,

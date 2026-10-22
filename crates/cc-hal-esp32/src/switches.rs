@@ -29,6 +29,9 @@ use crate::sensors::GpioIn;
 /// capacity is sufficient by construction rather than by hope.
 const MAX_EDGES_PER_TICK: usize = 4;
 
+/// The edges one [`SwitchBank::poll`] can report.
+pub type Edges = Vec<Event, MAX_EDGES_PER_TICK>;
+
 /// The pull for an operator switch: none, because the pin has none to give.
 ///
 /// GPIO34/35/36/39 are input-only with no internal pull (the original ESP32's
@@ -216,7 +219,7 @@ impl SwitchBank {
     /// The order is the [`SwitchId`] declaration order, so a tick in which two
     /// switches move produces the same event order every time and the reducer's
     /// output is reproducible.
-    pub fn poll(&mut self, now: Millis) -> Vec<Event, MAX_EDGES_PER_TICK> {
+    pub fn poll(&mut self, now: Millis) -> Edges {
         let levels = self.read(now);
         let mut events = Vec::new();
         for (switch, level) in [

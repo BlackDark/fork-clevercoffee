@@ -173,3 +173,84 @@ impl DisplayTask {
         }
     }
 }
+
+/// The `cc_display` template for a configured
+/// [`DisplayTemplate`](cc_domain::system::DisplayTemplate).
+///
+/// Two crates' enums with the same six layouts in the same order; nothing keeps
+/// them in step, so the mapping is written out rather than cast.
+pub(crate) fn template_for(
+    configured: cc_domain::system::DisplayTemplate,
+) -> cc_display::templates::TemplateId {
+    use cc_domain::system::DisplayTemplate;
+    match configured {
+        DisplayTemplate::Standard => TemplateId::Standard,
+        DisplayTemplate::Minimal => TemplateId::Minimal,
+        DisplayTemplate::TemperatureOnly => TemplateId::TemperatureOnly,
+        DisplayTemplate::Scale => TemplateId::Scale,
+        DisplayTemplate::Upright => TemplateId::Upright,
+        DisplayTemplate::Modern => TemplateId::Modern,
+    }
+}
+
+/// The `cc_display` view of the machine's configuration.
+///
+/// `cc_display::model::Config` is deliberately a *separate* type from
+/// `cc_config::Config`: the display crate is a pure renderer with 48 goldens and
+/// a pixel-for-pixel comparison against real U8g2, and it has no business knowing about
+/// Wi-Fi credentials or the NVS blob. The consequence is that this mapping
+/// exists, and it is the seam where a new display-relevant parameter has to be
+/// wired up by hand — which is the point.
+///
+/// **Every field is listed, with no `..Default::default()`.** That is what makes
+/// the seam load-bearing: a field added to the display crate's `Config` is a
+/// compile error here until someone decides what the machine's setting means for
+/// it, rather than a template that silently keeps using the default. The goldens
+/// can afford `..default()` because they are fixtures; this is not a fixture.
+pub(crate) fn display_config(config: &cc_config::Config) -> cc_display::model::Config {
+    use cc_display::model::{BrewMode, Config as DisplayConfig, Language, ScaleType};
+    use cc_domain::system::DisplayTemplate;
+
+    DisplayConfig {
+        brew_switch_enabled: config.hardware.switches.brew.enabled,
+        scale_enabled: config.hardware.sensors.scale.enabled,
+        // The display crate's `ScaleType` is a two-way question (wired load
+        // cell or radio) where the config's is three (one cell, two cells, or
+        // radio). Single and dual are the same *layout* to a template, so they
+        // collapse here; which one it is belongs to the driver, not the screen.
+        scale_type: match config.hardware.sensors.scale.r#type {
+            cc_domain::hardware::ScaleType::Bluetooth => ScaleType::Bluetooth,
+            cc_domain::hardware::ScaleType::Hx711Dual
+            | cc_domain::hardware::ScaleType::Hx711Single => ScaleType::Hx711,
+        },
+        pressure_enabled: config.hardware.sensors.pressure.enabled,
+        oled_enabled: config.hardware.oled.enabled,
+        upright_template: config.display.template == DisplayTemplate::Upright,
+        inverted: config.display.inverted,
+        language: match config.display.language {
+            cc_domain::system::Language::English => Language::English,
+            cc_domain::system::Language::German => Language::German,
+            cc_domain::system::Language::Spanish => Language::Spanish,
+        },
+        heating_logo: u8::from(config.display.heating_logo),
+        pid_off_logo: u8::from(config.display.pid_off_logo),
+        fullscreen_brew_timer: config.display.fullscreen_brew_timer,
+        fullscreen_manual_flush_timer: config.display.fullscreen_manual_flush_timer,
+        fullscreen_hot_water_timer: config.display.fullscreen_hot_water_timer,
+        post_brew_timer_duration_s: config.display.post_brew_timer_duration,
+        blinking_delta: config.display.blinking.delta,
+        backflush_reminder_enabled: config.maintenance.backflush_reminder.enabled,
+        brew_mode: match config.brew.mode {
+            cc_domain::process::BrewMode::Manual => BrewMode::Manual,
+            cc_domain::process::BrewMode::Automatic => BrewMode::Automatic,
+        },
+        brew_by_time_enabled: config.brew.by_time.enabled,
+        brew_by_weight_enabled: config.brew.by_weight.enabled,
+        brew_by_weight_target: config.brew.by_weight.target_weight,
+        mqtt_enabled: config.mqtt.enabled,
+        // `cycles` is an i32 in the config and a u8 on screen. `unwrap_or` rather than
+        // a cast: a machine configured with a nonsense value should render the default
+        // layout detail, not wrap to 255 cycles.
+        backflush_cycles: u8::try_from(config.backflush.cycles).unwrap_or(5),
+    }
+}

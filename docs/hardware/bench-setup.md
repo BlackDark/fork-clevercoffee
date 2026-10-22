@@ -53,7 +53,7 @@ An LED on a GPIO proves **the pin**. It does not prove:
   pin, not about what the pin is wired to.
 - **relay polarity against this machine's wiring.** Polarity is read from
   `hardware.relays.{pump,valve,heater}.trigger_type` at boot
-  (`crates/cc-firmware/src/main.rs`), defaulting to `HIGH_TRIGGER`, which matches
+  (`crates/cc-firmware/src/bring_up.rs`), defaulting to `HIGH_TRIGGER`, which matches
   the recovered oracle's boot log. A bench cannot tell you what *your* board's
   relays are wired for — the value is a config fact you read, not measure.
 - **the `LOW_TRIGGER` heater fail-closed case.** A configuration selecting
@@ -93,7 +93,7 @@ Not an agent task. The 2026-10-09 pin check is the accepted proof ([`../status.m
    with it.
 
 Reversal, if the polarity or the float switch turns out wrong on the machine:
-`actuators.set_inhibit` in `crates/cc-firmware/src/main.rs` holds the pump and
+`actuators.set_inhibit` in `crates/cc-firmware/src/bring_up.rs` holds the pump and
 valve off again, and `cc_hal_esp32::Inhibit` exists for exactly that.
 
 ## The bench configuration profile

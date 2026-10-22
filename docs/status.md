@@ -333,7 +333,7 @@ be filed and they are not fixed by the next green gate.
    all 98 parameters matched the pre-plant snapshot; repeat POST answered `400`.
    [`operations/runbook.md` §13.1](operations/runbook.md).
    **Reversal: reinstate `actuators.set_inhibit` in
-   `crates/cc-firmware/src/main.rs` with pump and valve held.**
+   `crates/cc-firmware/src/bring_up.rs` with pump and valve held.**
 7. **The TSIC-306 arm of the F1 fix does not latch on total silence.** No TSIC is
    fitted and that arm has never run.
 8. **Two pump watchdogs are armed that the C++ leaves inert.** Correct call, and
