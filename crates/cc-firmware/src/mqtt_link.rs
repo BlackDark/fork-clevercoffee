@@ -335,9 +335,7 @@ impl Link {
         if applied.updated == 0 {
             return;
         }
-        if let Err(violation) =
-            cc_safety::validate_config(&crate::control::safety_config(&candidate))
-        {
+        if let Err(violation) = cc_safety::validate_config(&cc_machine::safety_config(&candidate)) {
             let keys = violation.implicated_keys();
             error!(
                 "config: REFUSED — MQTT write of {key} would leave the configuration \

@@ -1,7 +1,7 @@
 //! Network bring-up and the stored-configuration safety check.
 //!
 //! `cc-config` and `cc-safety` cannot depend on each other, so firmware joins them
-//! through [`cc_config::Config::safety_view`]. Rejected blobs remain stored for
+//! through [`cc_machine::safety_config`]. Rejected blobs remain stored for
 //! diagnosis through `/api/nvs-debug`; defaults run instead and rejection is logged.
 //!
 //! Network code cannot actuate outputs. Only the control task subscribes to the
@@ -99,13 +99,13 @@ pub fn bring_up_config() -> Result<Booted, EspError> {
     // The fail-closed rule. `cc_safety::load_or_default` is the whole of the
     // decision and is fully tested in `cc-safety`; this is the call.
     // **One construction, one owner.** This used to build `SafetyConfig` field by
-    // field, separately from `control::safety_config`, and a reviewer's finding
+    // field, separately from the control task's construction, and a reviewer's finding
     // was that the two drifted: this copy hard-coded the two relay trigger types
     // to `HighTrigger`, so `validate_config` never saw a stored low-trigger pump
     // or valve, the fail-closed rule did not discard the configuration — and
     // `main.rs` then applied that very polarity to the pins, energising the pump
     // at boot. Two constructions of a safety input is one too many.
-    let safety = stored.as_ref().map(crate::control::safety_config);
+    let safety = stored.as_ref().map(cc_machine::safety_config);
 
     let loaded = cc_safety::load_or_default(safety.as_ref());
 

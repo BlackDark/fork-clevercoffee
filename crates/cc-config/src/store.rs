@@ -2,7 +2,7 @@
 //!
 //! [`BlobConfigStore`](crate::BlobConfigStore) writes a whole configuration atomically.
 //! It cannot depend on `cc-safety`; callers must validate
-//! [`crate::Config::safety_view`] before applying stored settings and fail closed
+//! `cc_machine::safety_config` of a stored configuration before applying it and fail closed
 //! when validation rejects them. The backend-independent format lives in
 //! [`blob_store`](crate::blob_store).
 

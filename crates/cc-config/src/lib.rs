@@ -6,8 +6,8 @@
 //!
 //! Credentials remain plaintext in storage and JSON, but [`Secret`] redacts logs.
 //! Other firmware's NVS namespace is ignored; [`predecessor`] selects the boot warning.
-//! Cross-parameter safety validation belongs to `cc-safety`, through
-//! [`Config::safety_view`], to keep dependencies one-way.
+//! Cross-parameter safety validation belongs to `cc-safety`; the two crates are
+//! peers, joined by `cc_machine::safety_config`.
 //!
 //! The crate uses `no_std + alloc`: JSON and credential strings need owned storage;
 //! schema keys are static strings, so fixed-capacity key buffers would add overhead.

@@ -11,15 +11,12 @@
 // silenced for `crates/*/src` — a new `assert!(x.is_empty())` in library code
 // will still be caught.
 
-use cc_config::config::SafetyView;
 use cc_config::json::{ImportError, RejectReason};
 use cc_config::schema::{self, ParamValue};
 use cc_config::{
     document_pairs, json_export, json_import, Config, Secret, StoreError, MAX_CONFIG_BYTES,
 };
 use cc_domain::hardware::{RelayTriggerType, TemperatureSensorType};
-use cc_domain::process::BrewMode;
-use cc_domain::units::Celsius;
 
 // ===================================================================== schema —
 
@@ -439,10 +436,6 @@ fn the_heater_relay_trigger_type_can_be_set_to_low_via_json() {
         parsed.hardware.relays.heater.trigger_type,
         RelayTriggerType::LowTrigger
     );
-    assert_eq!(
-        parsed.safety_view().heater_relay_trigger,
-        RelayTriggerType::LowTrigger
-    );
 }
 
 #[test]
@@ -529,40 +522,6 @@ fn the_json_blob_does_contain_the_credentials_because_the_machine_needs_them() {
     assert!(
         text.contains("hunter2"),
         "the stored blob must carry the real password; redaction is for diagnostics only"
-    );
-}
-
-#[test]
-fn the_safety_view_names_exactly_the_safety_relevant_values() {
-    let mut config = Config::default();
-    config.safety.emergency_temp = 165.0;
-    config.safety.emergency_hysteresis = 9.0;
-    config.steam.setpoint = 118.0;
-    config.hardware.relays.heater.trigger_type = RelayTriggerType::HighTrigger;
-    config.hardware.sensors.temperature.r#type = TemperatureSensorType::DallasDs18b20;
-    // The brew-stop trio and the scale flag: `cc_safety::validate_config` reads
-    // all four to decide whether an automatic brew has a stop condition it can
-    // reach, so a view that dropped one would let the firmware accept a
-    // configuration the validator refuses.
-    config.brew.mode = BrewMode::Automatic;
-    config.brew.by_time.enabled = true;
-    config.brew.by_weight.enabled = true;
-    config.hardware.sensors.scale.enabled = true;
-    let view: SafetyView = config.safety_view();
-    // `SafetyView` is `Celsius`-typed so the join with `cc_safety::SafetyConfig`
-    // is a copy rather than a narrowing cast (see `SafetyView::emergency_temp`),
-    // so the assertions are against `Celsius`, not against a float.
-    assert_eq!(view.emergency_temp, Celsius::new(165.0));
-    assert_eq!(view.emergency_hysteresis, Celsius::new(9.0));
-    assert_eq!(view.steam_setpoint, Celsius::new(118.0));
-    assert_eq!(view.brew_mode, BrewMode::Automatic);
-    assert!(view.brew_by_time_enabled);
-    assert!(view.brew_by_weight_enabled);
-    assert!(view.scale_fitted);
-    assert_eq!(view.heater_relay_trigger, RelayTriggerType::HighTrigger);
-    assert_eq!(
-        view.temperature_sensor,
-        TemperatureSensorType::DallasDs18b20
     );
 }
 
@@ -792,47 +751,6 @@ fn param_value_kinds_round_trip_through_the_spec() {
 }
 
 // ============================================== the safety view carries everything
-
-/// `safety_view` is the whole hand-off to `cc_safety`, so a field it drops is a
-/// safety check that cannot fire.
-///
-/// The relay trigger types are the load-bearing case: `cc_safety::validate_config`
-/// refuses `LOW_TRIGGER` for every relay, and it can only do that if the view
-/// carries the values. A check on three values cannot be built from two, so a view
-/// that dropped one would silently weaken the rule. This test pins the view half;
-/// the boot path's use of it is pinned in `cc-config/tests/config_repair.rs`.
-#[test]
-fn the_safety_view_carries_every_relay_trigger_type() {
-    use cc_domain::hardware::RelayTriggerType;
-
-    for (set, expected) in [
-        (
-            RelayTriggerType::HighTrigger,
-            (
-                RelayTriggerType::HighTrigger,
-                RelayTriggerType::HighTrigger,
-                RelayTriggerType::HighTrigger,
-            ),
-        ),
-        (
-            RelayTriggerType::LowTrigger,
-            (
-                RelayTriggerType::LowTrigger,
-                RelayTriggerType::LowTrigger,
-                RelayTriggerType::LowTrigger,
-            ),
-        ),
-    ] {
-        let mut config = Config::default();
-        config.hardware.relays.heater.trigger_type = set;
-        config.hardware.relays.pump.trigger_type = set;
-        config.hardware.relays.valve.trigger_type = set;
-        let view = config.safety_view();
-        assert_eq!(view.heater_relay_trigger, expected.0);
-        assert_eq!(view.pump_relay_trigger, expected.1);
-        assert_eq!(view.valve_relay_trigger, expected.2);
-    }
-}
 
 // ==================================================== POST /api/config/upload
 

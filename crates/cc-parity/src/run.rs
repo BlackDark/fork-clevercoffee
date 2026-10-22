@@ -383,7 +383,7 @@ impl Runner {
         // The last reading is held between samples, so the monitor always sees a
         // value rather than a gap.
         //
-        let safety_cfg = self.safety_config();
+        let safety_cfg = cc_machine::safety_config(&self.config);
         let outcome = if sampled {
             // The sample sequence rides along, so S1's debounce counts readings
             // here exactly as it does in the firmware. See
@@ -478,39 +478,6 @@ impl Runner {
             .last_sample_at
             .is_none_or(|last| self.now.saturating_sub(last) >= SENSOR_INTERVAL_MS);
         self.sensors_due = next_sample;
-    }
-
-    /// The safety monitor's configuration.
-    ///
-    /// The conversion goes through `Config::safety_view`, which is the
-    /// hand-off point `cc-config` documents for exactly this (`cc-config`'s
-    /// `store` module docs). Re-deriving the five values here would be a
-    /// second copy of a mapping that decides whether a stored configuration
-    /// is safe to run; only the field *names* are repeated, and a test below
-    /// fails if `cc-config` changes one without this.
-    ///
-    /// (`cc-config` is expected to grow `From<SafetyView> for SafetyConfig`,
-    /// which `cc-config`'s own docs already promise. When it does, this
-    /// becomes a one-liner and the test below is what notices the change.)
-    fn safety_config(&self) -> cc_safety::SafetyConfig {
-        let view = self.config.safety_view();
-        cc_safety::SafetyConfig {
-            // From the view, like the firmware's boot path: a literal here
-            // would make the harness unable to reproduce a firmware that
-            // *rejects* a low-trigger relay.
-            pump_relay_trigger: view.pump_relay_trigger,
-            valve_relay_trigger: view.valve_relay_trigger,
-            emergency_temp: view.emergency_temp,
-            emergency_hysteresis: view.emergency_hysteresis,
-            steam_setpoint: view.steam_setpoint,
-            effective_brew_setpoint: view.effective_brew_setpoint,
-            brew_mode: view.brew_mode,
-            brew_by_time_enabled: view.brew_by_time_enabled,
-            brew_by_weight_enabled: view.brew_by_weight_enabled,
-            scale_fitted: view.scale_fitted,
-            heater_relay_trigger: view.heater_relay_trigger,
-            temperature_sensor: view.temperature_sensor,
-        }
     }
 
     /// Apply one event's effects, recording as it goes.
@@ -1390,67 +1357,5 @@ assert:
         );
         let obs = run(s).expect("runs");
         assert!(!obs.occurrences("RequestReboot").is_empty(), "{obs:?}");
-    }
-
-    /// The driver's `SafetyConfig` construction and `Config::safety_view` agree.
-    ///
-    /// `cc-parity` builds a `cc_safety::SafetyConfig` field by field rather than
-    /// through a `From` impl, so this is the test that notices `cc-config`
-    /// renaming or retyping a field. A drift here would be a **safety** bug and
-    /// not a cosmetic one: the emergency threshold the reducer latches on is
-    /// exactly this value.
-    #[test]
-    fn the_safety_view_mapping_is_the_one_the_driver_uses() {
-        let mut config = Config::default();
-        config.safety.emergency_temp = 137.0;
-        config.safety.emergency_hysteresis = 7.0;
-        config.steam.setpoint = 128.0;
-        config.brew.setpoint = 104.0;
-        config.brew.temp_offset = 3.0;
-        config.brew.mode = cc_domain::process::BrewMode::Automatic;
-        config.brew.by_time.enabled = true;
-        config.brew.by_weight.enabled = true;
-        config.hardware.sensors.scale.enabled = true;
-        let view = config.safety_view();
-        let built = cc_safety::SafetyConfig {
-            // From the view, like the firmware's boot path: a literal here
-            // would make the harness unable to reproduce a firmware that
-            // *rejects* a low-trigger relay.
-            pump_relay_trigger: view.pump_relay_trigger,
-            valve_relay_trigger: view.valve_relay_trigger,
-            emergency_temp: view.emergency_temp,
-            emergency_hysteresis: view.emergency_hysteresis,
-            steam_setpoint: view.steam_setpoint,
-            effective_brew_setpoint: view.effective_brew_setpoint,
-            brew_mode: view.brew_mode,
-            brew_by_time_enabled: view.brew_by_time_enabled,
-            brew_by_weight_enabled: view.brew_by_weight_enabled,
-            scale_fitted: view.scale_fitted,
-            heater_relay_trigger: view.heater_relay_trigger,
-            temperature_sensor: view.temperature_sensor,
-        };
-        assert_eq!(built.emergency_temp, Celsius::new(137.0));
-        assert_eq!(built.emergency_hysteresis, Celsius::new(7.0));
-        assert_eq!(built.steam_setpoint, Celsius::new(128.0));
-        // The **effective** setpoint, offset included: this is the number the
-        // PID is told to hold, and therefore the one `validate_config`
-        // compares against the emergency threshold. A harness that carried the
-        // raw `104.0` would not notice a configuration the firmware refuses.
-        assert_eq!(built.effective_brew_setpoint, Celsius::new(107.0));
-        assert_eq!(built.brew_mode, cc_domain::process::BrewMode::Automatic);
-        assert!(built.brew_by_time_enabled);
-        assert!(built.brew_by_weight_enabled);
-        // The scale flag is what makes the by-weight stop condition reachable,
-        // so a view that dropped it would let the harness assert a firmware
-        // that *refuses* a configuration the real one accepts.
-        assert!(built.scale_fitted);
-        assert_eq!(
-            built.heater_relay_trigger,
-            config.hardware.relays.heater.trigger_type
-        );
-        assert_eq!(
-            built.temperature_sensor,
-            config.hardware.sensors.temperature.r#type
-        );
     }
 }

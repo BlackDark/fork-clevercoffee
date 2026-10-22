@@ -1667,7 +1667,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                     let mut candidate = config.clone();
                     candidate.brew.setpoint = celsius;
                     if let Err(violation) =
-                        cc_safety::validate_config(&control::safety_config(&candidate))
+                        cc_safety::validate_config(&cc_machine::safety_config(&candidate))
                     {
                         let keys = violation.implicated_keys();
                         error!(
@@ -1871,7 +1871,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // Finding #12: refuse the whole request. Do not persist. Ack so
                 // HTTP can answer 400. The violation is of the result, not one pair.
                 if let Err(violation) =
-                    cc_safety::validate_config(&control::safety_config(&candidate))
+                    cc_safety::validate_config(&cc_machine::safety_config(&candidate))
                 {
                     let keys = violation.implicated_keys();
                     error!(

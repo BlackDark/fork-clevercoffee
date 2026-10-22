@@ -34,7 +34,7 @@ pub use backflush::{
 };
 pub use cc_safety::steam_flow_allowed;
 pub use cc_safety::water_flow_allowed;
-pub use context::Context;
+pub use context::{safety_config, Context};
 pub use effect::{Effect, Effects, PumpWatchdog, MAX_EFFECTS_PER_EVENT};
 pub use event::{Command, Event, Sensors, SwitchId};
 pub use guards::{should_pid_be_enabled, Guard};

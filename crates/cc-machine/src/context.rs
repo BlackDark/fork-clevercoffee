@@ -4,6 +4,7 @@
 //! so decisions cannot depend on when shared state happened to be read.
 use cc_config::Config;
 use cc_domain::units::Celsius;
+use cc_safety::SafetyConfig;
 
 /// Everything the state machine may read but not change.
 ///
@@ -195,6 +196,39 @@ fn secs_to_ms(seconds: f64) -> u32 {
     saturating_millis(seconds)
 }
 
+/// The safety-relevant subset of `config`, as `cc-safety` validates and monitors it.
+///
+/// The only place a [`SafetyConfig`] is built from a [`Config`]. It lives here
+/// because `cc-config` and `cc-safety` are peers and this crate depends on both.
+/// Boot, every configuration write, the control tick and `cc-parity` all call it;
+/// two field-by-field copies drifted once and energised a low-trigger pump at boot.
+#[must_use]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "`Config` temperatures are `f64` because a numeric parameter is a \
+              `double`; `SafetyConfig` is `Celsius`-typed, which is `f32`. Over the \
+              schema's ranges (emergency_temp 120..180, emergency_hysteresis 1..15, \
+              steam_setpoint 100..140, effective_brew_setpoint 20..130) the loss is \
+              under 1e-5 C, four orders of magnitude below the probe's 0.0625 C \
+              resolution"
+)]
+pub fn safety_config(config: &Config) -> SafetyConfig {
+    SafetyConfig {
+        emergency_temp: Celsius::new(config.safety.emergency_temp as f32),
+        emergency_hysteresis: Celsius::new(config.safety.emergency_hysteresis as f32),
+        steam_setpoint: Celsius::new(config.steam.setpoint as f32),
+        effective_brew_setpoint: Celsius::new(config.effective_brew_setpoint() as f32),
+        brew_mode: config.brew.mode,
+        brew_by_time_enabled: config.brew.by_time.enabled,
+        brew_by_weight_enabled: config.brew.by_weight.enabled,
+        scale_fitted: config.hardware.sensors.scale.enabled,
+        heater_relay_trigger: config.hardware.relays.heater.trigger_type,
+        pump_relay_trigger: config.hardware.relays.pump.trigger_type,
+        valve_relay_trigger: config.hardware.relays.valve.trigger_type,
+        temperature_sensor: config.hardware.sensors.temperature.r#type,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,5 +383,53 @@ mod tests {
         assert_eq!(secs_to_ms(-1.0), 0);
         assert_eq!(secs_to_ms(0.0), 0);
         assert_eq!(secs_to_ms(1.5), 1500);
+    }
+
+    #[test]
+    fn the_safety_config_carries_exactly_the_safety_relevant_values() {
+        use cc_domain::hardware::{RelayTriggerType, TemperatureSensorType};
+        use cc_domain::process::BrewMode;
+
+        let mut config = Config::default();
+        config.safety.emergency_temp = 165.0;
+        config.safety.emergency_hysteresis = 9.0;
+        config.steam.setpoint = 118.0;
+        config.brew.setpoint = 104.0;
+        config.brew.temp_offset = 3.0;
+        // The brew-stop trio and the scale flag: `validate_config` reads all four
+        // to decide whether an automatic brew has a reachable stop condition.
+        config.brew.mode = BrewMode::Automatic;
+        config.brew.by_time.enabled = true;
+        config.brew.by_weight.enabled = true;
+        config.hardware.sensors.scale.enabled = true;
+        config.hardware.sensors.temperature.r#type = TemperatureSensorType::DallasDs18b20;
+
+        let safety = safety_config(&config);
+        assert_eq!(safety.emergency_temp, Celsius::new(165.0));
+        assert_eq!(safety.emergency_hysteresis, Celsius::new(9.0));
+        assert_eq!(safety.steam_setpoint, Celsius::new(118.0));
+        // The **effective** setpoint, offset included: the threshold must clear
+        // the temperature the boiler is driven to, not the raw `brew.setpoint`.
+        assert_eq!(safety.effective_brew_setpoint, Celsius::new(107.0));
+        assert_eq!(safety.brew_mode, BrewMode::Automatic);
+        assert!(safety.brew_by_time_enabled);
+        assert!(safety.brew_by_weight_enabled);
+        assert!(safety.scale_fitted);
+        assert_eq!(
+            safety.temperature_sensor,
+            TemperatureSensorType::DallasDs18b20
+        );
+
+        // `validate_config` refuses `LowTrigger` per relay, so each relay's
+        // own value must arrive, not a shared or hard-coded one.
+        for trigger in [RelayTriggerType::HighTrigger, RelayTriggerType::LowTrigger] {
+            config.hardware.relays.heater.trigger_type = trigger;
+            config.hardware.relays.pump.trigger_type = trigger;
+            config.hardware.relays.valve.trigger_type = trigger;
+            let safety = safety_config(&config);
+            assert_eq!(safety.heater_relay_trigger, trigger);
+            assert_eq!(safety.pump_relay_trigger, trigger);
+            assert_eq!(safety.valve_relay_trigger, trigger);
+        }
     }
 }
