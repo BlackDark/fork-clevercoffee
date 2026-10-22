@@ -1,12 +1,6 @@
-//! The pre-infusion pause: the pump off and the water valve **open**, holding puck pressure.
+//! Pre-infusion pause holds the valve open without ever pulsing the pump.
 //!
-//! Keeping the valve open is what the valve whitelist exists for: the pause is on it, so the
-//! valve check leaves the valve alone while the pause runs and closes it when the pause is
-//! aborted, or when the brew ends.
-//!
-//! Both cases assert that the pump is never turned on anywhere in the entry or in the update,
-//! which is stronger than "the pump ends up off": a sequence that turned the pump on and straight
-//! back off would pass the weaker check and still pulse the puck.
+//! Assert the whole effect sequence, not merely the final output state.
 
 mod common;
 

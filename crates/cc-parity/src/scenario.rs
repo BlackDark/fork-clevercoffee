@@ -1,24 +1,8 @@
-//! The scenario file format: parse it, validate it, and reject it loudly.
+//! Strict parser for [`docs/scenarios.md`](../../docs/scenarios.md).
 //!
-//! The format is specified in
-//! [`docs/scenarios.md`](../../docs/scenarios.md).
-//! This module is the normative implementation of that document; where the two
-//! disagree, this module is the one that is wrong and the document is the one
-//! that is right.
-//!
-//! # Why the parser is strict
-//!
-//! A scenario is a *contract* about firmware behaviour. A typo in one is not a
-//! cosmetic problem: `never: { effect: EnablePmp }` would silently assert
-//! nothing, and a scenario that asserts nothing is worse than no scenario,
-//! because it reads as coverage. So every name in a scenario — state, effect,
-//! switch, command — is resolved against the real enumerations at load time and
-//! an unknown one is a hard error.
-//!
-//! The same applies to `config.set`: every dotted key is looked up in
-//! [`cc_config::schema::SCHEMA`] and rejected if it is unknown, mistyped, or out
-//! of range. A scenario file must not accept an unknown key: a renamed parameter
-//! would otherwise leave a scenario quietly testing nothing.
+//! Resolve state, effect, switch, command, and configuration names at load time.
+//! Unknown names and invalid values must fail: a typo must not silently remove
+//! an assertion or leave a scenario testing the wrong configuration.
 
 use std::collections::BTreeMap;
 use std::fmt;

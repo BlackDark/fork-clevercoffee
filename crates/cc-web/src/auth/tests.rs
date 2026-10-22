@@ -1,6 +1,4 @@
-//! The authentication tests, moved from `cc-hal-esp32/src/web.rs`. They
-//! compile `cc-domain`'s `device-tests` feature, so `tests_support::encode` is
-//! reachable — the reason the feature exists.
+//! Authentication tests use the `device-tests` feature's header encoder.
 
 use super::*;
 

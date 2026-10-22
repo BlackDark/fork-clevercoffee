@@ -1,37 +1,7 @@
-//! Which of the three status LEDs should be lit, as a pure function.
+//! Compose shared display tolerances into logical LED requests.
 //!
-//! # Why this crate and not `cc-web` or `cc-machine`
-//!
-//! `cc-display` is the right home because the three primitives this needs are
-//! already here, each with its own test:
-//!
-//! * [`crate::helpers::status_led_tolerance`] — the steam-versus-blink delta
-//!   choice, with a test asserting each side.
-//! * [`crate::helpers::is_near_setpoint_for_led`] — the **`<=`** comparator,
-//!   tested against the display's strict `<` at the exact boundary value so the
-//!   two cannot drift apart.
-//! * [`crate::helpers::is_blink_phase_on`] — the half-cycle the brew LED's
-//!   manual-flush rule hangs off.
-//!
-//! Re-deriving any of those in `cc-machine` or `cc-web` would create a second
-//! copy of a tolerance rule that `helpers.rs` exists to keep single. This module
-//! is therefore **only the composition**: it consumes the existing primitives
-//! rather than restating them, and the dependency edges are unchanged —
-//! `cc-firmware` already depends on `cc-display`, and nothing new points at it.
-//!
-//! # What this is NOT
-//!
-//! This module decides *lit or not*. It does not touch a GPIO, does not know an
-//! LED can be inverted, and does not know whether the pin is even wired. Those
-//! belong to `cc_hal_esp32::leds`, the only code that drives a pin: this module
-//! asks, and that one writes.
-//!
-//! # The `enabled` gate
-//!
-//! [`LedOutput::from_state`](crate::leds::LedOutput::from_state) reports `false`
-//! for a disabled LED, and `cc_hal_esp32::leds` does not configure a pin it was
-//! not asked for. Together those are the rule "a disabled LED stays dark",
-//! applied once on each side.
+//! Reuse [`crate::helpers`] so blink and proximity rules have one definition.
+//! Disabled LEDs request off; GPIO ownership and inversion belong to the HAL.
 
 use cc_domain::state::MachineState;
 

@@ -1,14 +1,6 @@
-//! An empty water tank: what refuses the water, and what must not be refused.
+//! An empty tank blocks water but must neither prevent standby nor wake it.
 //!
-//! The requirement that looks backwards is the safety one: an empty tank must not *keep* the
-//! machine awake. A machine in `WATER_TANK_EMPTY` with `keep_heater_on_empty` set still has to
-//! reach `STANDBY` on its standby request or its standby timeout, because standby is what turns the
-//! heater off; and a machine already resting in `STANDBY` must not be woken just because the tank
-//! is still empty.
-//!
-//! So the tank guard is excluded for exactly two states, `WATER_TANK_EMPTY` and `STANDBY`. The rest
-//! of the file is the other direction -- the states that are *not* excluded, where an empty tank
-//! must stop the water -- and the refill that undoes it.
+//! Both `WATER_TANK_EMPTY` and `STANDBY` are excluded from the tank guard.
 
 mod common;
 

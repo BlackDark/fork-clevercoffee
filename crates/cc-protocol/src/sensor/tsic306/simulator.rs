@@ -1,58 +1,12 @@
-//! A bit-level `ZACwire` waveform synthesiser, for the host tests only.
+//! Spec-based `ZACwire` waveform generator for host tests, not hardware validation.
 //!
-//! # 🔴 What this is, and what a passing test of it is worth
+//! Encode duty percentages without decoder thresholds; detect edges by scanning
+//! [`Waveform::level_at`] in 1 µs steps. The decoder measures its own strobe, so
+//! tests can vary the bit window without changing decoder constants.
 //!
-//! This module **generates** a GPIO waveform; [`decode`](super::decode) **reads**
-//! one. There is no real TSIC-306 on the machine this was written on, so this is
-//! the only way the decoder can be exercised at all — and that is exactly why the
-//! weakness of the approach has to be said out loud rather than left for someone
-//! to discover when they read a green test run as evidence.
-//!
-//! **A passing simulator test is not evidence that a TSIC-306 works.** It is
-//! evidence that the decode arithmetic is self-consistent and that damaged frames
-//! are rejected. It is *not* evidence about any of the following, none of which a
-//! synthesiser can produce:
-//!
-//! * the real sensor's clock tolerance, and whether 62 µs measured against a
-//!   62.5 µs half-period survives it plus a 1 µs timestamp quantisation;
-//! * real 31.25 µs and 93.75 µs pulses through a pull-up, a cable and an input
-//!   with a finite rise time — 31 µs is three time constants of a lot of RC;
-//! * EMI, and the app note's own reason for parity existing (> 2 m of cable);
-//! * what a real TSIC-306 does when it is brownout, at a supply edge, or
-//!   unpowered, which is the case that actually matters for a heater.
-//!
-//! # How the independence is engineered, and where it stops
-//!
-//! The obvious version of this test is worthless: an encoder that calls the
-//! decoder, or an encoder and a decoder that share a threshold, proves only that
-//! the two agree. Three things push back on that:
-//!
-//! 1. **The encoder works in duty-cycle percentages of a bit window** — it knows
-//!    "a `1` is 75 %" and nothing about how the decoder decides what a `1` is.
-//!    It never computes a strobe and never compares against one.
-//! 2. **The decoder derives its decision boundary from the waveform it was
-//!    given**, by measuring the start bit. It does not use
-//!    [`protocol::STROBE_US`]. Change the synthesiser's bit window to 120 µs and
-//!    the decoder follows; there is no constant in it that has to change.
-//! 3. **Edges are found by scanning the level function**, not by construction.
-//!    [`Waveform::edges`] walks [`Waveform::level_at`] in 1 µs steps and reports
-//!    where the level changes, so a rounding error in a pulse width becomes a
-//!    *shifted edge* that the decoder has to cope with — which is what a real
-//!    clock offset does.
-//!
-//! What they *do* share is [`protocol::BIT_WINDOW_US`] and
-//! [`protocol::duty`], because those are the spec. Sharing the specification is
-//! the point; sharing the decoder would defeat the exercise. The tests below
-//! include one that shifts the bit window away from the nominal to prove point 2.
-//!
-//! # The waveform, from the app note
-//!
-//! §1.1: "The signal is normally high." §1.2: "The bit format is duty cycle
-//! encoded: Start bit => 50 % duty cycle used to set up strobe time, Logic 1 =>
-//! 75 % duty cycle, Logic 0 => 25 % duty cycle." §1.1: the packet is
-//! "a start bit, 8 data bits, and a parity bit", MSB first, and "There is a
-//! single bit window of high signal (stop bit) between the end of the first
-//! transmission and the start of the second transmission."
+//! Shared timing and duty constants express the specification, not an independent
+//! hardware oracle. Tests cannot establish real clock tolerance, cable rise times,
+//! EMI, or supply-failure behavior; see [`super`].
 
 use alloc::vec::Vec;
 

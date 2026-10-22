@@ -1,27 +1,7 @@
-//! Every screen, in every language, checked for fit.
+//! Check every language against widget slots and physical framebuffer bounds.
 //!
-//! # Why this is separate from `screen_matrix.rs`
-//!
-//! The matrix sweeps inputs and templates; it runs **English only**, because
-//! `Config::default()` is English and the point there is layout under extreme
-//! values. Language is a different axis: a translation changes the *width* of
-//! every label, and the two templates that put a label and a value in fixed
-//! columns (`VALUE_COLUMN_OFFSET` = 50 on Scale, `UNIT_COLUMN_OFFSET` = 30 on
-//! the rest) are laid out for the English strings' lengths.
-//!
-//! So: every case, every template, every language, and two assertions —
-//!
-//! 1. **Nothing inks outside 128x64.** Cheap, and it catches the extreme.
-//! 2. **No string is wider than the slot it is drawn into.** A clipped glyph is
-//!    still inside the frame, so a bounds check cannot see it.
-//!
-//! # What is asserted, and where it lives
-//!
-//! The measurement is the display layer's own: `Font::str_width`. Nothing is
-//! rendered and scanned, because a rendered frame cannot tell "ends at 127" from
-//! "was cut at 127". The widths are compared against the slot each widget
-//! actually draws into, which is why the slot constants are named here rather
-//! than re-derived.
+//! A clipped glyph can stay inside 128x64, so compare `Font::str_width` with the
+//! actual slot constants rather than relying only on rendered bounds.
 
 use cc_display::display::{Display, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use cc_display::font;

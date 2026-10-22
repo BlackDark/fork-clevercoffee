@@ -1,37 +1,9 @@
-//! Number formatting that matches C's `printf("%.Nf")`.
+//! Allocation-free fixed formatting with C `printf`'s ties-to-even rounding.
 //!
-//! The panel's digits come from here, so a glyph difference is a golden-image
-//! difference rather than a cosmetic one: the U8g2 comparison renders numbers
-//! through the real `snprintf` and the Rust side through this module, and the two
-//! frames must match.
-//!
-//! # Why not `format!("{:.1}", v)`
-//!
-//! Rust's `{}` formatting rounds **half away from zero**; C's `printf` rounds
-//! **half to even**, on the *exact* binary value. They differ whenever the two
-//! neighbours of the halfway point are both representable and the value is
-//! exactly between them. `92.25` is such a value: C prints `92.2`, Rust prints
-//! `92.3`. A temperature reading of 92.25 is not exotic.
-//!
-//! So this does the rounding explicitly, on the exact value, using the f64's
-//! own mantissa and exponent:
-//!
-//! ```text
-//! v = m * 2^e            (m an integer, |m| < 2^53)
-//! v * 10^d = m * 10^d * 2^e
-//! ```
-//!
-//! and then rounds the integer `m * 10^d` shifted by `e` to nearest, ties to
-//! even — which is what the C library's correctly-rounded conversion does.
-//!
-//! # Range
-//!
-//! The 128-bit intermediate holds `m * 10^d` for `d <= 9`
-//! (`2^53 * 10^9 < 2^83`), so any finite `f64` whose scaled value fits in
-//! `i128` formats exactly. That covers every quantity the display prints: a
-//! temperature, a weight, a pressure, a millisecond duration. Values outside it
-//! fall back to Rust's own formatting and are documented as such rather than
-//! silently rounding differently.
+//! Round the exact binary value: `v = m * 2^e`, so scaling by `10^d` becomes
+//! integer rounding of `m * 10^d` shifted by `e`.
+//! For `d <= 9`, `2^53 * 10^9 < 2^83` fits the 128-bit intermediate. Finite values
+//! whose scaled result fits `i128` format exactly; others use the documented fallback.
 
 /// A fixed-point number: an integer scaled by `10^-decimals`.
 ///

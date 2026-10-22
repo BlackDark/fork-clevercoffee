@@ -1,31 +1,8 @@
-//! The panel on the shared I²C bus, owned for the life of the process.
+//! Transaction-scoped ownership of the shared OLED/ABP2 I²C bus.
 //!
-//! # Why this type exists
-//!
-//! The SSD1306 and the ABP2 pressure sensor are on the **same two wires**
-//! ([pins.md](../../../docs/hardware/pins.md): I²C0 on GPIO 22 and 21), and an
-//! ESP32 I²C peripheral can only have one owner. `Abp2Pressure` takes the
-//! `I2cDriver` by value, so the display cannot simply borrow it afterwards —
-//! one of the two has to give way, and
-//! whoever gives up the bus holds it for as long as the other wants it, which
-//! would starve the other.
-//!
-//! So the bus lives behind a [`Mutex`] and both users take it for the length of
-//! one transaction. That is not a stylistic choice: with a 100 ms display
-//! refresh and a 50 ms pressure cadence, a display that held the bus
-//! continuously would make the ABP2 unreadable, and a pressure sensor that did
-//! the same would make the panel flicker. Neither is acceptable.
-//!
-//! # What the control task must do
-//!
-//! [`SharedPanel::refresh`] is the whole interface: call it every tick and it
-//! decides whether the interval has elapsed, renders, and hands the bus back
-//! before returning. It never blocks on the display for longer than one frame.
-//!
-//! It returns [`RefreshOutcome`] rather than `()` so the caller can log *why*
-//! nothing was drawn. "The display is blank" and "the bus was taken by the
-//! pressure sensor" are completely different problems and the boot log has to be
-//! able to tell them apart.
+//! One peripheral serves both devices; neither may retain the mutex between
+//! transactions and starve the other. [`RefreshOutcome`] distinguishes bus
+//! contention from a frame that was not due.
 
 use alloc::format;
 use alloc::string::String;

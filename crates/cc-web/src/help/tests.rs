@@ -1,8 +1,4 @@
-//! The `parameter-help` and `404` tests.
-//!
-//! Every assertion here is against the bytes a client receives, because the
-//! original defect was that those bytes and the status line disagreed — a test
-//! that checked "the handler returned something" would have passed anyway.
+//! Check response bytes and status together for parameter help and missing routes.
 
 use alloc::string::{String, ToString};
 

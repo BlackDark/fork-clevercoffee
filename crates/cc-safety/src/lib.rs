@@ -1,48 +1,11 @@
-//! The one place that decides whether an actuator may be energised.
+//! Pure actuator permissions from safety state, telemetry, configuration, and time.
 //!
-//! A pure reducer: `(previous safety state, telemetry, configuration, now) ->
-//! (new safety state, verdict)`. It performs no I/O, allocates nothing, and
-//! depends only on `cc-domain`, for units and the state enum. That is the point
-//! of keeping it separate: a reviewer can read this crate in one sitting and be
-//! certain nothing else influences the verdict.
+//! S1–S3 handle overheat, latching, and recovery. S4 blocks pump and water valve
+//! continuously while the tank is empty. S5/S5' whitelist water and steam states;
+//! both valves share a physical relay. Checks belong at every actuator call.
 //!
-//! # The safety paths
-//!
-//! | Path | Implemented by |
-//! | --- | --- |
-//! | **S1** over-temperature | [`reduce`] |
-//! | **S2** emergency latch | [`Verdict`] permissions |
-//! | **S3** emergency recovery | [`reduce`] |
-//! | **S4** water tank empty | [`Verdict::may_pump`] |
-//! | **S5** water-valve fail-safe | [`water_flow_allowed`] |
-//! | **S5'** steam-valve fail-safe | [`steam_flow_allowed`] |
-//!
-//! [`validate_config`] and [`load_or_default`] are the two fail-closed
-//! configuration rules: an unsafe configuration is refused when it is stored and
-//! refused again when it is loaded.
-//!
-//! # Deliberate differences
-//!
-//! Each one is pinned by a
-//! `div_`-prefixed test.
-//!
-//! * **S4 gates the water valve as well as the pump.** Emptying the tank and then
-//!   entering a brew state would otherwise open the water valve against a dry
-//!   reservoir. Gating it costs nothing — the S5 whitelist is consulted in the
-//!   same breath — and removes a way to be wrong.
-//! * **S5' is new.** The steam valve is the same physical relay as the water
-//!   valve, so it gets a whitelist of its own; [`steam_flow_allowed`] carries the
-//!   derivation.
-//! * **S4 is edge-free.** The verdict says `may_pump == false` for as long as the
-//!   tank is empty, and the applier drives the pump to that. A rule that fires on
-//!   the empty-to-empty edge instead leaves a pump running against a dry tank
-//!   whenever the edge is missed.
-//! * **Every call is checked, not every call site.** The check is the verdict, and
-//!   the applier is the only code that can reach an actuator at all, so a new
-//!   caller cannot bypass it.
-//! * **`Telemetry` carries the machine state.** S5 is a function of the current
-//!   state, and the state is an input to the decision, not to the safety latch,
-//!   so it belongs in the telemetry rather than in [`SafetyState`].
+//! Machine state arrives in telemetry; only latch history belongs in [`SafetyState`].
+//! [`validate_config`] and [`load_or_default`] reject unsafe settings on write and load.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -730,35 +693,15 @@ impl ConfigViolation {
     }
 }
 
-/// Validate a configuration before it is run or stored.
+/// Validate cross-field safety constraints before applying or storing settings.
 ///
-/// Each parameter is range-checked by `cc-config` before this is called, so the
-/// subject here is not an out-of-range value but a *legal* pair that is unsafe in
-/// combination, or a legal set of fields that leaves the machine with nothing to
-/// stop it. No single-parameter check can substitute for either: a rule enforced
-/// only where a hole was found is a rule waiting for the next writer.
+/// Individual ranges cannot prevent steam/hysteresis or brew thresholds from
+/// overlapping the emergency threshold. S1 uses strict `>`, so a PID target at
+/// the threshold could hold there without advancing the overheat debounce.
 ///
 /// # Errors
 ///
-/// Returns the first [`ConfigViolation`] found, or `Ok(())` if the
-/// configuration is safe to run.
-///
-/// # The threshold pairs
-///
-/// `emergency_temp` and `steam.setpoint` have ranges that overlap once
-/// `emergency_hysteresis` is added on top, so a legal pair can put the emergency
-/// threshold at or below the temperature the machine is told to hold.
-///
-/// The brew pair is checked with the same asymmetry and one extra: S1's
-/// over-temperature test is **strictly greater**
-/// ([`SafetyState::is_over_threshold`]), so the failure mode of a brew setpoint
-/// at or above the threshold is not a machine that trips — it is a machine the
-/// PID drives *to* the threshold and holds there, with a debounce that can never
-/// count a breach.
-///
-/// [`ConfigViolation::BrewByWeightWithNoScale`] is here for the same reason and
-/// one more: it is a four-way conjunction in which no term is out of range on its
-/// own.
+/// Returns the first [`ConfigViolation`], including weight mode without a scale.
 pub fn validate_config(cfg: &SafetyConfig) -> Result<(), ConfigViolation> {
     let steam_headroom = cfg.steam_setpoint.raw() + cfg.emergency_hysteresis.raw();
     // A bench build compiles the two headroom rules out so the over-temperature

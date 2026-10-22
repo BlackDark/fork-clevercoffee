@@ -1,8 +1,5 @@
-//! The six templates' normal layouts.
-//!
-//! Each draws one screen layout in full. The two that are not obvious at a glance
-//! — Upright, because its coordinates live in the rotated space, and Modern,
-//! because every field has a reserved width — carry the most comment.
+//! Normal layouts use rotated coordinates for Upright and reserved field widths
+//! for Modern.
 
 use crate::bitmaps_data as bm;
 use crate::display::Display;

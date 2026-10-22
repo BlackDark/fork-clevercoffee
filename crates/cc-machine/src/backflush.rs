@@ -1,8 +1,4 @@
-//! The backflush mode and cycle logic: two pure decisions and the flags they change.
-//!
-//! Small and dependency-free on purpose. The state *transitions* are in [`crate::states`];
-//! only these two decisions were ever out of them, so they live here where they can be
-//! host-tested as arithmetic rather than driven through a machine.
+//! Pure backflush decisions; state transitions remain in [`crate::states`].
 
 /// What applying a backflush-mode request does.
 ///

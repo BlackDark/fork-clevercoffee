@@ -1,8 +1,4 @@
-//! The payload tests.
-//!
-//! `status_json` and `nvs_debug_json` take the two heap readings as parameters, so
-//! the bytes are the ones the handler emits and no assertion here needs a chip to
-//! have a heap.
+//! Payload tests supply heap readings explicitly; no device is needed.
 
 use super::*;
 

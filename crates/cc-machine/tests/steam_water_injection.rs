@@ -1,8 +1,4 @@
-//! Water injection in `STEAM_RUNNING`: the hot-water switch, read by the steam state.
-//!
-//! It is the same physical input as hot-water dispensing, and which feature it drives depends on
-//! the state the machine is in. In `STEAM_RUNNING` a held switch injects water into the boiler,
-//! with the pump following the level.
+//! In `STEAM_RUNNING`, held hot-water input injects water with the pump.
 
 mod common;
 

@@ -1,34 +1,7 @@
-//! Rendering a frame must not touch the heap.
+//! Measure heap allocations per frame; timing is reported only for scale.
 //!
-//! # Why this exists
-//!
-//! A 2026-10 review found `just bench` named two bench targets — `reducers` and
-//! `layout` — and **neither existed**, so the recipe failed with
-//! `no bench target named 'reducers'`. A documented-but-nonexistent gate is
-//! worse than none, because everyone reading the recipe assumes it ran. This is
-//! the `layout` one.
-//!
-//! What it measures is the thing that matters on a device with ~320 KB of RAM:
-//! **heap allocations per frame.** `cc-display` is `no_std` with no `alloc` in
-//! the device build, so a nonzero count here means a device build would not link
-//! at all — which makes this a real invariant, not a micro-optimisation.
-//!
-//! The timing figure is reported for scale only. At 100 ms per refresh
-//! (`display_task::REFRESH_MS`) a frame has an enormous budget on the LX6; the
-//! cost that would actually hurt is the allocation. The four per-tick
-//! allocations in `cc-machine` were found by exactly this method.
-//!
-//! Number formatting goes through `fixed_str::String<24>` (`cc-display`'s
-//! `fmt.rs`), hand-matched to C's `printf` rounding and checked against an
-//! 80,000-line reference generated from real U8g2. That is why the count is
-//! zero: the display crate formats into stack buffers because a display cannot
-//! afford a heap.
-//!
-//! # Running it
-//!
-//! ```sh
-//! just bench
-//! ```
+//! The device renderer has no allocator. `tests/frame_allocations.rs` gates the
+//! same invariant with the shared counter. Run with `just bench`.
 
 #[path = "alloc.rs"]
 mod alloc;

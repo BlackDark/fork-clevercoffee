@@ -1,73 +1,16 @@
-//! The TSIC-306 / `ZACwire` driver: the safety filters a decoded frame passes through.
+//! TSIC-306 frame filtering; real-sensor and device capture remain unverified.
 //!
-//! # 🔴 This driver has never run against a TSIC-306
+//! Only synthesized waveforms have exercised this driver. The fitted probe is a
+//! DS18B20 on the same GPIO, so neither capture nor sensor behavior is established.
 //!
-//! The probe fitted to the machine this was written on is a **DS18B20** (family `0x28`, ROM
-//! `286937aacd78af41`, measured -- [`super::ds18b20`]). There is no TSIC-306, no `ZACwire`
-//! waveform, and no second temperature probe.
+//! Reject sentinels 221/222 and temperatures <= 0 or >= 180 °C. Rejected reads
+//! retain the last good value rather than feeding glitches into PID or safety.
+//! The change limit starts at 200 °C, then latches to 5 °C after two accepted
+//! readings within 5 °C. The latch belongs to each driver instance.
 //!
-//! Everything here is host-tested against a **synthesised waveform** (`simulator`, built from the
-//! app note's own timings), which proves the arithmetic, frame ordering, parity and rejection of
-//! damaged frames. It proves **nothing** about a real sensor: clock tolerance, 31.25 µs pulses
-//! through a pull-up and a cable, behaviour on brownout, and the one thing that matters for a
-//! heater -- what it does when the supply dips. **A green test run here is not evidence that a
-//! TSIC-306 works.** Anyone fitting one must treat the first reading as unverified; the driver is
-//! written so a wrong decode produces a *rejected reading* rather than a wrong temperature.
-//!
-//! # 🔴 The device side has also never executed
-//!
-//! [`GpioZacwire`](crate) -- GPIO edge capture, `esp_timer_get_time()` timestamps and the
-//! `hal::task::notification` wake-up -- is implemented and **not brought up in the firmware
-//! build**: the pin it would capture carries 1-Wire traffic from the DS18B20 that is actually
-//! fitted. Two gaps, both open. The pure logic is tested; the device path is written but has never
-//! run. Neither is evidence about the other.
-//!
-//! # The four safety-relevant behaviours
-//!
-//! ## 1. The two sentinels
-//!
-//! 222 means *this reading is not trustworthy*; 221 means *go and look at the wiring*. Both sit
-//! outside [`protocol::ACCEPT_MIN_C`] .. [`protocol::ACCEPT_MAX_C`], so neither can pass as a
-//! temperature, and both count as failed reads. [`Outcome`] keeps them apart.
-//!
-//! ## 2. The hard physical range
-//!
-//! **The single most important rule in this file.** A TSIC-306 brownout for one 100 ms window can
-//! decode to a wild value, and S1's plausible band starts at 0.0 °C, so an unfiltered -2.9 °C
-//! glitch would reach S1 and latch a healthy machine. The reject turns the glitch into a failed
-//! read, the failed read keeps the last good cached value, and the PID never sees it.
-//!
-//! The bounds are inclusive rejections of 0.0 and 180.0, so a legitimate 0.00 °C from a probe whose
-//! span includes it is refused. That is the price of rejecting 221 and 222, which is the upper
-//! bound's whole job; see [`protocol::ACCEPT_MIN_C`].
-//!
-//! ## 3. The adaptive change rate
-//!
-//! [`protocol::INITIAL_CHANGE_RATE_C`] (200) covers the period before the signal has settled;
-//! [`protocol::RUNTIME_CHANGE_RATE_C`] (5) takes over after it has. A reading whose change exceeds
-//! the active limit is rejected as **222**, so a rate violation is a sentinel rather than a
-//! separate outcome -- which is why [`Outcome::ReadFailed`] covers it.
-//!
-//! ## 4. The latch onto the tighter rate
-//!
-//! Two consecutive readings, both inside the accept window and within 5 °C of each other, mean the
-//! signal has settled; from then on the 5 °C limit is the one that rejects a glitch.
-//!
-//! # Two things worth stating about the limits
-//!
-//! **The latch is per instance.** A process-global latch would be a once-forever event: a probe
-//! that is unplugged, re-plugged and warms up would never re-latch. Per instance, a reconnect
-//! starts permissive, which is the safe direction -- permissive is also the state a first-ever boot
-//! is in.
-//!
-//! **The two limits are applied in degrees, and the ambiguity is unresolved.** The alternative
-//! reading is that 200 and 5 are **counts**, since what the frame decodes to is an 11-bit count: in
-//! counts they would be 200 counts/sample (about 19.5 °C/sample) and 5 counts/sample (about
-//! 0.49 °C/sample). This module applies both in **degrees**, which is what the two constants are
-//! named and documented as. The count-based reading is one multiplication away: divide the limits
-//! by
-//! `200.0 / 2047.0`, which is [`COUNT_SCALE`]. **This is an unresolved ambiguity, not a decision**,
-//! and it is the thing most likely to be wrong in this module.
+//! The limits are applied in degrees. Whether the intended units were raw counts
+//! remains unresolved: 200 and 5 counts would mean about 19.5 and 0.49 °C.
+//! Do not treat host test success as evidence resolving that ambiguity.
 
 pub mod decode;
 pub mod protocol;

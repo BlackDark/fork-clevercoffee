@@ -1,4 +1,4 @@
-//! The command-parsing tests, moved from `cc-hal-esp32/src/web.rs`.
+//! Request-to-command parsing tests.
 
 use super::*;
 

@@ -1,21 +1,8 @@
-//! The six display templates, and the stage order they share.
+//! Fixed pipeline: fullscreen modes, shared system screens, then normal layout.
 //!
-//! # The stage order is the design, not an implementation detail
-//!
-//! The pipeline is fixed: **fullscreen modes -> system screens -> the template's
-//! own layout**, with a per-template [`TemplatePolicy`] choosing which shared
-//! stages run.
-//!
-//! The order is realised as a `match` on [`TemplateId`] in `render::dispatch`,
-//! which costs no vtable and needs no trait. [`render()`] is the fixed stage order
-//! and no template can reorder it, which is the property that matters.
-//!
-//! [`TemplatePolicy`] is public and `const` because the policy is *data*, and data
-//! is what a test can assert on: `Standard`/`Scale`/`Upright` enable all four
-//! shared stages, `Minimal` and `TemperatureOnly` enable none, and `Modern` opts
-//! out of the shared heating logo because it draws its own `HEATING` row instead.
-//! That asymmetry is the whole reason the policy exists, and a test checks it
-//! rather than leaving it to a reviewer.
+//! [`TemplatePolicy`] controls shared stages without reordering them. Standard,
+//! Scale, and Upright enable all; Minimal and `TemperatureOnly` enable none;
+//! Modern draws its own heating row instead of the shared logo.
 
 pub mod modern_layout;
 pub mod render;
@@ -373,7 +360,7 @@ mod tests {
         );
         assert!(!TemplateId::Modern.policy().shared_fullscreen_brew_timer);
 
-        // Minimal and TemperatureOnly: no shared stages.
+        // Minimal and `TemperatureOnly`: no shared stages.
         for id in [TemplateId::Minimal, TemplateId::TemperatureOnly] {
             assert_eq!(id.policy(), TemplatePolicy::NONE, "{}", id.name());
         }

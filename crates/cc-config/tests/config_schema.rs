@@ -1,15 +1,6 @@
-//! # Schema, round-trip and redaction tests for `cc-config`.
+//! Schema coverage, JSON round trips, and credential redaction.
 //!
-//! The schema's shape is pinned here rather than in the crate: 98 registered keys,
-//! every key readable, every key's compiled-in default equal to the same field's
-//! value in `Config::default()`, and the round trip through both JSON entry points
-//! intact. Those are the properties a schema change breaks.
-//!
-//! # There is no store fake in this file
-//!
-//! The store is tested where it lives: [`cc_config::BlobConfigStore`] over
-//! `MemoryBackend`, a fake of the *medium* rather than of the format. A fake of the
-//! format — a `Config` in an `Option` — would only assert that the fake works.
+//! Store behavior is tested separately in `blob_store`.
 
 // `clippy::assert_is_empty` is new in clippy 1.99, the channel `just lint`
 // runs on when `CC_RUST_TOOLCHAIN=stable` (the CI host gate). It is silenced

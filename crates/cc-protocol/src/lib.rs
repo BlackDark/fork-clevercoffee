@@ -1,44 +1,8 @@
-//! Clever Coffee `device protocols`, as pure state machines over bytes.
+//! Allocation-free wire protocols with caller-supplied transport and time.
 //!
-//! # Where this sits in the layering
-//!
-//! ```text
-//!   cc-domain ──> cc-protocol ──> cc-hal-esp32
-//! ```
-//!
-//! Every module here decodes or encodes a **wire format**: the two temperature
-//! buses, the pressure sensor's I²C command set, an HTTP `Authorization`
-//! header, and the UART provisioning line grammar. Each is a function of bytes
-//! in and decisions out, with a pin and a clock supplied by the caller. That is
-//! exactly why they are portable, and it is the property the whole port rests
-//! on: neither the 1-Wire bus nor the `ZACwire` waveform can be exercised on a
-//! host without it, and a bit-bang protocol that has only ever been run on a
-//! machine with a sensor soldered to it is a bit-bang protocol nobody can
-//! review.
-//!
-//! The vocabulary they decode *into* — [`cc_domain::units`] for a Celsius and
-//! a `Millis`, nothing else — stays in `cc-domain`, so the arrow points one way
-//! and a unit cannot change without every protocol that reports one.
-//!
-//! # What is NOT here
-//!
-//! * **Transport.** `cc-hal-esp32` owns the UART, the GPIO, the I²C controller
-//!   and the `EspHttpServer`. Each module here names the *seam* it needs
-//!   ([`sensor::onewire::OneWireBus`], [`sensor::tsic306::EdgeSource`],
-//!   [`abp2::I2cBus`]) and never a peripheral.
-//! * **Policy.** What the machine does with a reading is `cc-safety`'s and
-//!   `cc-machine`'s. Nothing here may say whether a temperature is acceptable.
-//!   [`sensor::probe::ProbeReading::is_usable`] is the shared *query* both
-//!   drivers report through; it filters nothing.
-//! * **Network link and publish policy.** `cc-netpolicy`.
-//!
-//! # Rules
-//!
-//! * `no_std` and **no `alloc` in shipped code**: `extern crate alloc` is under
-//!   `#[cfg(test)]`, so a protocol that has to allocate to hold a 32-byte SSID
-//!   or a 600-point ring cannot be written here at all.
-//! * This crate must never name `esp_idf_svc`, `esp_idf_hal` or `esp_idf_sys`.
-//!   `scripts/portable-purity.py` checks that in CI.
+//! [`sensor`], [`abp2`], [`http_auth`], and [`provisioning`] decode into domain values;
+//! the HAL owns peripherals. Machine safety decisions belong to `cc-safety` and
+//! `cc-machine`; network scheduling belongs to `cc-netpolicy`.
 
 #![no_std]
 #![forbid(unsafe_code)] // already denied workspace-wide; restated for clarity

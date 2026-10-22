@@ -1,23 +1,8 @@
-//! The Wi-Fi station connection policy: the order of operations, and the
-//! arithmetic behind the four-bucket signal indicator.
+//! Wi-Fi connection ordering and signal-strength buckets.
 //!
-//! # The ordering rule, and why breaking it is a real bug
-//!
-//! The STA hostname has to be applied **before** the association starts, so the
-//! DHCP client ID matches the configuration. ESP-IDF's STA driver takes its
-//! snapshot of the DHCP client identifier when the association starts, so a
-//! hostname set after `esp_wifi_connect()` is applied to the *next* association,
-//! not this one. A machine that set the hostname after connecting would present
-//! a different client ID on every boot depending on whether the DHCP server had
-//! already seen it, which shows up as a duplicate lease or a host that changes
-//! name when it renews, months later, on a network nobody is looking at.
-//!
-//! [`ConnectionOrder`] is the testable form of that rule. It records what has
-//! happened, the device code appends to it as it runs, and
-//! [`ConnectionOrder::hostname_is_before_association`] is the assertion. The
-//! device side is `cc_hal_esp32::wifi`, which builds the sequence in this order
-//! by construction; the type exists so that a future edit which reorders the
-//! calls fails a test rather than a DHCP lease.
+//! Set the hostname before association: ESP-IDF snapshots the DHCP client identity
+//! when association starts. A later change applies only to the next association.
+//! [`ConnectionOrder`] records the sequence for validation.
 
 use crate::resilience::{CircuitBreaker, RetryPolicy};
 

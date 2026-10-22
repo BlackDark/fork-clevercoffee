@@ -1,41 +1,7 @@
-//! The reducer must not touch the heap.
+//! Gate reducer allocations using the benchmark's shared counter.
 //!
-//! # What this does and does not cover
-//!
-//! It covers `cc_machine::reduce` and nothing else. The **shell** around it —
-//! `cc_firmware::control::Control::tick` and the control task — is in
-//! `cc-firmware`, which does not build for a host target, so no host test can
-//! reach it. The shell does allocate: `parameters_json` is measured at ~420
-//! allocations and ~20.5 KB, once per second, on the control task, next to the
-//! heater deadman.
-//!
-//! That 1 Hz figure is a deliberate, measured fix for a worse 100 Hz version of
-//! the same thing (see the docs in `cc-firmware`), and it is the right call. But
-//! it means this file's original title — "the 10 ms control tick must not touch
-//! the heap" — overclaimed: it has always proved the *reducer* is
-//! allocation-free, which is a different and narrower claim. The title now says
-//! what the test does.
-//!
-//! This is the *gate*. `benches/allocations.rs` reports the same number for a
-//! human to watch over time; this fails the build. Both include
-//! `benches/alloc.rs`, so the two cannot measure different things — which is the
-//! failure mode a duplicated counting allocator would invite.
-//!
-//! Why it is an invariant and not a micro-optimisation: the device has ~320 KB
-//! of RAM. A 2026-10 review measured 4.00 allocations and ~192 bytes per tick out
-//! of the task that also runs the heater deadman, because `reduce()` returned a
-//! fresh `Vec<Effect>` per call. `Effects` is now a
-//! `heapless::Vec<Effect, MAX_EFFECTS_PER_EVENT>`, so the answer is a hard zero
-//! and this test is what keeps it one.
-//!
-//! # Why this file is ONE test, not two
-//!
-//! A `#[global_allocator]` counts the **whole process**, and Rust runs the tests
-//! in one binary. The first draft of this file had a second test in it, and the
-//! gate went red with exactly one allocation of 608 bytes over a thousand ticks
-//! -- which was the other test's own `Box::leak(Config::default())` landing in
-//! the window. A measurement that counts the harness is not a measurement of the
-//! reducer, so everything that touches the counters lives in a single `#[test]`.
+//! This does not cover the device-only shell or other tasks. Set up fixtures
+//! outside the counting window and keep counter access within one test.
 
 #[path = "../benches/alloc.rs"]
 mod alloc;

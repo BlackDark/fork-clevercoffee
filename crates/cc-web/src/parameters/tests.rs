@@ -1,4 +1,4 @@
-//! The parameter-classification tests, moved from `cc-hal-esp32/src/web.rs`.
+//! Parameter classification and response tests.
 
 // `clippy::assert_is_empty` is new in clippy 1.99, which is the channel the
 // CI host gate runs on (`CC_RUST_TOOLCHAIN=stable`). It is silenced here, in

@@ -1,25 +1,8 @@
-//! Shot counting and the backflush reminder: the qualification rule, the counter's
-//! increment, and the reminder predicate.
+//! Shot qualification, counting, and backflush reminders.
 //!
-//! Small and pure, and it is the state machine's only maintenance behaviour. Only the
-//! parts the reducer touches live here: the qualification test `BrewFinished` calls, the
-//! reset `BackflushFinished` calls, and the reminder predicate. Persisting the counter is
-//! the store's job --
-//! [`Machine::shots_since_backflush`](crate::machine::Machine::shots_since_backflush) is
-//! the value, and the shell writes it.
-//!
-//! # Where the counter is changed, and why it is here
-//!
-//! Incrementing on a completed shot is three facts, each with a different owner: the
-//! decision ([`qualifies_as_counted_shot`]), the increment (which can only be written
-//! where `Machine` is written, i.e. the reducer), and the write (the task that owns the
-//! store). [`record_brew_if_qualified`] does the first two, and the shell is told the
-//! outcome through [`Effect::RecordBrew`](crate::effect::Effect::RecordBrew).
-//!
-//! The decision is therefore made **once**. Emitting the three facts and leaving the
-//! qualification to the applier moves the rule to a place reachable only by wiring it up,
-//! and a rule that has to be *wired* can be forgotten: the counter would never move and
-//! `/api/status` would report `shotsSinceBackflush: 0` for the life of the firmware.
+//! The reducer qualifies and increments once, then emits
+//! [`Effect::RecordBrew`](crate::effect::Effect::RecordBrew) for shell persistence.
+//! The applier must not independently repeat or omit qualification.
 /// A brew is long enough to count on time alone: five seconds.
 pub const MIN_BREW_TIME_MS: f64 = 5_000.0;
 

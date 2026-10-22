@@ -1,171 +1,33 @@
-//! The hand-off from the control task to the display task.
+//! Bounded hand-off from control to display; machine and configuration keep one owner.
 //!
-//! One frame's inputs, published by the control task and read by the display
-//! task. Sensor readings, switch edges and machine state stay **inside** the
-//! control task, which is the correct place for them; [`crate::sensor_task`] is
-//! the measurement that moved the display out and left everything else where it
-//! was.
+//! A critical section protects one frame-input copy. A double buffer is unsafe
+//! when the 10 ms producer laps the 100 ms consumer; a seqlock still permits
+//! non-atomic Rust data races even if the reader discards a torn copy.
 //!
-//! ## 🔴 Why there is no `Mutex`
+//! Do not block control on an unbounded critical section or a higher-priority holder.
+//! The control task and httpd both run at priority 5; `esp-idf-svc` hard-codes httpd's
+//! priority. Provisioning runs below control and benefits from priority inheritance.
 //!
-//! The first version used `std::sync::Mutex`, and the device asserted in a loop:
+//! # Control-task lock budget
 //!
-//! ```text
-//! assert failed: xTaskRemoveFromEventList tasks.c:3894 (pxUnblockedTCB)
-//! ```
+//! Host-scaled estimates below assume 240 MHz Xtensa with 8x pessimism; they are
+//! not device measurements:
 //!
-//! On ESP-IDF a `std::sync::Mutex` is a `pthread` mutex, which is a `FreeRTOS`
-//! mutex, so *contending* for one is a queue operation: the loser goes on the
-//! semaphore's event list and the winner's release removes it. The assert is that
-//! removal finding an owner-less list entry, and on this build it is reachable.
+//! * Parameter mailbox, every tick: 12-byte pop, <= 0.04 µs; holder push, <= 0.5 µs.
+//! * Provisioning hand-off, every tick: at most 28 bytes, <= 0.1 µs;
+//!   string bodies stay outside.
+//! * History: one 12-byte point per second. HTTP copies out 7,200 bytes under the
+//!   lock only for `/api/history`: 225 cold 32-byte lines at 100 ns each,
+//!   about 22.5 µs. Host copy: 425–550 ns.
 //!
-//! A second reason decides the design, and it is not about a kernel bug: **a
-//! control loop must not block on a lock whose critical section it cannot
-//! bound.** A 10 ms period that can become "however long the display task takes
-//! to finish a frame" is not a 10 ms period, and the safety paths (S1-S5) run
-//! inside it. The rule is **not** "no mutex on the control task" -- the control
-//! task takes three, two of them every tick, and each is measured below.
+//! Equal-priority time slicing can still add one 10 ms scheduler tick on collision.
+//! The loop subtracts elapsed work from its sleep to avoid cumulative drift.
+//! Moving history into an interrupt-masked cell or double buffer would move the
+//! large copy onto control without improving this budget.
 //!
-//! So the hand-off is a **critical section**: one ~200-byte copy under
-//! `portENTER_CRITICAL`/`portEXIT_CRITICAL`, mutual exclusion with neither task
-//! ever *waiting* on the other.
-//!
-//! Two lock-free designs were tried first, both wrong, both kept here because they
-//! look right:
-//!
-//! * **Double buffer with an index** is "disjoint by construction" only until the
-//!   producer laps the consumer, which it does nine times per frame here: 10 ms
-//!   publishing divides 100 ms reading exactly.
-//! * **Seqlock** is lock-free but unsound in Rust: atomicity of *observation*,
-//!   not of *access*. The reader still reads a non-atomic location the writer may
-//!   be overwriting, and discarding the copy afterwards does not retroactively
-//!   define the read.
-//!
-//! Cost: one ~200-byte copy under interrupt masking, well under a microsecond
-//! against a 10 ms period. A frame is a snapshot by definition, and a display a
-//! few ms behind is what a 100 ms refresh means anyway.
-//!
-//! ## The rule
-//!
-//! **Do not block on a lock whose critical section is unbounded, and do not block
-//! on a lock a higher-priority task holds.** Two halves, both needed: the second
-//! is a number, the first is arithmetic.
-//!
-//! Priorities, because the second half is a lookup:
-//!
-//! | task | prio | where the number comes from |
-//! | --- | --- | --- |
-//! | lwIP `tcpip` | 18 | IDF's own default; not this firmware's to change |
-//! | scale sampler | 6 | [`cc_hal_esp32::scale::SAMPLER_PRIO`] |
-//! | **control** | **5** | [`cc_hal_esp32::task::CONTROL_PRIO`] |
-//! | **httpd** | **5** | `esp-idf-svc-0.53.0/src/http/server.rs:161` |
-//! | esp-mqtt | 4 | `cc-hal-esp32/src/mqtt.rs:142`, `MQTT_TASK_PRIO` (module-private) |
-//! | provisioning | 4 | [`cc_hal_esp32::task::PROVISION_PRIO`] |
-//! | display | 3 | [`cc_hal_esp32::task::DISPLAY_PRIO`] |
-//! | telnet | 2 | [`cc_hal_esp32::task::TELNET_PRIO`] |
-//!
-//! **httpd runs at the control task's priority and
-//! [`cc_hal_esp32::web::configuration`] cannot move it**: `esp-idf-svc`'s
-//! `Configuration` has no priority field, and its
-//! `From<&Configuration> for Newtype<httpd_config_t>` writes `task_priority: 5`
-//! as a literal.
-//!
-//! That settles the second half of the rule in httpd's favour: it is not a
-//! *higher*-priority holder, so none of the three locks below is a priority
-//! inversion. It also means priority inheritance is a no-op on them, so the wait
-//! is bounded by the holder's own critical section and nothing else. The only
-//! genuinely lower holder is provisioning, where inheritance boosts it to 5 and
-//! it releases immediately.
-//!
-//! ## The three locks on the control task, measured
-//!
-//! Scaled to a 240 MHz Xtensa at **8x pessimism**. No figure here is a device
-//! measurement -- that needs the machine flashed and a console attended -- and the scaling
-//! is a deliberately generous multiple of the host/core-clock ratio, so each figure is an
-//! upper bound rather than a guess dressed as a number.
-//!
-//! ### [`cc_hal_esp32::task::ParameterHandoff::take_one`] -- every tick
-//!
-//! Guards a `VecDeque` of 4 `Vec` fat pointers; the key/value pairs are on the
-//! heap, outside the lock. Control side one `pop_front` of 12 B, **<= 0.04 µs**.
-//! Holder side one `len` and one `push_back`, **<= 0.5 µs**.
-//!
-//! ### [`crate::network::Handoff::take`] -- every tick
-//!
-//! Guards an `Option<Staged>`; both `String` bodies are on the heap, outside the
-//! lock. Control side one `Option::take` of at most 28 B, **<= 0.1 µs**. Holder
-//! side one `is_some` and a 28 B store.
-//!
-//! ### [`cc_hal_esp32::web::Shared::push_history`] -- once a second
-//!
-//! Guards a `Box<History>`, a 600-point ring of 12 B points. Control side a
-//! single 12 B point store, **< 0.01 µs**. Holder side the 7,200 B copy-out,
-//! bounded below.
-//!
-//! The first two are the per-tick pair and the reason this section exists: taken
-//! 100 times a second, each under a microsecond on **both** sides, so neither can
-//! be what makes the loop miss its period.
-//!
-//! The third has a genuinely large critical section but runs **once a second, not once
-//! per tick**: inside the `SSE_INTERVAL_MS` gate (1000 ms, `main.rs:SSE_INTERVAL_MS`),
-//! which is the same gate the SSE broadcast uses. It is not a per-tick lock; it is one in
-//! a hundred.
-//!
-//! ## The 7,200 B copy, the largest number here
-//!
-//! `history_json` (`cc-hal-esp32/src/web.rs`) holds the ring lock across a
-//! 7,200-byte copy-out: 225 cold 32-byte DRAM lines. At a pessimistic 100 ns per
-//! uncached line on this part that is **<= 22 µs** -- 0.2% of one tick, once a
-//! second, and only while a browser is actually on `/api/history`.
-//!
-//! The host measurement of that same loop is **425-550 ns** (`size_of` on the
-//! guarded types: `Point` 12 B, `History` 7,224 B). The 40x gap is the DRAM, and
-//! it is why the copy is written out rather than dismissed: on this chip the
-//! guarded value is real memory, not a register.
-//!
-//! ## Worst case, which is none of the above
-//!
-//! `configUSE_TIME_SLICING` is 1 and `CONFIG_FREERTOS_HZ` is 100, so an
-//! **equal**-priority task switch happens on the 10 ms tick. A control tick that
-//! collides with an httpd critical section waits for the remainder of that
-//! section and then for httpd to block: bounded by one 10 ms tick, not by the
-//! section.
-//!
-//! Reached only on collision, and the probability is hold time over the 10 ms
-//! period: **~5e-5 per tick** for the parameter mailbox, **~1e-5..1e-4 per
-//! second** for the history ring. The loop absorbs a lost tick rather than
-//! drifting, because step 9 sleeps `CONTROL_PERIOD_MS.saturating_sub(elapsed)`: a
-//! slow tick shortens the next one instead of adding to it.
-//!
-//! ## What this rules out
-//!
-//! Ruled out by the numbers above: a `Cell` under `interrupt::free` for the
-//! history ring, and a double buffer published by pointer swap. The ring is
-//! appended once a second and read by a task that must be able to ask at any
-//! moment, so a pointer swap buys a second lock (the swap) to replace a section
-//! already bounded at <= 22 µs -- and it would put the 7,200 B on the *control*
-//! side, the direction the numbers say is the expensive one. Deletion over
-//! addition: the mutex stays.
-//!
-//! ## Not established, and not claimed
-//!
-//! That a contended `std::sync::Mutex` *between these tasks* can trip the
-//! `xTaskRemoveFromEventList` assert. The assert reproduced against
-//! `interrupt::free` from a second task ([`crate::sensor_task`]) and against
-//! three blocking wake primitives in the same experiment; reaching it through a
-//! plain contended mutex between these two was not measured, because measuring
-//! means flashing. What is measured: these locks have run contended on the device
-//! through every 10 ms-loop build.
-//!
-//! ## Deliberately not here
-//!
-//! * **The configuration.** One owner, the control task, because the store is
-//!   one owner and a 2 KB blob write must not land on whichever task the web
-//!   server happened to be serving. The display's view travels with each frame.
-//! * **The machine.** The reducer is a value in the control task; every other
-//!   consumer sees the `cc_hal_esp32::web::Telemetry` snapshot it publishes.
-//! * **The actuators.** Only the control task may move a pin, and it applies
-//!   effects in the same tick that produced them.
+//! The kernel assert in [`crate::sensor_task`] was reproduced with cross-task
+//! critical sections and blocking wake primitives, not isolated to these contended
+//! mutexes. Keep that distinction when evaluating another synchronisation scheme.
 
 #![allow(
     unsafe_code,

@@ -1,34 +1,7 @@
-//! The exhaustive `state x event` table: every pair must reach a *named* outcome.
+//! Classify every state/event pair with an exhaustive, named outcome.
 //!
-//! # What "exhaustive" means here
-//!
-//! **18 states x 46 events = 828 pairs.** Every one is reduced, and every one must reach a *named*
-//! outcome. Four failure modes are what this file is built to catch:
-//!
-//! 1. **A panic.** Any `unwrap`, `expect`, arithmetic overflow, slice index or
-//!    `unreachable!()` that a state/event pair can reach fails the test. The
-//!    table is the only thing standing between those and the control loop.
-//! 2. **A loop.** The reducer is straight-line code, but the table also drives
-//!    each pair for 200 consecutive ticks and asserts the machine reaches a
-//!    fixed point or a cycle, so a "re-arm the flag every loop" bug shows up as a
-//!    non-converging state rather than as a hang.
-//! 3. **An unjustified `unreachable!()`.** The crate contains no `unreachable!`,
-//!    no `panic!` and no `unwrap` outside `#[cfg(test)]`; [`no_unreachable_outside_tests`]
-//!    asserts that by source inspection, because "total" is only meaningful if
-//!    it is total by construction.
-//! 4. **An effect list that overflows.** [`Effects`] is a fixed-capacity
-//!    `heapless::Vec`, and a full list drops rather than grows.
-//!    [`ceiling_is_never_reached`] drives every pair below and asserts nothing
-//!    was dropped — this file is the only place that can prove
-//!    [`MAX_EFFECTS_PER_EVENT`] is a real bound rather than a hopeful one.
-//!
-//! # What a "named outcome" is
-//!
-//! [`Outcome`] is a name, not a value: it is the classification this table
-//! asserts, and every arm is a documented rule rather than a catch-all. A pair
-//! that reached "something else" would have no arm to fall into, and the
-//! `match` has no wildcard — so adding an event without deciding what it does in
-//! every state is a compile error here too.
+//! Repeated ticks check convergence; source inspection rejects panic shortcuts.
+//! [`ceiling_is_never_reached`] checks the fixed effect capacity without hiding drops.
 
 mod common;
 

@@ -1,14 +1,6 @@
-//! Display layout: the framebuffer and `DrawTarget`, the profont and fub glyph
-//! atlases converted from U8g2, the layout helpers, and the display templates.
+//! Allocation-free rendering into the panel-format framebuffer.
 //!
-//! # Rules
-//!
-//! * Portable and `no_std`: it renders into a byte buffer, so the whole thing is
-//!   golden-image testable on the host with no hardware.
-//! * The AGENTS.md OLED rules apply here as assertions, not as conventions:
-//!   everything fits 128x64, no rows overlap, counting fields use a fixed pixel
-//!   width so digits do not shift, a bar and its label share a vertical
-//!   midline, and bottom rows are anchored from `DISPLAY_HEIGHT`.
+//! Host checks cover pixels and layout. Follow AG-DISPLAY-1 through AG-DISPLAY-6.
 
 #![no_std]
 

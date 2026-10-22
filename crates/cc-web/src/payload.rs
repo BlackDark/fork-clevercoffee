@@ -1,10 +1,4 @@
-//! Every `*_json` renderer the REST surface emits, plus [`mime_for`].
-//!
-//! These are the functions that were reachable only by flashing a board: pure
-//! `String` builders over a [`Telemetry`] and a [`cc_config::Config`], held in a
-//! file that named `esp_idf_svc`. Two of them read a heap gauge and now take it
-//! as a parameter — see the crate root for why, and for the note that the bytes
-//! they emit are unchanged.
+//! REST JSON renderers over telemetry and configuration; heap gauges are inputs.
 
 use alloc::format;
 use alloc::string::{String, ToString};

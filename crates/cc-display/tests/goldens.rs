@@ -1,39 +1,8 @@
-//! Golden images for the six templates and every shared stage.
+//! Check committed pixels and expected rendering stage together.
 //!
-//! # What a golden catches
-//!
-//! Each template is driven directly, with nothing in between, and the frame is
-//! compared against a committed P4 image. That covers template *logic*: a
-//! template that draws its temperature row at y=41 instead of y=14 renders a
-//! wrong screen, and the image changes.
-//!
-//! A hand-written expectation would not do the same job. Writing one means
-//! reading the intended layout and transcribing it, and a misreading is then
-//! reproduced on both sides. A golden of the *actual* Rust template records what
-//! the code does.
-//!
-//! The trade is that the goldens prove stability, not correctness of the layout:
-//! they hold every template and every shared stage to their committed images,
-//! not to an external reference.
-//!
-//! # Each case carries the stage it expects
-//!
-//! A golden proves the pixels; the expected [`Stage`] proves *which* code path
-//! produced them. The two fail differently. A wrong pixel is a layout bug. A
-//! wrong stage is a policy bug in the ADR-0001 order -- Modern falling through
-//! to the offline splash, the OTA screen ceasing to win -- and it can render a
-//! perfectly plausible image of the wrong screen. So both are checked, from one
-//! list, so a case cannot assert an image for a stage it did not reach.
-//!
-//! # Regenerating
-//!
-//! ```text
-//! just snapshot-display
-//! ```
-//!
-//! **Read the diff before committing a regenerated golden.** Every pixel is
-//! supposed to stay put; a change is either a deliberate layout fix or a bug,
-//! and the image is the only way to tell.
+//! Goldens prove stability, not layout correctness; a plausible image can still
+//! come from the wrong policy stage. Regenerate with `just snapshot-display`
+//! and review every changed image before committing.
 
 mod support;
 

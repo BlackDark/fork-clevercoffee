@@ -1,20 +1,7 @@
-//! Shared fixtures for the reducer's suites.
+//! Reducer fixtures with an explicit clock and a machine booted into `PID_NORMAL`.
 //!
-//! [`Harness`] is a machine, a configuration and a clock in one value. It boots into
-//! `PID_NORMAL` with the PID enabled and every operator switch enabled, so a suite starts from
-//! a working machine rather than from `INIT`.
-//!
-//! # Why the effect list is the assertion target
-//!
-//! The reducer says what should reach the hardware by returning [`Effect`] values, so a test
-//! asserts on that list. Order is part of the contract: a spy that only counts calls cannot
-//! tell `EnablePump` from `EnablePump` followed by `DisablePump`, and several cases need to.
-//!
-//! # Time
-//!
-//! The reducer never reads a clock -- a reading arrives in `Event::Tick` -- so the fixture's
-//! clock is a plain counter that [`Harness::elapse`] advances. A test that drives the state
-//! hooks directly moves it with [`Harness::advance_clock`].
+//! Assert ordered effects: counting calls cannot distinguish a pulse from a
+//! steady output. `elapse` sends ticks; `advance_clock` only moves fixture time.
 
 #![allow(dead_code)] // Each suite uses a different subset of the fixture.
 

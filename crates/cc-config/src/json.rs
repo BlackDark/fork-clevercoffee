@@ -1,51 +1,12 @@
-//! JSON import and export.
+//! Nested JSON import and export; enums use integer discriminants.
 //!
-//! # Format
+//! `docs/example_config.json` defines the shape. Flat dotted keys are rejected.
+//! Empty, malformed, oversized, non-object, or wholly unknown inputs are rejected.
+//! Any invalid known value rejects the whole import; unknown keys are ignored for
+//! forward compatibility.
 //!
-//! Nested objects, dotted keys split into the same nesting:
-//!
-//! ```json
-//! { "pid": { "regular": { "kp": 62.0 } }, "safety": { "emergency_temp": 150.0 } }
-//! ```
-//!
-//! That is the shape `docs/example_config.json` carries and the shape the import
-//! test parses. Enumerations are plain integers, because the wire format for an
-//! enumeration is its discriminant — see [`crate::IntEnum`].
-//!
-//! # The rejection rules
-//!
-//! Each rule exists because the alternative silently imports a configuration
-//! nobody chose:
-//!
-//! * **An empty body, or one with no known key, is rejected.** Either one mentions
-//!   nothing, so "success" would mean "nothing happened".
-//! * **An unparseable body is rejected.** The operator gets the parse error rather
-//!   than a success.
-//! * **An oversized body is rejected.** See [`MAX_CONFIG_BYTES`].
-//! * **A non-object root is rejected.** A bare scalar cannot carry a key to set.
-//! * **Flat dotted keys are rejected.** `{"pid.regular.kp": 62}` is a second
-//!   spelling of the same value, and two spellings means a format with two
-//!   dialects.
-//!
-//! # Two deliberate strengthenings
-//!
-//! 1. **A bad value for a known key rejects the whole import.** A warn-and-continue
-//!    import answers `200` as long as *one* parameter imported, so an operator
-//!    uploading a configuration with an out-of-range `safety.emergency_temp`
-//!    believes it took effect and runs on the old value. Here the import is
-//!    all-or-nothing and the offending keys are named. The route's own error
-//!    message already claims to reject invalid values, so this makes the code match
-//!    the message.
-//! 2. **The size limit is explicit and stated.** `serde_json` has no pool that can
-//!    overflow, so the bound has to be a decision rather than a capacity fact.
-//!    [`MAX_CONFIG_BYTES`] is set from what the store can hold: `docs/example_config.json`
-//!    is 1814 B in compact JSON and the `nvs` partition is 20 KB, so 8 KB leaves
-//!    room for the keys around it and for years of added parameters.
-//!
-//! Unknown keys are **ignored**. Forward compatibility is worth more here than
-//! strictness: a configuration exported by a newer firmware must still import,
-//! and the keys this firmware does not know are each range-checked on the way in
-//! by the schema of the firmware that does know them.
+//! [`MAX_CONFIG_BYTES`] bounds the input within the NVS storage budget. See
+//! [`crate::IntEnum`] for enum encoding.
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;

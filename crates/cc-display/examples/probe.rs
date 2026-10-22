@@ -1,8 +1,5 @@
-//! Scratch probe: dump a small region of a framebuffer as ASCII art.
-//!
-//! Not a test. `cargo run --example probe -p cc-display -- <op>` is the first thing to
-//! reach for when a primitive's output is in doubt, and it is what produced the panic
-//! transcripts quoted in `tests/text_safety.rs` and in `font::glyph_header`.
+//! Inspect drawing primitives as ASCII with
+//! `cargo run --example probe -p cc-display -- <op>`. This is a manual probe.
 use cc_display::display::{Display, Framebuffer};
 use cc_display::font;
 

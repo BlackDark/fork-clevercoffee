@@ -1,43 +1,11 @@
-//! The parameter registry: every key the firmware persists, with its type,
-//! default and validation range.
+//! Parameter registry for persistence, validation, import, and export.
 //!
-//! # Why the keys are what they are
+//! Dotted keys are part of the operator-facing API. Persistence is separate from
+//! MQTT editability: both emergency-stop thresholds must remain registered.
 //!
-//! The dotted names are the ones this product has always used, kept verbatim.
-//! They are already in the operator's documentation, and inventing a `cc.` prefix
-//! would buy nothing and cost every operator who has memorised a key. The cost of
-//! keeping them is that an NVS written by another firmware is not readable, and
-//! that is already accepted.
-//!
-//! # The count, and why it is 98
-//!
-//! Two of the keys — `safety.emergency_temp` and `safety.emergency_hysteresis` —
-//! are read by the emergency-stop path and are **not** part of the MQTT-editable
-//! set. That matters, because persistence and editability are different questions:
-//! a parameter that is not in this registry is not written to NVS, not exported and
-//! not imported, so it silently resets to its compiled-in default on every reboot.
-//! An operator who lowers the emergency threshold to 130 °C and gets 150 °C back
-//! after the next power cycle, with no message, is exactly that failure. Both keys
-//! are registered here, both are fields of [`crate::Config`], and
-//! `schema_covers_every_registered_key` asserts the count.
-//!
-//! # Two quirks preserved deliberately
-//!
-//! * **`steam.setpoint` and `safety.emergency_temp` both claim order 203** in
-//!   section 1. It is harmless, and it is preserved because the ordering is
-//!   observable: `/api/parameters` emits in schema order, and re-sorting would move
-//!   entries in a response the UI renders.
-//! * **Text parameters have no per-field length limit.** [`crate::json::MAX_TEXT_LEN`]
-//!   is a storage bound, not a validation rule, and it is loose on purpose: the
-//!   failure worth preventing is one pathological value filling a 20 KB NVS
-//!   partition, and a tighter per-field limit would reject configurations without
-//!   preventing anything more than this already does.
-//!
-//! # A note on `ParamValue::Text`
-//!
-//! The defaults are `&'static str` because every one of them is a string literal.
-//! Values arriving from JSON borrow for the duration of the validation, hence the
-//! lifetime parameter.
+//! `steam.setpoint` and `safety.emergency_temp` share order 203; preserve response
+//! ordering. Text has one storage bound, [`crate::json::MAX_TEXT_LEN`], rather than
+//! per-field limits. Text defaults are static; imported values borrow during validation.
 
 use alloc::borrow::ToOwned;
 
@@ -1951,28 +1919,9 @@ mod tests {
         assert_eq!(spec.leaf(), "i_max");
     }
 
-    /// Every getter reads the field its own `default` was taken from.
-    ///
-    /// **This is the test that was missing, and the reason the collapse needed
-    /// one.** Two facts about a parameter were checked and a third was not:
-    ///
-    /// * `every_schema_default_matches_the_config_default` compares
-    ///   `Config::default()` against the **spec's** `default`, so it is
-    ///   satisfied by two wrong values that agree with each other.
-    /// * `every_schema_key_has_a_live_value` checks a key resolves to *some*
-    ///   value.
-    /// * Nothing checked that `ParamSpec::get` reads the field the spec is
-    ///   *about*.
-    ///
-    /// So a getter pointed at a neighbouring field — `pid.regular.kp`'s reading
-    /// `pid.regular.tn` — passed every test in the crate and put the wrong
-    /// number in `/api/parameters`.
-    ///
-    /// Cheap, and not redundant: it walks the *accessor* rather than the table,
-    /// so it is the one place the two halves of the collapsed table are held to
-    /// each other. It does not subsume
-    /// `every_schema_key_round_trips_through_set_and_live_value`, which proves
-    /// the getter tracks a *write* rather than the initial value.
+    /// Check each getter against its declared field, not just matching defaults.
+    /// A getter reading a neighboring field can pass both default and existence checks.
+    /// The separate write round-trip test checks that getters also follow updates.
     #[test]
     fn every_getter_reads_the_field_its_own_default_names() {
         let config = Config::default();

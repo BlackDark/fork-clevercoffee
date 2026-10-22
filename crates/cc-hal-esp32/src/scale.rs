@@ -1,50 +1,11 @@
-//! The HX711, on two data pins and one shared clock, sampled on its own task.
+//! HX711 GPIO transport and dedicated sampler.
 //!
-//! # What this file is
-//!
-//! The device half of [`cc_protocol::sensor::hx711`]. Every decision — how many
-//! clocks, which bit is the sign, what the tare subtracts, when the cell counts
-//! as absent — is in the domain crate and host-tested there. What is left here
-//! is three pins, a delay, a queue and a task.
-//!
-//! # 🔴 Why the sampling is a task and not a call from the control tick
-//!
-//! One 24-bit read is 25 clock writes plus 25 pin reads, and the HX711 needs
-//! the *whole* sequence uninterruptible: the datasheet (§5.2) says an
-//! interrupt longer than 60 µs while SCK is high can drive the amplifier into
-//! power-down, so [`GpioHx711::in_critical_section`] masks interrupts for the
-//! duration.
-//!
-//! So the cost of a read is not the register accesses — it is that the CPU
-//! cannot do anything else for the duration. Doing that inside the 10 ms
-//! control tick means the tick's worst case grows by a whole read, for a
-//! sensor that is **optional**: `hardware.sensors.scale.enabled` defaults to
-//! `false`. A machine with no scale must not pay for one, and a machine with
-//! one must not have its control loop perturbed by it. A dedicated task at a
-//! priority above the control task's makes the perturbation bounded and
-//! measurable rather than structural.
-//!
-//! The task runs at [`SAMPLER_PRIO`], above the control task's 5 and above
-//! `esp-mqtt`'s 4, so a network task cannot preempt the control loop.
-//!
-//! # Nothing here waits without a deadline
-//!
-//! [`GpioHx711::data_high`] is a *query*. The sampler polls it, and
-//! [`cc_protocol::sensor::hx711::SignalWatchdog`] turns "the line has been high
-//! for longer than one conversion" into a fault. A shorted or absent data line
-//! therefore produces a fault within
-//! [`cc_protocol::sensor::hx711::SIGNAL_TIMEOUT`] and the sampler keeps
-//! running, which is the acceptance criterion.
-//!
-//! # The clock is shared, the data lines are not
-//!
-//! GPIO33 is the clock, shared by both cells. GPIO32 and GPIO25 are the two
-//! data lines ([pins.md](../../../docs/hardware/pins.md)). A shared SCK
-//! cannot clock two amplifiers' data lines independently, so the sampler tells
-//! the bus which cell is next ([`GpioHx711::select`]) and the domain's
-//! [`Scale`](cc_protocol::sensor::hx711::Scale) alternates. That costs each cell
-//! half the sample rate, which is inherent to the wiring and is documented
-//! there.
+//! A full read must mask interrupts: SCK high for over 60 µs powers the amplifier
+//! down (datasheet §5.2). Keep that read outside the 10 ms control tick; the optional
+//! sampler runs at [`SAMPLER_PRIO`].
+//! Ready polling is bounded by [`cc_protocol::sensor::hx711::SignalWatchdog`].
+//! Both cells share GPIO33 for SCK and use separate data lines (32 and 25), so
+//! alternating cells halves each sample rate; see [pins.md](../../../docs/hardware/pins.md).
 
 use alloc::format;
 use alloc::string::{String, ToString};

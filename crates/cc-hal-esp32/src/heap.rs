@@ -1,23 +1,8 @@
-//! The heap gauges, and the free-heap floor ADR-0002 set.
+//! Heap gauges for the limits in ADR-0002.
 //!
-//! # ADR-0002, and what it actually decided
-//!
-//! `docs/adr/0002-wifi-logging-ota-memory-architecture.md` records a reproducible
-//! `abort()`: a user opened the web UI, the browser fired 6–10 parallel API
-//! requests within two seconds of boot, and `/api/parameters?filter=all` — 19 KB
-//! of JSON — was built three times over. Seven decisions followed; the two this
-//! crate implements are:
-//!
-//! * **Decision 2:** stream large JSON, never build a `String` intermediate.
-//!   That is [`crate::web`]'s [`respond_large`](crate::web).
-//! * **Decision 5:** under heap pressure the log stream **sheds rather than
-//!   closes**. Writing stops below the floor, the telnet connection stays open,
-//!   and writing resumes when the heap recovers. An active close is refused: it
-//!   surfaces in the operator's terminal as "Connection reset by peer", which
-//!   looks like a network fault rather than the memory fault it is.
-//!
-//! The shed is the part that matters: **under heap pressure the machine sheds,
-//! and it does not crash.**
+//! See `docs/adr/0002-wifi-logging-ota-memory-architecture.md`: stream large JSON
+//! without intermediate strings, and shed telnet writes under pressure while
+//! keeping the connection open. Active close would look like a network failure.
 
 /// The free-heap floor below which the Wi-Fi log stream stops writing.
 ///

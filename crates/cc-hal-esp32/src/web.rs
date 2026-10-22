@@ -1,88 +1,19 @@
-//! The HTTP server: the `/api/*` handlers, `/`, `/ui`, and the SSE stream.
+//! ESP-IDF routes, chunked responses, shared snapshots, and SSE transport.
 //!
-//! # What is registered
+//! [`routes`] is the registration table; [`cc_web`] owns portable payloads and parsing.
+//! Handlers read snapshots and queue commands rather than accessing control state.
 //!
-//! 20 `/api/*` routes, `/api/config/download`, the four OTA routes, the `/`
-//! redirect, `/ui`, the embedded SPA bundle, and one event stream on `/events`.
-//! [`routes`] is the table, and `every_api_route_is_registered` holds it to the
-//! frontend's own `API_ROUTES`.
+//! Follow [ADR-0002](../../../docs/adr/0002-wifi-logging-ota-memory-architecture.md):
+//! stream large responses without intermediate strings, and let telnet shed under
+//! heap pressure. Parallel UI requests otherwise multiply large JSON allocations.
 //!
-//! # What moved out, and why
+//! httpd has one task. An SSE handler must set headers, detach through
+//! `httpd_req_async_handler_begin`, and return; [`crate::web_async`] lets the
+//! broadcaster write separately. Keeping `/events` open on httpd caused 55 of 60
+//! API requests to time out. Browser `EventSource` supports chunked transfer.
 //!
-//! The half that does not touch ESP-IDF — `Telemetry`, `Command`, `Auth`, every
-//! `*_json` renderer but [`history_json`], `classify_parameters` and the
-//! request-parsing helpers — is in [`cc_web`](../cc_web/index.html), and its
-//! tests run in `CC_RUST_TOOLCHAIN=stable just test` instead of on a board. This
-//! file names `esp_idf_svc`, and `just test` lists only the portable crates, so
-//! anything left here is unreachable to the host suite.
-//!
-//! What stayed is the part that needs ESP-IDF: route registration, the chunked
-//! writers, the broadcaster, the httpd `Configuration`, and [`Snapshot`] — whose
-//! `unsafe` argument is `interrupt::free`, so it cannot move. `cc_web`'s crate
-//! root states the boundary.
-//!
-//! # ⚠ ADR-0002 is load-bearing, and both halves of it are here
-//!
-//! [`docs/adr/0002`](../../../docs/adr/0002-wifi-logging-ota-memory-architecture.md)
-//! records a reproducible `abort()` from failed `operator new`: a user opened the
-//! web UI, the browser fired 6–10 parallel API requests within two seconds of
-//! boot, and `/api/parameters?filter=all` — 19 KB of JSON — was serialised into
-//! a `JsonDocument`, copied into a `String`, and copied *again* by the response
-//! write. Three ~19 KB allocations. The two decisions that fixed it are both in
-//! this file:
-//!
-//! * **Decision 2, `AsyncJsonResponse`:** serialise into one buffer and write it
-//!   in chunks, never build a `String` intermediate for a large response. That
-//!   is [`EspHttpConnection::write`] — `httpd_resp_send_chunk` — which streams.
-//!   See [`respond`], which every JSON handler goes through, and
-//!   [`respond_large`], which is the one that matters.
-//! * **Decision 5, the heap-aware shed:** the telnet log stream stops writing
-//!   below 30 KB of free heap. See [`crate::telnet`]. The ADR says a **soft**
-//!   shed — the connection stays open and resumes — and rejects an active close
-//!   because it surfaces as "Connection reset by peer" in the operator's
-//!   terminal, which looks like a network problem rather than the memory problem
-//!   it is.
-//!
-//! # SSE: the handler must return, because httpd is one task
-//!
-//! Chunked transfer-coding is not the difficulty: `EspHttpConnection::write` *is*
-//! `httpd_resp_send_chunk` (`esp-idf-svc` 0.53.0 `src/http/server.rs:1121-1135`).
-//! The difficulty is **whose task the write happens on**.
-//!
-//! ESP-IDF's httpd is a single task serving every route. `httpd_server_init`
-//! creates one thread and `httpd_thread` is `while (1) { httpd_server(hd); }`
-//! over one `select()`. `esp-idf-svc` adds no per-connection task and no async
-//! layer for HTTP. So a `/events` handler that loops while it streams is a web
-//! server that serves nobody.
-//!
-//! Measured on hardware, one browser tab with the stream open:
-//!
-//! | | 60 sequential `GET /api/parameters` |
-//! |---|---|
-//! | no stream connected | 60/60 `200`, 22–133 ms each |
-//! | one `/events` client | **55/60 timed out** at the client's 5 s limit; the 5 that got through took 6–7 s |
-//!
-//! So the handler sets the response headers, detaches the request with
-//! `httpd_req_async_handler_begin`, registers it in a bounded list and
-//! **returns**; a dedicated broadcaster task does every write. The seam is
-//! [`crate::web_async`] — the second `unsafe` in the workspace, and it documents
-//! each of its three calls.
-//!
-//! A browser's `EventSource` accepts `Transfer-Encoding: chunked`; the WHATWG
-//! concern in
-//! [espressif/esp-idf#14121](https://github.com/espressif/esp-idf/issues/14121)
-//! is about intermediaries that buffer, not about the browser.
-//!
-//! # What the handlers can see
-//!
-//! Every handler reads one [`Telemetry`] snapshot, republished by the control
-//! task into an `Arc`. The handlers therefore cannot actuate anything: a
-//! `POST /api/steam` sets a *request* that the control task picks up, which is
-//! the rule that no HTTP route reaches control state directly.
-//!
-//! One route answers `501` with an explicit reason — `/api/ota/url`, see
-//! `ota_upload_route`. A handler that returns a plausible-looking zero for a
-//! value this firmware cannot read is a lie that costs a support call.
+//! `/api/ota/url` returns 501 with a reason; unsupported readings must not return
+//! plausible placeholder values.
 
 // The `unsafe` in this module is the lock-free `Cell` below: one writer,
 // sequence-checked readers. The reasoning is on the type and at every access; the
@@ -214,59 +145,12 @@ pub const MAX_URI_HANDLERS: usize = 40;
 /// See [`MAX_URI_HANDLERS`].
 pub const MAX_OPEN_SOCKETS: usize = 5;
 
-/// A single-writer value that many tasks may read, **with no lock and no
-/// `unsafe` in the access path**.
+/// Snapshot shared through short interrupt-masked copies, without blocking queues.
 ///
-/// # Why this exists
-///
-/// `Shared::telemetry` was a `std::sync::Mutex` — a `pthread` mutex, so a
-/// `FreeRTOS` one — taken **twice per 10 ms control tick** and read by the httpd
-/// and display tasks. Every cross-task *blocking* primitive on this build asserts
-/// the kernel, so the design would have contradicted its own rule the first time
-/// a control tick and an HTTP read overlapped.
-///
-/// # 🔴 Why this is NOT a seqlock
-///
-/// A seqlock stamps a sequence odd, writes, stamps it even, and has readers
-/// retry. That gives *atomicity of observation*, not of access: the reader still
-/// dereferences a non-atomic location while the writer may be overwriting it, and
-/// the sequence check afterwards only decides whether to *keep* the value it
-/// already read. Under Rust's memory model that concurrent non-atomic read/write
-/// is undefined behaviour whether or not the result is discarded — and with a
-/// heap-owning payload it is not academic:
-///
-/// * a `String` field reassigned every 10 ms **allocates and then drops the
-///   previous buffer**, i.e. `free()`s the memory the httpd task may be
-///   `memcpy`-ing from inside its `clone()`. A torn read yields a
-///   `{ptr, len, cap}` triple from two generations — a live use-after-free at
-///   100 Hz, reachable from any HTTP request, on the task that also serves the
-///   UI.
-///
-/// Making the payload `Copy` would have downgraded that to "garbage numbers",
-/// which is better and still UB.
-///
-/// # What replaces it
-///
-/// **Mutual exclusion by interrupt masking**, which is what `FreeRTOS` itself
-/// provides for exactly this shape of problem. Every read and every write goes
-/// through [`esp_idf_hal::interrupt::free`], which is
-/// `portENTER_CRITICAL`/`portEXIT_CRITICAL`:
-///
-/// * It is not a *blocking* primitive. Nothing is enqueued on a semaphore's
-///   event list, so the `xTaskRemoveFromEventList` assert is unreachable.
-/// * The section is one struct copy — a few dozen bytes — so it is over in
-///   about a microsecond, against a 10 ms control period.
-/// * A control loop therefore never *waits* on a reader. It waits at most for
-///   the interrupt latency of a memcpy.
-///
-/// The result is that the data race is gone **by construction** rather than by
-/// detection, and the only `unsafe` left in the whole type is the one
-/// `Sync`/`Send` impl below — whose justification is now checkable at the call
-/// site instead of resting on a promise about retry loops.
-///
-/// Note the contrast with [`crate::task`]'s `std::sync::Mutex` over the
-/// history ring and the parameter blob: those are the *blocking* primitives,
-/// they are off the control loop's critical path, and they are untouched.
+/// A seqlock is unsound for non-atomic Rust payloads even when torn reads are
+/// discarded; owned strings can additionally be freed during a reader's clone.
+/// Protect the entire read and write with `interrupt::free`. Keep payload clones
+/// bounded and nonblocking; the local `Sync`/`Send` argument states the conditions.
 pub struct Snapshot<T> {
     // `core::cell::Cell`, deliberately: it is `!Sync`, which is what makes the
     // hand-written `Sync` below an honest statement of the invariant rather
@@ -319,26 +203,10 @@ impl<T: Clone + Default> Snapshot<T> {
         interrupt::free(|| self.value.set(value));
     }
 
-    /// The current value.
+    /// Clone the current value without consuming it.
     ///
-    /// This is infallible where a retry loop's `get` returned `Option<T>`: there
-    /// is no "write in flight" state to fail to observe, because a reader either
-    /// gets the critical section before the writer or after it. Every caller
-    /// therefore loses its `unwrap_or_default()`.
-    ///
-    /// **A read, not a consume.** A move-and-reset would leave `T::default()`
-    /// behind, so every read would destroy the value it returned. Two
-    /// `/api/status` polls inside one 10 ms control period is ordinary UI
-    /// behaviour, and the second would report `machineState: 0`, 0.00 °C and
-    /// `pidEnabled: false` for a live machine. [`network::publish_radio`]'s read
-    /// half would republish a machine-field-less snapshot for up to a second.
-    ///
-    /// `Telemetry` is `Clone` but not `Copy` -- it carries a
-    /// [`heapless::String<15>`] in [`Telemetry::ip`] -- so the copy is a clone,
-    /// not a `memcpy`. Taking the value out and putting it back inside the
-    /// **same** critical section is what makes this a read: the writer still
-    /// cannot observe a moved-from slot, because it cannot get the section
-    /// either.
+    /// Take, clone, and restore inside one critical section. Leaving defaults behind
+    /// would make a second API poll within one control period report a dead machine.
     #[must_use]
     pub fn get(&self) -> T {
         interrupt::free(|| {
@@ -2211,42 +2079,12 @@ fn register_flag(
     })
 }
 
-/// Register a `POST` handler for a route that is a **toggle**.
+/// Toggle route metadata kept together to prevent mismatched command/value pairs.
 ///
-/// `/api/pid`, `/api/steam` and `/api/backflush` read no field. They compute
-/// `!current` from live machine state and answer with the new value. A bare
-/// `POST` is what the React UI sends (`useMachineToggles.ts:22,31,40` — no body,
-/// no query), so a bare `POST` has to work, and it has to *toggle*.
-///
-/// The explicit forms still work, because the human uses them and the
-/// integration checklist spells them `?on=0` / `?on=1`: `value`/`on` in the query
-/// or the body wins, and is passed through as [`Command::SetPid`] and its
-/// siblings. Only the **absent** field selects the toggle.
-///
-/// `on_toggle` is the command to emit when no field was given. It carries no
-/// value, so the control task resolves `!current` against the machine it owns.
-/// Doing it here instead would mean toggling a possibly-stale snapshot, and two
-/// rapid clicks could both compute the same target.
-///
-/// # What it answers
-///
-/// `{"success": true, "<key>": <bool>}` — where `key` is the route's own name:
-/// `pidEnabled`, `steamMode`, `backflushOn`. `200` in all three cases.
-///
-/// A route that answers `202 {"accepted":true}` instead would break the UI: it
-/// reads `response.ok` (which `202` satisfies) but the human's own tooling
-/// expects the resulting value in the body.
-///
-/// # The struct
-///
-/// One toggle route: its URI, the key its response reports, and the three
-/// functions that turn a request into a command.
-///
-/// A struct rather than eight positional arguments because the three function
-/// pointers are meaningless without the URI and the key: pairing
-/// `Command::TogglePid` with `/api/steam`'s `current` is a mistake a reader
-/// cannot see and a compiler cannot catch, and naming them together makes the
-/// pairing the thing being written down.
+/// An absent field queues a toggle resolved against live control state, avoiding
+/// two rapid requests toggling the same stale snapshot. Explicit query/body
+/// `value` or `on` instead selects a set command. Return 200 with `success` and
+/// the route's resulting boolean key, as clients expect.
 #[derive(Clone, Copy)]
 struct Toggle {
     /// The route, `/api/…`.
@@ -2667,52 +2505,13 @@ fn ota_open_session(
     Ok(())
 }
 
-/// `POST /api/ota/{firmware,filesystem}` — stream one upload into flash.
+/// OTA upload ordering: snapshot admission, exclusive claim, acknowledged live
+/// admission/shutdown, multipart boundary, slot erase, then streaming chunks.
 ///
-/// The order of the six checks below is the whole safety and memory argument, so
-/// it is the order they are written in. Checks 1–3 live in
-/// [`ota_open_session`], which is where the safety argument is argued:
-///
-/// 1. **Admission.** [`cc_machine::ota::admit`] on the machine state from the
-///    published snapshot, as a cheap first filter. Refused while brewing or
-///    steaming, which is the strictly-safer difference.
-/// 2. **Claim.** One update at a time. A second concurrent upload gets a `409`.
-///    `409`.
-/// 3. **Safe hardware shutdown, waited for.** [`Command::OtaBegin`] to the
-///    **control task**, which re-reads the live machine state, re-runs
-///    admission against *that*, applies the shutdown as a separate applier pass
-///    after the tick's own effects, and answers
-///    [`crate::ota::Admission`](crate::ota::Admission). This is S8. A `Command`
-///    rather than a direct call because the httpd task does not own the
-///    actuators.
-/// 4. **Boundary.** No `Content-Type: multipart/form-data`, no part — the "No
-///    firmware file provided" arm.
-/// 5. **Open the slot.** [`crate::ota::Writer::begin`] — the first thing that
-///    erases anything.
-/// 6. **Stream.** One 4 KiB stack buffer, [`cc_web::ota::PartReader`] stripping
-///    the envelope, each run going straight to `esp_ota_write`. Nothing here
-///    allocates per chunk, so a 1.6 MB image costs the same heap as a 4 KB one.
-///
-/// # Why the shutdown is a Command, and why the route then **waits**
-///
-/// The httpd task cannot actuate anything, so the shutdown has to be a request
-/// the control task drains on its next tick. Between the request and that tick
-/// the machine is still fully live: it will honour a `brew_start` off MQTT, or a
-/// brew-switch press, and `BrewPreinfusion`'s `on_entry` opens the water valve.
-///
-/// That is why check 1 is **not** sufficient and this route does not pretend it
-/// is. Check 1 reads a telemetry snapshot up to one control period old and
-/// nothing latched what it established; the state can move into a refused one
-/// afterwards, and a state that has moved is exactly the state the flash must
-/// not see. So the decision that matters is re-taken where the state is live,
-/// and this route **refuses the flash** — a `409`, and no `esp_ota_begin` — when
-/// the control task says no. It does not merely drop the shutdown effect and
-/// carry on erasing.
-///
-/// The wait costs at most one 10 ms control period on the httpd task, bounded by
-/// [`COMMAND_ACK_TIMEOUT_MS`] through the existing [`Shared::wait_applied`] — the
-/// same ack every other command route uses. A timed-out wait reads as "no
-/// answer", which is the conservative direction: no answer, no flash.
+/// The snapshot is only a first filter. Wait for control to recheck its state
+/// after normal effects and apply shutdown separately. Refusal returns 409;
+/// timeout means no flash. Never call `esp_ota_begin` before that acknowledgement.
+/// Stream through a 4 KiB stack buffer without allocating per chunk.
 fn ota_upload_route(
     session: &crate::ota::Session,
     shared: &Arc<Shared>,

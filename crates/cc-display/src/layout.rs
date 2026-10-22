@@ -1,32 +1,10 @@
-//! Port of `include/clevercoffee/display/DisplayLayoutUtils.h`.
+//! Stable-width fields and independently centered bar/label pairs.
 //!
-//! These helpers are what the AGENTS.md OLED rules are *implemented* in.
-//! Every one of them encodes a rule that is otherwise easy to state and easy to
-//! violate:
+//! [`FixedBox`] reserves width from a named worst-case probe string so digit changes
+//! do not shift neighboring fields. Centering on screen remains a separate choice.
 //!
-//! * [`draw_str_right_in_box`] implements **stable numeric fields** (rule 3): a
-//!   value is drawn inside a box whose pixel width was reserved from a
-//!   *widest-case probe string*, so a digit count change moves the field's far
-//!   edge, not its near edge.
-//! * [`draw_str_centered_on_screen`] is the naive centring, kept separate so
-//!   that using it where a fixed-width box belongs is a visible choice.
-//! * [`layout_bar_label_cluster`] implements **paired-control midline
-//!   alignment** (rule 4): a bar and its value label are vertically centred
-//!   *independently within the same row*, so a 4 px bar and a 10 px label share
-//!   a midline instead of being bottom- or top-edge aligned.
-//!
-//! The helpers take a typed [`FixedBox`] instead of loose coordinates. Four
-//! positional `int`s and a `&str` is the shape the misalignment bugs came from: a
-//! box cannot be built with `box_x + box_w` the wrong way round, and
-//! `width_from_probe` is the only way to make one, which means the widest-case
-//! string is always named at the point of use.
-//!
-//! # Coordinates are pen-relative
-//!
-//! `drawStr(x, y, ...)` with `setFontPosTop()` puts `y` at the top of the glyph
-//! *bounding box*, not on a baseline. Every helper here passes `y` straight
-//! through, so callers must pass a top edge. See [`Font::ink_box`] for the
-//! measured box, which is what the fit assertions check.
+//! Coordinates use the glyph bounding-box top, not the baseline. Helpers pass y
+//! through unchanged; use [`Font::ink_box`] when checking fit. See AG-DISPLAY-3/4.
 
 use crate::display::{Display, DISPLAY_WIDTH};
 use crate::font::Font;

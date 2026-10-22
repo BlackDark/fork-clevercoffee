@@ -1,36 +1,7 @@
-//! Every screen, every template, checked without hardware.
+//! Check layout extremes, expected stages, and each display input's visual effect.
 //!
-//! # What this is for
-//!
-//! Three production defects in one day were all the same shape: **the firmware
-//! never filled in a field of [`DisplayInput`**, and nothing noticed until a
-//! human looked at the panel.
-//!
-//! | missing field | what the operator saw |
-//! | --- | --- |
-//! | `brew_timer` | a brew showed no timer at all, on any template |
-//! | `brew_active` | the same, because the FSM could not leave `Idle` |
-//! | `now_ms` | the post-brew screen never went back |
-//!
-//! Every one of them was invisible to the golden images, because a golden
-//! records what the *template* draws from the input it is given — and the input
-//! was wrong, not the drawing. So this file checks three things the goldens
-//! cannot:
-//!
-//! 1. **Fits.** Every screen, on every template, at the extremes of every input
-//!    that can affect layout, inks nothing outside `128x64` — with a margin, not
-//!    merely inside it.
-//! 2. **Is reachable.** Each case names the [`Stage`] it expects, so "this input
-//!    never gets as far as drawing a screen" fails rather than passing on an
-//!    empty frame.
-//! 3. **Every field changes the picture.** For each [`DisplayInput`] field, the
-//!    same screen is rendered with that field at its default and with a
-//!    distinctive value, and the two frames must differ. This is the check that
-//!    catches "the caller never sets this" on the *display* side; the firmware
-//!    side of the same question is answered by the `display: brew timer …`
-//!    transition log and by the numbers in `/api/status`.
-//!
-//! Run it with `just test`. There is no hardware anywhere in this file.
+//! Goldens alone cannot catch an input that never reaches a rendering stage.
+//! Firmware-side population of those inputs still needs device validation.
 
 use cc_display::display::{Display, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use cc_display::model::{BrewTimerState, Config, DisplayInput, Language, OtaKind, OtaStatus};
@@ -498,22 +469,9 @@ fn every_screen_fits_the_frame_on_every_template() {
     );
 }
 
-/// Two cases in **different** stages may never render the same pixels.
-///
-/// This is the check that would have caught the masking the first version of
-/// this matrix had. With the baseline mid-brew and the fullscreen timer on, 25
-/// of 28 cases rendered one identical frame on Standard, Scale and Upright — so
-/// the fit test above was measuring the brew timer 25 times and the Normal
-/// layout once, and the sheet looked like a rendering bug rather than a test
-/// bug.
-///
-/// It is deliberately about *stage*, not about pixels alone: two cases in the
-/// same stage may legitimately render the same frame when they differ only in a
-/// field that template does not draw (the Standard template has no weight row,
-/// so "baseline" and "a heavy scale" coincide there and differ on Scale). But
-/// two cases the matrix believes are on **different screens** producing
-/// byte-identical pixels means one of them is not drawing what its stage says,
-/// and that is always a defect.
+/// Different rendering stages must not produce identical pixels.
+/// Cases within one stage may coincide when a template omits their differing field.
+/// Cross-stage equality can hide a fullscreen screen masking the intended layout.
 #[test]
 fn different_stages_never_render_the_same_pixels() {
     for template in TEMPLATES {

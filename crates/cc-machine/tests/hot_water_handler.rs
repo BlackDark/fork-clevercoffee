@@ -1,14 +1,6 @@
-//! The hot-water switch: a pump, not a state.
+//! Hot water follows switch level within the current state; no `HOT_WATER` state.
 //!
-//! The switch sets no request flag and moves the machine to no state. It marks
-//! [`Machine::hot_water_activity`](cc_machine::Machine) -- which re-arms the standby countdown --
-//! and the pump is then driven by the update of the state the machine is already in, `PID_NORMAL`
-//! or `STEAM_RUNNING`. [`the_hot_water_switch_sets_no_request_flag`] pins that, because a request
-//! flag would have implied a `HOT_WATER` state that does not exist.
-//!
-//! Two consequences look surprising and are deliberate: pressing the switch in standby pushes the
-//! countdown out without waking the machine, and an empty tank refuses the pump through the
-//! handler's own permission check as well as through the safety verdict.
+//! Activity extends standby without waking it. An empty tank still denies the pump.
 
 mod common;
 

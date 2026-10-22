@@ -1,22 +1,8 @@
-//! The incremental, time-budgeted MQTT publish plan.
+//! Resumable MQTT publishing within a 10 ms per-call budget.
 //!
-//! Three collections of topics — parameters, numeric sensors, binary sensors —
-//! published **a few per call**, resuming where the last call left off, under a
-//! **10 ms budget per call**.
-//!
-//! That budget is a safety property rather than an optimisation. A machine with
-//! dozens of registered MQTT topics, each publish a TLS-less TCP round trip on a
-//! lossy link, can spend a second or more in one pass, and a second-long pass is
-//! a second in which the control loop does not run: the heater is not
-//! re-evaluated and the over-temperature debounce does not advance. Ten
-//! milliseconds is 2.5 % of the 400 ms sensor interval, which the control loop
-//! can absorb.
-//!
-//! A cursor is **three `usize` indices and a phase**, over three slices the
-//! caller owns, which makes the plan a host test. The invariants worth pinning
-//! are that resuming after a budget expiry picks up at exactly the item that was
-//! not published, and that a full pass visits every item exactly once and returns
-//! to the start.
+//! A full synchronous pass on a lossy link can stall heater and safety updates.
+//! The cursor resumes at the first unpublished topic across parameters, numeric
+//! sensors, and binary sensors; a completed pass returns to the start.
 
 /// The three collections, in publication order.
 ///

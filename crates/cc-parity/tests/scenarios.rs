@@ -1,13 +1,7 @@
-//! Every `dry_run` scenario in `scenarios/` runs in process and every
-//! assertion it declares holds.
+//! Run `dry_run` scenarios against the real control loop with recorded actuators.
 //!
-//! The driver wires the real reducer, the real safety monitor and the real applier, and
-//! hands them a recorder where the GPIO would be, so one scenario is an end-to-end check
-//! of the control loop with nothing energised. The file format is
-//! [`docs/scenarios.md`](../../docs/scenarios.md).
-//!
-//! `hardware` scenarios are refused by the driver, and nothing in this repository can
-//! drive a device, so they are skipped and counted rather than asserted on.
+//! Hardware scenarios are skipped and counted; this driver cannot reach a device.
+//! See [`docs/scenarios.md`](../../docs/scenarios.md).
 
 use std::path::{Path, PathBuf};
 

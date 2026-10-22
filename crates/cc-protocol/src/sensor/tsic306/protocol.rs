@@ -1,42 +1,11 @@
-//! `ZACwire` timings and frame layout, as the IST AG app note states them.
+//! `ZACwire` timing and frame layout from IST AG `ATTSic_E2.3.0.pdf` §1.1–§1.4.
 //!
-//! # Source, and what "as the app note states them" excludes
+//! The line idles high. Falling edges start 125 µs windows; low duty is 50% for
+//! start, 75% for one, and 25% for zero. Resynchronizing each bit avoids accumulated
+//! timing error. Decode measured strobes rather than learned rising-edge intervals.
 //!
-//! Everything in this file is transcribed from `ATTSic_E2.3.0.pdf` §1.1-§1.4
-//! and cross-read against the
-//! app note's own worked example, which is the only published ground truth for the
-//! frame's *content*.
-//!
-//! The tolerances in [`tolerances`] are the exception and are flagged as such: the
-//! app note publishes no clock-tolerance figure, so they are this port's choice,
-//! derived in that module's docs.
-//!
-//! # The waveform, in one paragraph
-//!
-//! The line idles **high**. Every bit begins with a **falling edge**, and the
-//! *width of the low pulse* carries the symbol as a duty cycle of the 125 µs
-//! bit window: 50 % for the start bit, 75 % for a `1`, 25 % for a `0`. Because
-//! every bit is re-synchronised by its own falling edge, timing error does not
-//! accumulate down the packet. This is the app note's model and it is what
-//! [`decode`](super::decode) implements.
-//!
-//! # Why the decoder is the app note's
-//!
-//! A different decoder for the same waveform is possible, and it works: interrupt on the **rising**
-//! edge, measure the **interval** between consecutive rising edges, and compare it against a
-//! learned threshold, with an "add half a threshold if the previous bit was 0" normalisation and a
-//! run of "the first 4 bits are always 0" skipped at the top of every frame. This module implements
-//! the app note's decoder instead because:
-//!
-//! * it is **specified**, so it can be reviewed against a document rather than against index
-//!   arithmetic;
-//! * it needs only a falling-edge reference and a measured strobe, so the decoder consumes a list
-//!   of edge timestamps and nothing else -- which is what makes it host-testable at all;
-//! * its one hard requirement (a measured `Tstrobe`) is measurable from the waveform itself, so a
-//!   wrong clock is a rejected frame rather than a plausible temperature.
-//!
-//! The 221/222 sentinels, the adaptive change rate, the backup-buffer retry and the heartbeat
-//! timeout are *policy* rather than arithmetic, and live in [`super`], not here.
+//! [`tolerances`] are firmware choices, not published sensor clock tolerances.
+//! Sentinels, rate filtering, retries, and heartbeat policy belong to [`super`].
 
 /// The nominal bit window, in microseconds.
 ///

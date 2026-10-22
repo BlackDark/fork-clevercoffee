@@ -1,43 +1,16 @@
-//! The firmware entry point: bring-up, the control task, and the tasks beside it.
+//! Firmware bring-up and task wiring.
 //!
-//! # What this binary does, in order
+//! Drive every actuator inactive and read each pin back before starting control.
+//! The heater ISR starts disarmed; only the control task feeds the watchdog and
+//! beats the deadman gate that permits heater duty.
 //!
-//! 1. Initialise ESP-IDF and route `log` to UART0 at 115200 baud.
-//! 2. Configure the pump and water-valve pins — GPIO17 and GPIO27, per
-//!    `cc_hal_esp32::pins` — as outputs and drive them **inactive**.
-//! 3. **Drive GPIO2 — the heater — inactive and read it back as a pin.** Chopped
-//!    by a 10 ms `GPTimer` ISR ([`cc_hal_esp32::heater::TimerIsrPwm`]); the ISR is
-//!    built disarmed, so the pin does not move until the deadman gate is beaten.
-//! 4. **Read every actuator pin back and assert it is inactive.** The startup
-//!    assertion runs before anything else, so a failure is unambiguous. For the
-//!    heater this is the one moment it can be a pin readback at all: the ISR takes
-//!    the pin immediately afterwards.
-//! 5. Move a `TWDTDriver` into the control task and feed it from there, so the
-//!    watchdog subscriber is the control task and nothing else.
-//! 6. Run the tick: reduce a `cc_machine::Machine`, apply its effects through
-//!    `cc_hal_esp32::actuators`, drive the PID, and beat the heater's deadman. The
-//!    beat is also the supervisor signal the deadman consumes, so the gate opens
-//!    once the control task is provably alive and shuts again if it stops.
+//! # Hardware limits
 //!
-//! The sensor, display, MQTT and network tasks have their own cadences and their own
-//! modules. This file owns the wiring between them and the control loop.
-//!
-//! # ⚠ Safety note about driving these three pins
-//!
-//! `inactive` is asserted as `Level::Low`, correct for the `HIGH_TRIGGER` relays
-//! that are this board's default (`hardware.relays.*.trigger_type`). On a
-//! `LOW_TRIGGER` board `Low` would **energise** the heater, the pump and the valve,
-//! which is why `cc_safety::validate_config` refuses `LOW_TRIGGER` for the heater
-//! and why a stored configuration carrying one is discarded at boot. The relay
-//! board's trigger polarity has not been confirmed in the field, so this is the one
-//! thing to check before the boiler is ever energised.
-//!
-//! # ⚠ The heater output has not been measured on hardware
-//!
-//! The deadman path passes duty 0, and the gate
-//! ([`cc_domain::heater::HeaterGate`]) refuses a non-zero duty until the supervisor
-//! has beaten. Driving a **dummy load** and measuring with a scope is **not** done:
-//! see `cc_hal_esp32::heater`'s module docs.
+//! Inactive is `Level::Low`, matching `HIGH_TRIGGER` relays. On `LOW_TRIGGER`
+//! hardware that level energises outputs; safety validation rejects that heater
+//! configuration. Confirm board polarity before energising the boiler.
+//! The heater still requires the disconnected-boiler dummy-load procedure;
+//! see [`cc_hal_esp32::heater`] for unmeasured contactor timing and pin duty.
 
 mod config_io;
 mod control;
@@ -174,62 +147,12 @@ const FRAME_PUBLISH_MS: u32 = display_task::REFRESH_MS;
 // [`HEATER_LEDC_DEFECT`]; the carrier arithmetic it rests on is in
 // `cc_hal_esp32::heater`'s module docs.
 
-/// 🔴 The heater cannot be driven by `LEDC` on this chip at 1 Hz.
+/// LEDC at 1 Hz trips the original ESP32's interrupt watchdog, even at duty zero.
 ///
-/// Measured 2026-09-28 on the board, not inferred. The firmware panics at boot
-/// with `Guru Meditation Error: Core 0 panic'ed (Interrupt wdt timeout on
-/// CPU0)`, and the backtrace decodes to
-/// `ledc_set_duty_and_update` -> `_ledc_update_duty` -> `ledc_ll_set_duty_start`
-/// with `PC` inside that function.
-///
-/// The cause is in ESP-IDF's own HAL
-/// (`components/hal/esp32/include/hal/ledc_ll.h:485-489`):
-///
-/// ```c
-/// // wait until the last duty change took effect (duty_start bit will be
-/// // self-cleared when duty update or fade is done)
-/// // this is necessary on ESP32 only, otherwise, internal logic might mess up
-/// while (hw->channel_group[speed_mode].channel[channel_num].conf1.duty_start);
-/// ```
-///
-/// `duty_start` is cleared by the hardware at the next **timer period**, and the
-/// spin is inside `portENTER_CRITICAL(&ledc_spinlock)` in
-/// `ledc_set_duty_and_update`,
-/// i.e. with interrupts masked. The carrier is **1 Hz** —
-/// [`cc_hal_esp32::heater`] argues at length for exactly that, to minimise
-/// contactor operations), so the spin is up to **one second** with interrupts
-/// off. The original ESP32's interrupt watchdog is **300 ms**
-/// (`components/esp_system/int_wdt.c`). Every duty write therefore trips it.
-///
-/// This is **not** a fault in the sensor work and **not** reachable only at
-/// higher duties: the LEDC transport's constructor wrote duty 0, and
-/// `duty_start` self-clears at the next period regardless of the duty value, so
-/// the very first write panicked.
-///
-/// Three things follow, and the third is what this firmware does.
-///
-/// 1. The "1 Hz or the contactor wears out" argument in [`cc_hal_esp32::heater`]
-///    is correct as far as it goes and **incomplete**: it does not account for what
-///    ESP-IDF's own `ledc_ll_set_duty_start` does on this chip. Any carrier slow
-///    enough to matter mechanically is also slow enough to trip a 300 ms interrupt
-///    watchdog through that spin.
-/// 2. The fix is not available at a higher carrier either. Raising it to, say,
-///    25 Hz keeps the spin under 40 ms but reintroduces the contactor duty the 1 Hz
-///    argument set out to avoid, and bypassing the spin needs a register write this
-///    HAL does not expose, and therefore `unsafe` — which the workspace denies
-///    (`[workspace.lints.rust] unsafe_code = "deny"`).
-/// 3. **So `LEDC` is not used, and the heater is chopped by a 10 ms `GPTimer` ISR**
-///    ([`TimerIsrPwm`]), in a 1000 ms window. The cost is 100 contactor operations
-///    per second instead of two. A chip that panics at boot is a worse trade than
-///    contactor wear.
-///
-/// There **is** no LEDC transport in `cc-hal-esp32`. The spin is unique to the
-/// original ESP32 — every other `ledc_ll.h` in this tree (`esp32c2`, `esp32c3`,
-/// `esp32c5`, `esp32s3`, `esp32h2`, `esp32p4`) has the loop removed — so a target
-/// whose chip lacks it gets a transport when such a target exists. The carrier
-/// arithmetic and the two constants it would use are in
-/// `cc_hal_esp32::heater`'s module docs and are asserted against `cc_domain`'s
-/// host-tested values on every build, so they cannot rot.
+/// `ledc_ll_set_duty_start` waits for the next timer period inside an interrupt-masked
+/// critical section: up to 1 s against a 300 ms watchdog. Raising frequency would
+/// increase contactor wear. Use the 10 ms `GPTimer` ISR over a 1000 ms window;
+/// see [`cc_hal_esp32::heater`] for the HAL source and carrier constraints.
 const HEATER_LEDC_DEFECT: &str =
     "A 1 Hz LEDC carrier spins in ESP-IDF's ledc_ll_set_duty_start for up \
       to one period with interrupts masked, which exceeds the ESP32's 300 ms \
@@ -240,28 +163,11 @@ const HEATER_LEDC_DEFECT: &str =
       written: a target whose chip lacks the spin gets one, and the carrier \
       arithmetic survives in cc-hal-esp32::heater's module docs.";
 
-/// Stack size of the control task.
+/// Control-task stack sized for credential load/save and nested configuration serde.
 ///
-/// **16 KB, and the load that requires it is the Wi-Fi credential save.** The
-/// credential the console stages is written by `store.load()` + `store.save()`
-/// **on this task**, inside the tick, and that pair — a ~2 KB JSON document parsed
-/// and re-serialised, with a whole `Config` live on the stack three frames deep —
-/// needs about 8.5 KB of stack of its own (see `network::apply_staged`).
-///
-/// Measured on the device with `uxTaskGetStackHighWaterMark` at the top of the
-/// tick that takes the staged credential:
-///
-/// * at 8 KB: **68 bytes** of the stack had never been used, and the task died
-///   inside `store.save()` — a stack overflow, which on this chip reboots with
-///   `rst:0xc (SW_CPU_RESET)` and prints nothing at all, because the panic handler
-///   has no stack left to run on. That is why this reads as "the watchdog tripped":
-///   the `task_wdt` lines in the same log are the unrelated IDLE1 trip described in
-///   `network::run_provisioning`, and the credential was lost with no message.
-/// * at 32 KB: 23 408 bytes free at the same point, i.e. the deepest frame this
-///   task ever reaches is ~8.6 KB.
-///
-/// 16 KB is the smallest power of two above the measured need, and it leaves ~7 KB
-/// of margin for a configuration that grows.
+/// An 8 KB stack overflowed in save with only 68 bytes unused. A 32 KB trial left
+/// 23,408 bytes at the deepest point, implying about 8.6 KB use. Keep 16 KB for
+/// growth; silent `rst:0xc` resets can mean stack exhaustion, not watchdog expiry.
 const CONTROL_STACK_BYTES: usize = 16 * 1024;
 
 /// Stack size of the display task.
@@ -271,32 +177,12 @@ const CONTROL_STACK_BYTES: usize = 16 * 1024;
 /// on the stack is the render path and the frame copy.
 const DISPLAY_STACK_BYTES: usize = 8 * 1024;
 
-/// Whether to start the scale driver even when the configuration says it is off.
+/// Bring-up override for exercising an otherwise disabled scale's fault path.
 ///
-/// **Off in a shipped build, and never a substitute for the configuration.** The
-/// override exists so bring-up can exercise a driver whose setting no operator has
-/// turned on yet, and a reader needs to know that before drawing a conclusion from
-/// a boot log that says "scale: sampling".
-///
-/// `hardware.sensors.scale.enabled` defaults to `false` (`cc-config`,
-/// `HardwareSensorsScale::default`) and that is the right default: **no scale is
-/// fitted to the machine this firmware was built for.** With the setting honoured
-/// and no scale, the driver is built, type-checked and never executed. With the
-/// override on, its fault path runs, which is the one scale acceptance criterion
-/// provable without a load cell.
-///
-/// **What this is not:** it does not make the scale work. There is no load cell,
-/// no amplifier and no wiring on GPIO32/25/33, so the driver will report the
-/// weight as absent and raise its fault within `SIGNAL_TIMEOUT` (100 ms). That
-/// is the honest outcome and the boot log says so. When a scale is fitted, set
-/// `hardware.sensors.scale.enabled` and this constant becomes irrelevant.
-///
-/// **`false` in a shipped image, so the stored configuration governs.** Measured
-/// on hardware 2026-09-29: with this on, 86 of 138 ticks over budget; with it off,
-/// 111 of 136 — the same 32 ms worst either way, so the sampling is *not* what costs
-/// the tick (see the tick-timing section above). Nothing about a scale needs the
-/// override, and leaving it on would mean the firmware ignores a setting the
-/// operator controls.
+/// Keep false in shipped images so `hardware.sensors.scale.enabled` governs.
+/// Without fitted hardware, forcing startup proves only timeout reporting.
+/// On hardware (2026-09-29), forcing it on gave 86/138 over-budget ticks; off
+/// gave 111/136, with the same 32 ms worst case. Sampling did not cause the overrun.
 const BRING_UP_SCALE: bool = false;
 
 /// The control tick's budget, in milliseconds.
@@ -403,35 +289,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     outcome.map_err(|err| -> Box<dyn Error> { err.into() })
 }
 
-/// The stack the startup sequence runs on, in bytes.
+/// Startup-task stack budget derived from diagnostic DWARF frames.
 ///
-/// **Derived from the disassembly, not guessed.** The `diagnostic` profile is
-/// byte-for-byte the same codegen as `release` (see the `justfile`), so
-/// `xtensa-esp32-elf-objdump --dwarf=frames` on it gives the exact
-/// `DW_CFA_def_cfa_offset` of every frame. The deepest chain in the startup
-/// sequence, and its frames:
-///
-/// | frame | bytes |
-/// | --- | --- |
-/// | `firmware::bring_up` | 2400 |
-/// | `network::bring_up_config` | 1584 |
-/// | `BlobConfigStore::<EspNvsBlob>::{load,save}`, which inlines the whole `Config` serde | 3088 |
-/// | five levels of `Deserialize` into the nested `Config` | ~450 each |
-/// | `f64::from_str` (grisu), the leaf of every float parameter | 1712 |
-///
-/// which is about 11 KB. This constant is 16 KB, so the deepest chain has
-/// roughly 40 % headroom.
-///
-/// The cost is 16 KB of the 154 KB DRAM heap, permanently: `FreeRTOS` takes a
-/// task's stack from the same pool everything else comes from. That is 10 % of
-/// the heap spent on not crashing, and the alternative — making the decode
-/// shallower — is a change to `cc-config`'s serde shape that would have to be
-/// redone for every future nesting level.
-///
-/// **How to re-derive it after a change:** re-run the `DWARF` dump above, add
-/// the frames on the deepest path, and round up. A frame that grows should be
-/// noticed here; the alternative is finding out from a `tlsf` assert whose
-/// backtrace does not pass through this function.
+/// Deepest path: bring-up 2400 B, config bring-up 1584 B, blob serde 3088 B,
+/// five nested deserialize frames at ~450 B, and float parsing 1712 B: about 11 KB.
+/// Reserve 16 KB from the DRAM heap. Recheck `xtensa-esp32-elf-objdump --dwarf=frames`
+/// after changing that path; diagnostic and release use the same code generation.
 const BRING_UP_STACK_BYTES: usize = 16 * 1024;
 
 /// The startup sequence, in order.
@@ -508,7 +371,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         "startup readback failed: heater is not inactive, refusing to continue"
     );
 
-    // 4. The heater transport: a 10 ms GPTimer ISR.
+    // 4. The heater transport: a 10 ms `GPTimer` ISR.
     //
     //    There is no LEDC construction site in this binary and no LEDC transport
     //    type in `cc-hal-esp32`, so there is no path on which a duty write can
@@ -621,27 +484,9 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    // 5c. The actuator facade, which becomes the single owner of the pump, the
-    //     valve relay and the heater.
-    //
-    //     Built here, from the three drivers the readback above just proved
-    //     inactive, and **moved into the control task** below. That move is the
-    //     ownership statement: after it, the only `PinDriver<'static,
-    //     InputOutput>` for GPIO17, GPIO27 and GPIO2 in the whole program is
-    //     inside `cc_hal_esp32::Actuators`, and the only way to reach one of them
-    //     is `cc_machine::applier::apply`. A new state therefore cannot poke a
-    //     relay by accident: it has no way to reach one.
-    //
-    //     Nothing is inhibited: the pump, the valve relay and the heater all follow
-    //     the reducer's effects, and `cc_hal_esp32::actuators` defaults to
-    //     `Inhibit::NONE`, so a build that wants the water path held off sets it
-    //     explicitly and logs it.
-    // The relay polarities are **not known yet** — the configuration is loaded
-    // further down, and reading it before that is what made the setting a lie in
-    // the first place. The facade is built with the default, which is what
-    // `validate_config` accepts for every relay, and
-    // `set_relay_polarities` applies the configured values once the configuration
-    // is in hand and before the control task exists.
+    // Move sole actuator ownership into control after inactive readback.
+    // Build with safe default polarities; apply stored polarities after config load
+    // and before spawning control. Any bring-up inhibit must be explicit and logged.
     let mut actuators = cc_hal_esp32::Actuators::new(
         pump,
         water_valve,
@@ -862,26 +707,10 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         &config,
     )?;
 
-    // 7d. The ABP2 pressure sensor, when one is fitted.
-    //
-    //     `hardware.sensors.pressure.enabled` is the gate, and the default is
-    //     `false`, so a machine with no ABP2 fitted does not spend a bus, a driver or
-    //     a 20 Hz deadline on one. `cc_protocol::abp2::Driver` makes the sample's
-    //     10 ms a deadline rather than a delay, so the sample is spread across ticks
-    //     and nothing sleeps.
-    // The bus is boxed and **moved into the control task**, which is what makes
-    // `'static` references to it possible: the task is spawned with a `'static`
-    // bundle, and a borrow of a local is not `'static` however long the local
-    // lives in practice.
-    //
-    // Only the *bus* travels. The panel and the pressure sensor are built
-    // **inside** the task, from that bus — putting them in the bundle too would
-    // make it self-referential (a struct holding a reference into itself), which
-    // no amount of `Box`ing resolves.
-    //
-    // A machine whose bus failed to come up still runs: the panel reports itself
-    // absent and the pressure sensor is simply not fitted. Losing a display is
-    // not a reason to stop making coffee.
+    // Optional ABP2 polling uses conversion deadlines, never sleeps in the tick.
+    // Move only the boxed bus into the static task; construct its borrowers there
+    // to avoid a self-referential bundle. Bus failure leaves the panel and pressure
+    // sensor absent without stopping control.
     let shared_i2c: Option<Box<cc_hal_esp32::display_shared::SharedBus>> = shared_i2c.map(Box::new);
 
     // 8. The shared HTTP state and the network→control command queue.
@@ -988,26 +817,9 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         info!("mqtt: not configured (mqtt.enabled is false or mqtt.broker is empty)");
     }
 
-    // 5 + 6. The control task owns the watchdog subscription, the heartbeat, and
-    //        the heater's deadman. It is also the *only* thing that can open the
-    //        heater gate, the *only* thing that can write an actuator pin, and —
-    //        since step 7 moved the store here — the only thing that can write the
-    //        configuration.
-    //
-    //        `actuators` and `switches` move in, and that move is the whole of the
-    //        capability story at the task level: after it, this thread holds every
-    //        capability that can move a relay, and `cc_machine::applier::apply` is
-    //        the only path from the state machine to one of them.
-    //
-    //        `config` moves in too, and it is a **clone**: `network::start_http`
-    //        already took its own `Arc<Config>` for `/api/config` and
-    //        `/api/parameters`, and `Context` borrows rather than owns (it is
-    //        `Copy` and rebuilt every event — `cc_machine::context`'s rationale).
-    //        So the control task holds the authoritative value the HTTP server
-    //        does *not* see, and a `POST /api/parameters` that changes the
-    //        setpoint is visible to the state machine on the next event and to
-    //        `/api/config` only after a reboot. **That asymmetry is real and is
-    //        recorded**, not papered over.
+    // Control owns actuators, watchdog subscription, deadman, and config writes.
+    // Its config is authoritative; the HTTP server's boot snapshot can remain stale
+    // until reboot unless a live publication replaces it.
     let control_config = config.clone();
     let known_weight = config.hardware.sensors.scale.known_weight;
 
@@ -1813,30 +1625,9 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             commands_applied += 1;
             match command {
                 cc_hal_esp32::web::Command::Restart => net.shared.set_reboot_requested(),
-                // **S8.** An OTA session has started, so the hardware goes off
-                // before any flash write — the pump, the water valve and the
-                // heater duty, through the real applier, on this task.
-                //
-                // `cc_machine::ota::begin_session` emits the effect that closes all
-                // three. Closing all three is the point: leaving the pump and the valve
-                // in whatever state they were in while the flash is rewritten is the gap
-                // that makes an OTA unsafe.
-                //
-                // **Only the request is handled here.** The decision is not, and
-                // that is the fix for the OTA admission race. The httpd task asked
-                // against a telemetry snapshot up to one control period old, and
-                // between that read and this tick the machine stayed live — it
-                // honours a `brew_start` off MQTT or a brew-switch press, and
-                // `BREW_PREINFUSION`'s entry opens the water valve. A verdict is only
-                // good for the instant
-                // it was computed, so admission is re-taken below, against the
-                // state this tick's own transitions produced, which is the state
-                // the effects being applied are for.
-                //
-                // So this arm records the *request* and nothing else;
-                // `ota_shutdown_pending` is discharged after `apply`, where the
-                // live state is known and the shutdown can be applied as its own
-                // pass — which is also what makes it ordering-proof.
+                // Record only the OTA request here. After this tick's effects are applied,
+                // recheck the live state and shut down outputs in a separate pass. An earlier
+                // HTTP admission can become stale if this tick starts brewing.
                 cc_hal_esp32::web::Command::OtaBegin => {
                     info!("control: OTA session requested — admission re-checked after apply");
                     ota_shutdown_pending = true;
@@ -2049,37 +1840,11 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             }
         }
 
-        // ---- 2b. `POST /api/parameters` — the parameter write path
-        //
-        // Every parameter is independent and a rejected one does not undo the accepted
-        // ones, which is what `cc_config::assign::apply` is. The pairs arrive already
-        // validated by the handler, which needed the verdict to answer `200` or `400`
-        // synchronously; re-applying them here is the idempotent second half of one
-        // rule, through the same `cc_config::assign::parse`.
-        //
-        // It is here, and not in the handler, because the store is here: it moved into
-        // this task so that one task owns the configuration, and a
-        // `Mutex<BlobConfigStore>` shared with the httpd task would put a 2 KB blob
-        // write on whichever task the web server happened to be serving.
-        //
-        // **Inbound MQTT calls `apply` at this line too**, with no handoff: the radio
-        // moved into this task, so an MQTT message is delivered here and there is
-        // nothing to hand over. One writer, one place, one store write.
-        //
-        // **One request per tick, not all of them.** Draining the mailbox and running
-        // `persist_config` per request — a ~2 KB JSON serialise plus an NVS
-        // erase-and-write — puts that work on this task, inside the 10 ms period,
-        // *before* the heater decision for that period. `STAGED_PARAMETER_DEPTH` is 4,
-        // so four browser tabs saving at once can stage four writes in one tick. The
-        // mailbox is bounded at 4 and the ack timeout is 1600 ms, so taking one per
-        // tick bounds the flash work per tick at one transaction and still answers the
-        // last of four within 40 ms. The reasoning, and why coalescing was the
-        // alternative, are on `ParameterHandoff::take_one`.
-        //
-        // **The request is taken, not drained-then-iterated**, so a `stage`
-        // arriving *after* this line waits for the next tick rather than being
-        // picked up by this one — which is the point: the bound is on the work
-        // this tick does, not on the moment it reads the mailbox.
+        // Apply one staged parameter request per tick through the shared HTTP/MQTT writer.
+        // Accepted pairs survive other pairs' rejection. Revalidation is idempotent.
+        // Taking one request bounds NVS work to one transaction; draining the depth-four
+        // mailbox could put four serializations and commits before the heater decision.
+        // Requests staged after this take wait for the next tick.
         if let Some(pairs) = parameters.take_one() {
             // What the two cached runtime values were *before* the write, so the
             // push-into-the-machine below can tell whether they actually moved.
@@ -3066,31 +2831,10 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             );
         }
 
-        // ---- 9. the tick's period: sleep the rest of it ---------------------
-        //
-        // The sleep is the remainder of [`CONTROL_PERIOD_MS`] rather than a fixed
-        // delay, so a slow tick shortens the next one instead of drifting — the loop
-        // holds its *rate*, not its rhythm.
-        //
-        // **A blocking wait on a wake channel was tried here and is not in the
-        // build.** `SignalQueue`, a `std::sync::Mutex` and an ESP-IDF task
-        // notification were each tried as the way for a producer to shorten this
-        // sleep, and each one asserts inside the FreeRTOS kernel on this build
-        // (`xTaskRemoveFromEventList`, `pxUnblockedTCB` NULL). The bisect table
-        // is in `sensor_task.rs`; the short version is that every cross-task
-        // *blocking* primitive reachable from a Rust task trips it, while a
-        // non-blocking `CommandQueue::try_send` never has. So the loop runs on
-        // its deadline and consumes every event — a switch edge, a `POST
-        // /api/parameters`, a reboot request, a staged credential — at the top
-        // of the next period, which at 10 ms is not a latency anyone can feel.
-        // `saturating_sub` on the *elapsed* time, not `wrapping_sub` on the
-        // deadline. A tick that overran its period — the first one always does,
-        // at 77 ms against a 10 ms budget — would make
-        // `next_deadline - now` wrap to about 2^32 ms, and
-        // `delay_ms(4_294_967_295)` is a forty-nine-day sleep. The machine would
-        // stop answering: it happened, and it is the reason this line is
-        // written as elapsed-time-from-a-signed-comparison rather than as the
-        // more obvious deadline arithmetic.
+        // Sleep only the period's remainder; saturate after overrun to avoid a
+        // wrapping deadline becoming a 49-day sleep. Blocking wake channels triggered
+        // kernel assertions on this build, so consume new events on the next 10 ms tick.
+        // See `sensor_task.rs` for the failed cross-task alternatives.
         let elapsed = now_ms().wrapping_sub(tick_began_ms);
         FreeRtos::delay_ms(CONTROL_PERIOD_MS.saturating_sub(elapsed));
 

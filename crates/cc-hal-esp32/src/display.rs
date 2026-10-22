@@ -1,84 +1,13 @@
-//! The SSD1306 OLED over I²C: transport only.
+//! SSD1306 transport for the already page-formatted framebuffer.
 //!
-//! # What this file is, and what it is not
+//! Borrow the shared I²C bus; never create a second peripheral. The 1024-byte
+//! frame needs about 24 ms at 400 kHz, so refresh is rate-limited and chunked
+//! through [`DATA_CHUNK_BYTES`].
 //!
-//! This is the *wire*. It owns the I²C address, the controller's power state,
-//! the transfer of 1024 bytes to the panel, and the 100 ms refresh cadence. It
-//! does **not** decide what is on the screen: every template,
-//! glyph, bar and label is [`cc_display`]'s, host-tested against 48 goldens. This
-//! crate therefore never names `cc-display` — [`Oled::flush`] takes
-//! `&[u8; FRAMEBUFFER_LEN]`, and `cc_display::Framebuffer::as_bytes()`
-//! satisfies that at the call site with no new dependency and no conversion.
-//!
-//! The consequence is the whole point of the design: **`cc-display` already
-//! stores the panel's wire format.** Its buffer is page-major, vertical,
-//! LSB-on-top (`cc_display::display`, module docs) because that is
-//! `u8g2_ll_hvline_vertical_top_lsb` *and* the SSD1306's page-addressed GDDRAM
-//! layout. So a flush is a slice write with no transposing pass, and the
-//! rendering the host proves is the rendering the glass shows.
-//!
-//! # Why `ssd1306`, and why the init sequence is hand-written
-//!
-//! `ssd1306` 0.10.0 is the crate this firmware selected: `embedded-hal 1.0`, which `esp-idf-hal` 0.47.0 satisfies
-//! (`src/i2c.rs:458-478` implements `ErrorType` and `I2c<SevenBitAddress>` for
-//! `I2cDriver`).
-//!
-//! **SH1106 is not supported, and the blocker is geometry.** `sh1106` 0.5.0
-//! needs `embedded-hal` 0.2.7, which is still in this tree, so the trait version
-//! is not it. The SH1106's GDDRAM is 132 columns wide with the 128x64 window
-//! centred, so every frame needs the column window moved by two. U8g2 does that
-//! in its SH1106 init; `ssd1306` exposes no such knob on `DisplaySize`, so
-//! supporting it means forking the driver. `hardware.oled.type` defaults to
-//! `SSD1306`, so dropping SH1106 removes an *option* this firmware never
-//! selects, not a behaviour.
-//!
-//! The init sequence is U8g2's, byte for byte
-//! (`u8x8_d_ssd1306_128x64_noname.c:41-72`), sent through [`I2cPanel`] rather
-//! than through `ssd1306`'s `DisplayConfig::init`. That is a deliberate
-//! deviation from the crate's defaults, and it exists because three of the
-//! crate's init commands **disagree with U8g2**,
-//!
-//! | command | U8g2 | `ssd1306` 0.10 default |
-//! | --- | --- | --- |
-//! | `0xDA` COM pin config | `0x12` | `0x22` (`command.rs:168-170`) |
-//! | `0x81` contrast | `0xCF` | `0x7F` (`Brightness::NORMAL`) |
-//! | `0xD9` pre-charge | `0xF1` | `0x21` |
-//!
-//! The contrast one is visible: the crate's default is a dimmer panel. Taking
-//! the whole sequence from U8g2 is what makes the panel come up the way the
-//! layout expects, and it makes [`INIT_SEQUENCE`] an auditable artefact instead
-//! of a pile of defaults.
-//!
-//! # Rotation: the panel never rotates
-//!
-//! U8g2's SSD1306 init sends `0xA1` / `0xC8` unconditionally — the `U8G2_R0`..
-////! `R3` argument never reaches the controller. Rotation in this firmware is a
-//! *software* transform: `cc_display::Rotation` picks the logical coordinate
-//! space and the display writes the already-rotated physical pixel into the
-//! same 1024 bytes. So all four software rotations share one panel orientation,
-//! and that orientation is `DisplayRotation::Rotate0`, which the `ssd1306`
-//! crate encodes as exactly `0xA1` / `0xC8`. [`PANEL_ROTATION`] is the one
-//! place that decides it.
-//!
-//! # The bus is shared, and this driver does not own it
-//!
-//! The OLED and the ABP2 are on the same two wires ([`crate::sensors::pins`]:
-//! SCL 22, SDA 21). There is exactly one I²C
-//! peripheral, so [`I2cPanel`] **borrows** an already-constructed
-//! [`I2cDriver`] instead of calling `Peripherals::take()` — the same rule and
-//! the same reason as [`crate::Abp2I2c::new`]. Borrowing rather than owning is
-//! what lets the display task take the bus for one frame and give it straight
-//! back, which is the mutex-guarded shared bus every device on those wires
-//! needs. What this file
-//! guarantees is that it **never creates a second bus**.
-//!
-//! # Timing
-//!
-//! [`REFRESH_INTERVAL_MS`] is 100 and [`Oled::refresh_due`] is the gate that
-//! enforces it. The bus runs at 400 kHz ([`crate::sensors::I2C_HZ`]), so one
-//! frame is 1024 payload bytes ≈ 24 ms of bus time, which is why the data path
-//! chunks at [`DATA_CHUNK_BYTES`] rather than at the `display-interface-i2c`
-//! default of 16 — see [`I2cPanel::send_data`].
+//! Use U8g2's init sequence: COM pins 0x12, contrast 0xCF, precharge 0xF1 differ
+//! from `ssd1306` defaults. [`PANEL_ROTATION`] stays fixed; software rotates pixels.
+//! SH1106 needs a two-column window offset for its 132-column RAM, unsupported
+//! by this driver despite compatible I²C traits.
 
 use core::time::Duration;
 

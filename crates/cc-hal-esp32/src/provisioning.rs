@@ -1,53 +1,11 @@
-//! UART Wi-Fi provisioning: the line reader and the credential staging.
+//! UART line assembly, staged credentials, and protocol replies.
 //!
-//! # What this is
-//!
-//! The device half of the protocol whose grammar and framing are
-//! [`cc_protocol::provisioning`]. Three pieces:
-//!
-//! 1. [`LineReader`] — assembles UART0 bytes into whole lines.
-//! 2. [`Session`] — the parser plus the pending credential, and the **log
-//!    muting** that the framing requires.
-//! 3. The replies, written to stdout with a prefix a script can match.
-//!
-//! # 🔴 Rule 5 — the password window, and what actually enforces it
-//!
-//! `wifi set <ssid>` arms the parser, and the password can then arrive **either
-//! as an argument — `wifi pass <password>` — or as the next line, positionally**.
-//! The argument form has no window at all, so the whole of rule 5 is about the
-//! positional form, which exists because an operator typing by hand must keep
-//! working.
-//!
-//! **`cc_protocol::provisioning::PASSWORD_WINDOW_MS` (30 s) bounds the exposure,
-//! and on this board nothing else needs to.** The log stream is written by the
-//! `EspIdfLogger` inside `crate::telnet`'s `Fanout` to UART0 *transmit*; the
-//! parser reads UART0 *receive*. A log line the firmware emits is never bytes
-//! the firmware reads back, so the two cannot collide here. That holds only
-//! because `Fanout` really does write UART0: for a while it composed the ring
-//! with the *filter* rather than with the writer, so the argument below rested
-//! on a log stream that did not exist. The window is what keeps a mistyped
-//! `wifi set` from swallowing the next command the operator types.
-//!
-//! The mute ([`log_muted`]) exists for the transport that *does* collide: a log
-//! stream teed to a TCP client (`/events`, the telnet stream) is bytes the
-//! machine can also read. The flag is set and cleared correctly and is
-//! **currently read by nothing** — see [`log_muted`] — so on this build the
-//! window is the only protection, and it is sufficient. When the telnet pump
-//! checks the flag, this file's job is to keep it correct so that adding the
-//! check is one `if`.
-//!
-//! The cost of the window is that up to 30 s of diagnostics can be lost if a
-//! line *is* swallowed. The alternative — a keyword before the password — would
-//! have to be typed before it, and so would be part of what a paste or a
-//! shoulder-surfer captures.
-//!
-//! # Why there is no captive portal here
-//!
-//! The portal is evaluated and deferred; see the bottom of
-//! [`crate::wifi`]. The short version: it is redundant with a line protocol
-//! that is proven on this hardware, it costs heap this firmware does not have,
-//! and every Rust crate for it binds port 80 itself so it could not share it
-//! with the REST API.
+//! Grammar lives in [`cc_protocol::provisioning`]. The positional password form is
+//! bounded by `PASSWORD_WINDOW_MS`; the `wifi pass <password>` form has no window.
+//! UART0 logs transmit while the parser receives, so emitted logs cannot become
+//! password input. [`log_muted`] tracks the window but currently has no reader.
+//! The timeout prevents a mistyped `wifi set` from swallowing later commands.
+//! Captive-portal tradeoffs are recorded in [`crate::wifi`].
 
 use alloc::format;
 use alloc::string::String;

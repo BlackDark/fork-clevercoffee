@@ -1,35 +1,8 @@
-//! MQTT on the control task: the client, the publish pass, and the inbound
-//! commands.
+//! Control-task MQTT service: connection bookkeeping, inbound commands, then publish.
 //!
-//! # Why this is a module and not twenty lines in the tick
-//!
-//! `main.rs`'s control loop is read as a list of what happens in one 10 ms
-//! period, and the ordering of that list is the property that matters. What
-//! MQTT does has four steps and its own vocabulary — topics, phases, budgets,
-//! the four special targets — and inlining it would have put four more blocks
-//! between "sense" and "decide" without making either easier to check.
-//!
-//! # The pass, in one place
-//!
-//! Connection bookkeeping, then inbound, then publish, all under one budget. What
-//! there is to publish is decided by `cc_hal_esp32::mqtt::Registry`, which Home
-//! Assistant discovery is generated from too, and the shape of the pass is
-//! `cc_hal_esp32::mqtt::Feed` — a cursor under a time budget rather than a loop over
-//! every topic on every tick.
-//!
-//! # What it must not do
-//!
-//! * **Block the control tick.** `esp_mqtt_client_publish` copies into the
-//!   client's outbox and returns; the socket write happens on the `esp-mqtt`
-//!   task. The one thing that *can* block is a full outbox, which is why
-//!   [`cc_hal_esp32::mqtt::Feed::service`] walks a cursor under a
-//!   [`cc_hal_esp32::mqtt::TIME_BUDGET_MS`] budget rather than publishing
-//!   everything at once.
-//! * **Allocate per publish.** The reusable buffers live in
-//!   `cc_hal_esp32::mqtt::Feed`; this module hands the value producer a
-//!   `&mut Payload` rather than a `String`.
-//! * **Own a second copy of the machine.** Every value it publishes is read
-//!   from the [`control::Control`] this task already has.
+//! The publish cursor shares one time budget; a full outbox can block despite
+//! socket writes running on the MQTT task. Reuse [`Payload`] buffers and read the
+//! existing [`control::Control`] rather than allocating per topic or copying state.
 
 use cc_config::blob_store::BlobConfigStore;
 use cc_config::Config;

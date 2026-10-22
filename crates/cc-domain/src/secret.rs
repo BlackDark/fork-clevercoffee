@@ -1,38 +1,8 @@
-//! A value that refuses to print itself.
+//! Credential wrapper shared by configuration and provisioning.
 //!
-//! A credential must not leak: not into source, not into a command-line argument, not into
-//! a log, not into a commit, not into an unencrypted example file. The cheapest place to
-//! enforce that is the type. If a password's `Debug` and `Display` print `[redacted]`, then
-//! it cannot be logged by accident, however the log statement is written.
-//!
-//! # Why this lives in `cc-domain` and not in `cc-config`
-//!
-//! Four credential-bearing fields live in `cc-config` (`system.wifi.ssid`,
-//! `system.wifi.password`, `mqtt.password`, `system.auth.password`), and the UART
-//! provisioning parser in `cc_protocol::provisioning` is a fifth user: it has to hand a
-//! password to the Wi-Fi stack and must not be printable in the process. `cc-domain` is the
-//! crate both depend on, and it is the one that can be read on its own, which is the
-//! property that makes redaction auditable.
-//!
-//! `cc_config::Secret` is a re-export of this type, so the configuration
-//! crate's public API is unchanged.
-//!
-//! # `serde` is behind a feature, and off by default
-//!
-//! `Secret<T>` is **transparent to serialisation** — it writes and reads the
-//! inner value unchanged, so a `Config` containing secrets round-trips through
-//! the store and the web API exactly as the plain values would. That is
-//! deliberate and is the one thing this type does *not* protect against: the
-//! stored blob and the `/api/config/download` response contain the plaintext
-//! credentials, because the machine has to be able to use them. Redaction is
-//! for *diagnostics*, not for storage.
-//!
-//! The `Serialize`/`Deserialize` impls need `serde`, and `cc-domain` has no
-//! dependencies — a crate with no dependencies is a crate a reviewer can be
-//! certain nothing else influences. So the impls are behind the off-by-default
-//! `serde` feature and `cc-config`, which already depends on `serde`, turns it
-//! on. The provisioning parser needs nothing but `new` and `expose`, so the
-//! default build of `cc-domain` stays dependency-free.
+//! `Debug` and `Display` redact; explicit `expose` reveals the value. Optional
+//! `serde` is transparent, so storage and config downloads still contain plaintext.
+//! This protects diagnostics, not serialization or exposed values.
 //!
 //! ```
 //! extern crate alloc;

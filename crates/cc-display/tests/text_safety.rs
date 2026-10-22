@@ -1,30 +1,7 @@
-//! Hostile text must not take the display down.
+//! Untrusted OTA error text must not panic and reset the device.
 //!
-//! # Why
-//!
-//! `OtaInput::error_message` is whatever the HTTP server said
-//! (`cc_web::ota::StatusMessage::message` renders a string straight into that field), and
-//! `panic = "abort"` means a panic in the display task is a **device reset**.
-//! Before the bounds guard in [`cc_display::font::Font::glyph_header`], one
-//! emoji or CJK character in a server's error string walked off the end of the
-//! 2251-byte font blob and aborted:
-//!
-//! ```text
-//! cargo run -p cc-display --example probe -- missing
-//! thread 'main' panicked at font/mod.rs:135:
-//! index out of bounds: the len is 2251 but the index is 2500
-//! ```
-//!
-//! U8g2's own search cannot do this — its fonts are well-formed and its tables
-//! terminate. This port walks a fixed blob, so the walk needs a bound.
-//!
-//! # What "safe" means here
-//!
-//! A missing glyph advances the pen by zero and draws nothing, which is exactly
-//! what U8g2 does and what [`cc_display::font::Font::str_width`] already
-//! reported. The two agreeing is the property worth pinning: a string that
-//! measures 3 px wide must *draw* 3 px wide, or every column after it on the row
-//! is off by the difference.
+//! Missing glyphs draw nothing and advance zero, matching `Font::str_width`.
+//! Bound font searches so emoji and CJK input cannot walk past the embedded blob.
 
 use cc_display::display::Display;
 use cc_display::font;

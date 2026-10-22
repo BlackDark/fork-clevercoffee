@@ -1,32 +1,11 @@
-//! The 128x64 framebuffer and the U8g2 draw primitives.
+//! Framebuffer in the SSD1306's page-major, vertical, LSB-first wire layout.
 //!
-//! # Byte layout is U8g2's, and must stay that way
+//! `buf[(y >> 3) * 128 + x]` holds a column's eight pixels; bit `y & 7` selects
+//! the row. Keep this U8g2 layout to avoid repacking on flush.
 //!
-//! The buffer is page-major, vertical, LSB-on-top: byte
-//! `buf[(y >> 3) * 128 + x]` holds the eight pixels of column `x` for rows
-//! `8 * page ..= 8 * page + 7`, with bit `y & 7` selecting the row. That is
-//! exactly `u8g2_ll_hvline_vertical_top_lsb`, and it
-//! is also the SSD1306/SH1106 page-addressing wire format, so the same 1024
-//! bytes go straight out over I2C with no repacking and no per-pixel work.
-//!
-//! The alternative — a linear `y * 128 + x` bitmap — is friendlier to read but
-//! would mean a transposing pass on every flush. Keeping U8g2's layout is what
-//! makes the framebuffer the *device's* format rather than a Rust-only one.
-//!
-//! # Coordinates and rotation
-//!
-//! Drawing takes *logical* coordinates in a `0..width` x `0..height` space that
-//! [`Rotation`] selects. Under `R1`/`R3` that space is 64 wide and 128 tall,
-//! and the mapping onto the physical 128x64 page buffer is U8g2's
-//! `u8g2_draw_l90_r1`..`r3`, reproduced in
-//! [`Display::draw_hv_line`](Display::draw_hv_line). The upright template is
-//! drawn in that rotated space, and the *coordinates in the templates are the
-//! rotated ones*: the heat bar really does draw at y=124, which is off the top of
-//! a 64-row screen and only sensible under `R1`/`R3`.
-//!
-//! That is the single most surprising thing about this display, and it is why
-//! [`Rotation::width`]/[`Rotation::height`] exist instead of hard-coding 128x64 in
-//! the clip test.
+//! Coordinates are logical: [`Rotation`] makes R1/R3 64x128 before mapping to the
+//! physical 128x64 buffer. Upright coordinates above y=63 are therefore valid;
+//! clip against rotated dimensions, not hard-coded physical dimensions.
 
 use crate::font::{Font, HeightMode};
 
@@ -1310,21 +1289,9 @@ impl Display {
             return i32::from(header.delta_x);
         }
 
-        // The run is drawn straight from the decoder, with no intermediate
-        // buffer.
-        //
-        // A buffer looked harmless and was not. The bound was guessed as "~50
-        // runs", and that is wrong by an order of magnitude: a `fub30` glyph is
-        // up to 31 px wide and 30 px tall, the RLE emits up to three runs per
-        // row, and `u8g2_font_decode_len` splits any run that crosses the right
-        // edge -- so a single tall glyph can emit several hundred runs. The
-        // buffer filled, the `if n < runs.len()` guard dropped the rest, and
-        // the bottom of every large glyph silently vanished. `tests/parity.rs`
-        // caught it as 163 missing pixels in the bottom rows of `fonts.txt`.
-        //
-        // Buffering was never necessary. `Font` is `Copy` and holds a
-        // `&'static [u8]`, so the `font` binding above is an independent copy
-        // and the closure can borrow `self` mutably.
+        // Draw runs directly: a tall glyph can emit hundreds after row-boundary splits,
+        // so a guessed fixed buffer silently loses pixels. Copying `Font` copies only
+        // its static slice and lets the closure borrow the display mutably.
         let fg = self.draw_color;
         let bg = u8::from(fg == 0);
         font.decode_into(&header, |lx, ly, len, is_fg| {

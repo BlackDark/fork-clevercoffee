@@ -1,41 +1,12 @@
-//! The four operator switches and the water-tank float, as the firmware builds
-//! them.
+//! Debounced operator-switch and water-tank inputs.
 //!
-//! # What this is
+//! GPIO34/35/36/39 are input-only without internal pulls. Use [`Pull::Floating`]
+//! and the board's external pulls; ESP-IDF silently accepts ineffective internal
+//! pull requests. GPIO23's tank float can use [`GpioIn::pull_for`].
 //!
-//! [`SwitchBank`] owns five [`GpioIn`]s — power, brew, steam, hot water and the
-//! tank float — reads them every control tick, and turns each debounced edge
-//! into a [`cc_machine::Event`]. The reducer never sees a pin; it sees
-//! `ButtonPressed` / `ButtonReleased`, which is the switch contract expressed as
-//! a value.
-//!
-//! # The pin pull is `Floating` for the four operator switches, and that is not
-//! an oversight
-//!
-//! GPIO34, 35, 36 and 39 are **input-only on the original ESP32 and have no
-//! internal pull-up or pull-down at all** — the pad is a bare input, and the
-//! board's external pull does the work. [`GpioIn::pull_for`] would answer
-//! `Pull::Down` for a normally-open switch, and ESP-IDF accepts that on GPIO34
-//! without complaint while doing nothing — so this module uses
-//! [`Pull::Floating`] for the operator switches and reserves
-//! [`GpioIn::pull_for`] for the tank float, which is on GPIO23 and *does* have
-//! an internal pull.
-//!
-//! Getting this backwards is a stuck-closed switch, not a wrong reading: a
-//! floating input with no external pull wanders, and the debouncer will
-//! eventually report a press. That is why the boot log prints each switch's
-//! resting level after the first settling interval.
-//!
-//! # `initial_raw` is the *debouncer's* seed, not the pin's rest level
-//!
-//! An operator switch and the tank float carry **opposite** seeds: a
-//! normally-open operator switch starts at `LOW`, a normally-open float at
-//! `HIGH`. They are not contradictory: the value only decides whether the
-//! **first** read arms the 20 ms debounce, and `Debounced::new` separately seeds
-//! the *state* to "not pressed" regardless (`cc_domain::switch`, and
-//! `s2_the_tank_starts_full_and_the_switch_starts_open`). Both are kept apart
-//! rather than harmonised, because a machine whose power switch boots "already
-//! on" is a different machine.
+//! Raw seeds arm debounce, not the initial logical state. Normally-open operator
+//! switches start LOW, the float HIGH; both start logically unpressed. Do not
+//! harmonize the seeds or a power switch may appear active at boot.
 
 use cc_config::Config;
 use cc_domain::hardware::{SwitchMode, SwitchType};
@@ -330,29 +301,10 @@ impl Levels {
     }
 }
 
-/// What the machine believes about the water tank, given whether a float is
-/// fitted and what it last read.
+/// Return the fitted float's reading, or full when no float exists.
 ///
-/// A machine with no float fitted reports **full**, which is the only safe
-/// answer: the alternative is a machine whose pump is blocked by a sensor that
-/// does not exist.
-///
-/// ⚠ The fittedness test is an **exclusion, not a conjunction.** This
-/// previously read `fitted && raw`, which returns `false` when no float is
-/// fitted — the exact opposite of what the surrounding documentation, the field
-/// documentation and the boot log all said. On hardware that put the machine
-/// permanently in `WaterTankEmpty`; `should_pid_be_enabled` then cleared the
-/// PID every tick, so **the heater could never come on at all.** It was
-/// findable only because the boot log's own line ("when absent the machine
-/// reports the tank FULL") printed directly above a `tank_full=false`.
-///
-/// The general form of the mistake: never gate a "assume the safe value"
-/// fallback behind the presence of the thing it stands in for. When the sensor
-/// is missing there is nothing to read, so the fallback *is* the answer.
-///
-/// It is a free function rather than a method so a host test can reach it:
-/// [`SwitchBank`] owns five [`GpioIn`]s and cannot be built without pins, and
-/// the bug it guards was a two-line decision that a type check cannot see.
+/// Do not use `fitted && raw`: that would report an absent tank sensor as empty
+/// and permanently block pumping and PID enable.
 #[must_use]
 pub const fn tank_reading(fitted: bool, raw: bool) -> bool {
     if fitted {

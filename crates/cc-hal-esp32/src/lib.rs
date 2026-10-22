@@ -1,50 +1,13 @@
-//! The one crate allowed to import `esp_idf_hal`, `esp_idf_svc` and `esp_idf_sys`.
+//! ESP-IDF transport, pin ownership, and device-side interlocks.
 //!
-//! # Rules
+//! [`pins`] validates legal mappings at compile time and actual wiring at boot.
+//! [`actuators::Actuators`] owns pump and valve control; [`heater`] owns the heater
+//! pin. Interlocks belong inside their methods.
 //!
-//! * One crate, not seven. Splitting per-peripheral would scatter the pin map,
-//!   and the pin map is the thing that must be edited in one place.
-//! * [`Board`](board) is a trait with one impl per board, and the pin map is a
-//!   `const` validated at compile time. A pin that does not exist on the chip
-//!   must be a compile error, not a silent miswiring.
-//! * `Actuators` is the **only** owner of the pump and the water valve, and
-//!   `HeaterOutput` the only owner of the heater. Interlocks and the emergency
-//!   latch are checked *inside* those methods, not at the call sites, so no
-//!   caller can bypass them.
-//! * This crate does not compile for a host target. Validate it with
-//!   `just lint-esp32`.
-//!
-//! # 🔴 Two `unsafe`, and they need a human to ratify them
-//!
-//! [`zacwire::now_us`] is a single call to ESP-IDF's `esp_timer_get_time()`,
-//! behind a narrowly-scoped `#[allow(unsafe_code)]` with the reasoning written
-//! out at the call site.
-//!
-//! [`web_async`] is the second, and it is the one that matters more: three
-//! `httpd_*` calls that let the `/events` handler **return** while a separate
-//! task does the writing. It exists because ESP-IDF's httpd is a single task
-//! (`httpd_main.c:533`), so a handler that holds a stream open is a server that
-//! serves nobody — measured on hardware, 55 of 60 concurrent API requests timed
-//! out with one browser tab streaming. `esp-idf-svc` 0.53.0 has no safe way to
-//! express it, and ESP-IDF's own `httpd_req_async_handler_begin` is the
-//! documented answer. The module documents each
-//! call, the `Send` claim, and the Kconfig that would invalidate it.
-//!
-//! The workspace lint is `unsafe_code = "deny"`, so both are `#[allow]`ed with
-//! their reasoning at the call site rather than globally.
-//!
-//! [`zacwire::now_us`] is there because `esp-idf-hal` 0.47 has **no** `esp_timer` module and no
-//! safe monotonic clock of any kind — checked in `src/timer.rs` and
-//! `src/delay.rs`) — and the `ZACwire` protocol cannot be decoded without
-//! microsecond timestamps (the app note's
-//! ≥ 128 kHz sampling requirement). The alternatives were all worse: a C shim is
-//! the same `unsafe` in another file, a `GPTimer` count read is also `unsafe` FFI
-//! *and* a 24-bit wrap to difference by hand, and `std::time::Instant` has no
-//! documented clock on this target.
-//!
-//! If the decision is "no `unsafe`, anywhere", then the honest consequence is
-//! that the TSIC-306 driver has no device implementation, and that is a decision
-//! to take explicitly rather than by omission.
+//! This crate requires the device toolchain; validate with `just lint-esp32`.
+//! FFI and `Send` exceptions carry local safety arguments. In particular,
+//! [`web_async`] detaches SSE requests so the single httpd task can keep serving;
+//! its cross-task writes depend on `CONFIG_HTTPD_VALIDATE_REQ` staying disabled.
 
 #![no_std]
 #![deny(clippy::pedantic)]

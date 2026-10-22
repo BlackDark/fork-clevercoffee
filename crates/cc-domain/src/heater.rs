@@ -1,93 +1,18 @@
-//! The heater output: the 10 ms chopper, its ISR state machine, and the latching gate in
-//! front of it.
+//! Portable heater duty, ISR chopping, and the latching output gate.
 //!
-//! # Why this is in `cc-domain` and not in `cc-hal-esp32`
+//! [`chopper_tick_level`] compares millisecond duty with a counter advancing by
+//! [`CHOPPER_STEP_MS`] over [`WINDOW_MS`]. The 1000 ms window and 10 ms step give
+//! 1% resolution. The PID sample interval and output limits use that same window;
+//! changing the transport must not change the control law or invalidate tuning.
 //!
-//! Everything *about* the output is portable: what duty a PID output means, how a
-//! millisecond duty becomes a fraction, whether the output may be non-zero at all. Those
-//! are arithmetic and policy, they must be unit-tested on the host, and behind an
-//! `esp_idf_hal` type they would be untestable without a board. `cc-hal-esp32::heater`
-//! owns the pin and the timer and does nothing else.
+//! A constant intermediate duty makes at most two relay edges per second, despite
+//! 100 ISR entries. A 100 Hz carrier would make 200 edges without improving power
+//! delivery and would wear the contactor. Any alternative carrier must preserve the
+//! 1 Hz rate and at least the 10 ms resolution.
 //!
-//! # The chopper, which is the output
-//!
-//! The heater is chopped: a hardware timer fires every 10 ms, and each tick asserts a
-//! level from [`chopper_tick_level`]'s predicate --
-//!
-//! ```text
-//! off while pid_output <= counter, on otherwise
-//! counter advances by CHOPPER_STEP_MS, and wraps at WINDOW_MS
-//! ```
-//!
-//! with `WINDOW_MS` = 1000 and `CHOPPER_STEP_MS` = 10. The PID output is bounded by
-//! exactly the window, so **a PID output is a count of milliseconds of energisation per
-//! second**, resolved in 1 % steps.
-//!
-//! The window *is* the control law, not an implementation detail: the PID samples once per
-//! window and its output limits are the window. Changing how the on-time is delivered
-//! must not move either, or every tuning in the shipped configuration would be wrong.
-//! `cc-hal-esp32::heater` carries the ESP-IDF LEDC carrier as an unshipped alternative
-//! path; its arithmetic is parameterised on the window here so the two cannot drift.
-//!
-//! # Why a PWM carrier must be 1 Hz and not 100 Hz
-//!
-//! The ISR *fires* 100 times a second and re-asserts the same level almost every time;
-//! the **level** changes about **twice** a second. Walking the predicate for a constant
-//! `pid_output` over one window (counters `0, 10, …, 990`, then the wrap):
-//!
-//! | `pid_output` | entries | on-ticks | on-time | level over the window | level changes/s |
-//! | --- | --- | --- | --- | --- | --- |
-//! | 0 | 100 | 0 | 0.0 % | OFF throughout | **0** |
-//! | 50 | 100 | 5 | 5 % | ON 50 ms, then OFF 950 ms | **2** |
-//! | 500 | 100 | 50 | 50 % | ON 500 ms, then OFF 500 ms | **2** |
-//! | 950 | 100 | 95 | 95 % | ON 950 ms, then OFF 50 ms | **2** |
-//! | 1000 | 100 | 100 | 100 % | ON throughout | **0** |
-//!
-//! Two edges per second, not a hundred: one falling edge inside the window where the level
-//! drops, and one rising edge at the wrap. The predicate is monotone in the counter --
-//! `pid_output > counter` -- so a constant duty gives **at most one** falling edge per
-//! window, whatever the duty. [`chopper_transitions_per_second`] computes that from the
-//! predicate itself, and `the_carrier_switches_the_contactor_no_more_than_the_chopper_does`
-//! checks a carrier against it.
-//!
-//! A PWM carrier's cost is mechanical, not electrical, because the pin drives a
-//! **contactor**:
-//!
-//! * **at most 2 level changes per second** -- an `f` Hz square wave makes `2f`, so
-//!   `f <= 1 Hz`. [`CARRIER_HZ`] is 1, and it is written as `1_000 / WINDOW_MS` rather
-//!   than as a literal because one period per control window is the *only* frequency at
-//!   which a duty means what it means to the chopper.
-//! * **duty resolution at least as fine as the 10 ms step**, which is
-//!   `CHOPPER_STEP_MS / WINDOW_MS` = 1 % of the window. A 1 s period therefore needs
-//!   `max_duty >= 100` to express all 101 levels; [`CHOSEN_RESOLUTION_BITS`] gives
-//!   131 072.
-//!
-//! **A high carrier would be a hardware defect, not a fidelity gain.** At 100 Hz the same
-//! pin makes 200 level changes per second -- a hundred times the chopper's -- on a 2 kW
-//! boiler contactor whose life is counted in operations. Delivered *power* would match to
-//! within a rounding error; the *wear* would be two orders of magnitude worse.
-//!
-//! # ⚠ Still unverified: the contactor itself
-//!
-//! Matching the chopper's transition rate is necessary and **not sufficient**. Nobody has
-//! measured, and this repository does not guess:
-//!
-//! * **The contactor's minimum on-time and minimum off-time.** The chopper never pulses
-//!   the heater narrower than 10 ms, and neither does any other output path -- the
-//!   smallest duty [`duty_counts`] can be asked for is one whole step (see
-//!   `the_minimum_pulse_is_the_ten_millisecond_step`). Whether 10 ms is *itself* long
-//!   enough for the contactor is a datasheet question.
-//! * **Whether a hardware-PWM output is acceptable to the coil at all.** LEDC drives a
-//!   square wave into the same relay pin the chopper drives. A contactor coil is an
-//!   inductive load; whether the driver's rise/fall and any freewheeling path tolerate a
-//!   1 Hz square wave is exactly as unknown as it is for a 10 ms one, but the *frequency*
-//!   would be a new variable.
-//! * **The realised frequency and duty on the pin.** Everything above is arithmetic.
-//!   `ledc_timer_config`'s divider selection and the duty register have not been read back
-//!   from hardware.
-//!
-//! Until a person with a scope, a dummy load and the boiler **disconnected** measures it,
-//! the LEDC transport stays out of the firmware.
+//! Contactor minimum on/off times, coil compatibility, and realised pin duty remain
+//! unmeasured. Arithmetic tests cannot replace a scope and dummy load with the
+//! boiler disconnected; LEDC stays out of the firmware.
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use crate::units::{Duty, Millis};

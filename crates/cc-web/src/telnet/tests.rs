@@ -1,9 +1,4 @@
-//! Tests for [`crate::telnet`], the portable half of the Wi-Fi log stream.
-//!
-//! What is being pinned here is mostly the *numbers* — the shed floor, the ring
-//! capacity, the one-client cap, the flush bound. Each is a judgement someone will
-//! otherwise "tidy" (to 32768, to `RING_ENTRIES / 2`, to "why not allow two
-//! terminals") without the RAM budget behind it. The module docs carry that budget.
+//! Pin the log stream's RAM budget, shed floor, client cap, and flush bound.
 
 use alloc::format;
 use alloc::string::{String as StdString, ToString as _};

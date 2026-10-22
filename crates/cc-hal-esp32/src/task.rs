@@ -390,28 +390,10 @@ impl ParameterHandoff {
         &self.queue
     }
 
-    /// The **current** values, for `GET /api/parameters`.
+    /// Publish rendered live parameters for GET without copying borrowed field values.
     ///
-    /// # Why this exists
-    ///
-    /// The GET used to render from the `Config` captured when the HTTP server
-    /// was built — the boot snapshot. So a write via `POST /api/parameters` took
-    /// effect in the running machine immediately (the control task applies it)
-    /// and in NVS, and the very next read still reported the **old** number. The
-    /// human's report was "I enabled pid, the UI said successful, but the PID is
-    /// still disabled" — and the UI was not lying, it was reading a stale
-    /// snapshot.
-    ///
-    /// So the control task publishes the **rendered body** it would have
-    /// served, and the GET sends that. One `String` per heartbeat rather than
-    /// 98 copied values, and no lifetime to get wrong: `LiveValue::Text` borrows
-    /// from the `Config`, so a value list could not have crossed this boundary
-    /// without either leaking every field once a second or inventing a second
-    /// owned enum to hold the same five variants.
-    ///
-    /// A read that finds nothing published yet returns `None` rather than an
-    /// empty list, so the caller can answer from the boot snapshot instead of
-    /// pretending a machine has no parameters.
+    /// Before the first publication, readers get `None` and fall back to the boot
+    /// snapshot rather than reporting an empty schema.
     pub fn publish_live(&self, body: alloc::string::String) {
         if let Ok(mut slot) = self.live.lock() {
             *slot = Some(alloc::sync::Arc::new(body));
@@ -504,32 +486,11 @@ impl ParameterHandoff {
         self.applied.load(core::sync::atomic::Ordering::Acquire)
     }
 
-    /// Stage a request and wait, bounded, for the control task to apply it.
+    /// Stage a request and wait for control to apply it and publish live values.
     ///
-    /// Returns `false` if the request could not be staged, or if the control
-    /// task had not applied it within [`PARAMETER_ACK_TIMEOUT_MS`].
-    ///
-    /// # Why the handler waits at all
-    ///
-    /// The human's report: *save a parameter, the UI immediately refetches, and
-    /// the old value comes back — so the toggle flips back*. Three latencies
-    /// stack up between `POST /api/parameters` and the next `GET`:
-    ///
-    /// 1. the request is staged and the control task has not run yet — up to one
-    ///    control period;
-    /// 2. the control task applies it and writes NVS, which is a flash write;
-    /// 3. the GET is answered from `publish_live`, which until now only ran on
-    ///    the 1 s heartbeat — so even a value applied in step 2 was not visible
-    ///    to a reader for up to a second afterwards.
-    ///
-    /// Step 3 is fixed by publishing immediately after the apply. Steps 1 and 2
-    /// are inherent to keeping the configuration in one task: the store has one
-    /// owner, and the only way to reach it is to ask that owner and wait.
-    ///
-    /// A bounded wait buys the same guarantee without giving the httpd task a
-    /// handle on the store or the machine. It is bounded
-    /// because the alternative — answering `200` and hoping — is the lie the
-    /// human reported, and an unbounded wait would be a hung web server.
+    /// Otherwise an immediate UI refetch could return the old setting and undo its
+    /// displayed toggle. Returns false on staging failure or after
+    /// [`PARAMETER_ACK_TIMEOUT_MS`]; the HTTP task never owns the store.
     #[must_use]
     pub fn stage_and_wait(&self, request: ParameterRequest) -> bool {
         use core::sync::atomic::Ordering;

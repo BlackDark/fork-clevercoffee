@@ -1,37 +1,9 @@
-//! Telling an operator that another firmware's settings are still on the chip,
-//! and that this firmware does not read them.
+//! Boot warnings for settings found in another firmware's NVS namespace.
 //!
-//! # The mechanism, in one sentence
-//!
-//! The two stores use **different NVS namespaces**, so a machine that has run
-//! another firmware has not lost its configuration: this firmware never opens the
-//! namespace those settings are in, and boots on its compiled-in defaults, which
-//! carry no SSID.
-//!
-//! # Why this is a module and not a log line in `bring_up_config`
-//!
-//! Because the only thing here that needs an ESP32 is *enumerating one
-//! namespace's keys*, and `cc_hal_esp32::nvs::probe_predecessor` is that and
-//! nothing else. Everything a reader would want to test — that the
-//! message fires only when this firmware's own store is empty, that a namespace
-//! which cannot be opened produces a different sentence, that both sentences
-//! fit the log ring's line budget — is a pure function of one enum, and
-//! `just test` reaches all of it. It belongs beside [`crate::blob_store`] because that
-//! is where [`crate::blob_store::NAMESPACE`] and the decision *not* to read a
-//! partition another firmware wrote are documented, and splitting those two facts
-//! across two modules is how they drift.
-//!
-//! # ⚠ There is deliberately no migration, and this is the whole of it
-//!
-//! A migration would mean reimplementing the old store's key derivation and its
-//! per-parameter type table, and then writing the result into the **one**
-//! configuration slot a machine has, with no rollback. On a device
-//! that heats a boiler to 150 °C, that is a bad trade for values that are
-//! nearly all within a whisker of their defaults — and the credentials, the
-//! only parameters whose loss is actually felt, are re-entered in seconds over
-//! a UART that the firmware already has. Detection plus one sentence is the
-//! right size of answer. `blob_store`'s module documentation carries the full
-//! reasoning; this module is where the operator-facing consequence of it lives.
+//! Those settings are left untouched and never imported. With no configuration in
+//! its own namespace, this firmware boots with defaults and no SSID; credentials
+//! must be provisioned again over UART. [`crate::blob_store`] owns that storage policy.
+//! Only the namespace probe needs hardware; message selection stays portable.
 
 /// The NVS namespace a machine that ran another firmware stored its parameters
 /// under.

@@ -1,28 +1,8 @@
-//! The Honeywell ABP2 pressure sensor: a command-then-read device, polled without blocking.
+//! Non-blocking command/read pipeline for the Honeywell ABP2.
 //!
-//! # The blocking read this replaces
-//!
-//! The read this driver takes over was one call that wrote a command, slept 10 ms unconditionally,
-//! and read the response back:
-//!
-//! ```text
-//! write command -> delay(10 ms) -> read 7 bytes
-//! ```
-//!
-//! Its caller ran that every **50 ms**, so one fifth of every control-loop iteration was asleep --
-//! whether or not anything was brewing, forever.
-//!
-//! The fix is structural, not an optimisation: the ABP2 is a command-then-read device, so the 10 ms
-//! is a *deadline to wait until*, not a *duration to sit through*. [`Driver::poll`] writes the
-//! command on one tick and reads on a later one, and the waiting happens in the caller's own sleep.
-//! The loop does 0 ms of pressure-related blocking, and the update rate stays 20 Hz.
-//!
-//! # The error checking
-//!
-//! Both the write's acknowledgement and the read's byte count are checked, and that is a deliberate
-//! behaviour difference. It is
-//! the safe direction: the alternative is a plausible-looking pressure built from bytes the sensor
-//! never sent, feeding the brew pressure control.
+//! Treat the 10 ms conversion wait as a deadline, not a sleep inside the control
+//! tick. Check command acknowledgement and read length; incomplete transfers
+//! must not become plausible pressure values.
 
 use cc_domain::units::{Bar, Celsius, Millis};
 

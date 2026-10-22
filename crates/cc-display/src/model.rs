@@ -1,19 +1,7 @@
-//! The input a template reads, and the config it reads.
+//! Value snapshots for rendering, without access to live machine state.
 //!
-//! A template reads two things: the machine's current observables and the
-//! display's configuration. Neither a service locator nor a global configuration
-//! exists on the host, and neither should be reconstructed here — the display
-//! needs a *snapshot*, not the machine.
-//!
-//! So this is [`DisplayInput`]: a plain value holding exactly the fields the
-//! display code reads, plus [`Config`], a plain value holding exactly the
-//! parameters the display code reads. The device builds them in `cc-firmware`
-//! from the machine's own types; the host tests build them directly, which is
-//! what makes every screen golden-testable.
-//!
-//! The mapping lives in `cc-firmware`'s `build_display_input()`, so a field added
-//! to the machine and forgotten here is a compile error at the call site rather
-//! than a silently stale screen.
+//! Firmware maps observables into [`DisplayInput`] and display settings into
+//! [`Config`]; host tests construct the same values directly.
 
 use cc_domain::state::MachineState;
 

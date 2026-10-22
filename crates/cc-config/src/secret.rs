@@ -1,14 +1,6 @@
-//! A string that refuses to print itself.
+//! Re-export [`cc_domain::secret::Secret`] with transparent serialization enabled.
 //!
-//! The type lives in `cc-domain` — see [`cc_domain::secret`] for the rationale,
-//! which is mostly about the fifth credential-bearing field (the UART
-//! provisioning password) that is not part of a `Config` at all.
-//!
-//! This module re-exports it so that `cc_config::Secret` — the path
-//! `cc-config`'s own `Config` API uses, and the path its documentation and
-//! tests refer to — keeps working. The `serde` impls are enabled here, because a
-//! `Config` has to round-trip through the store and the web API with its
-//! credentials intact.
+//! Diagnostics redact credentials; storage and config downloads retain their values.
 //!
 //! ```
 //! extern crate alloc;

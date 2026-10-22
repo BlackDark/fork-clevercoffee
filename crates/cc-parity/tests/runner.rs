@@ -1,9 +1,4 @@
-//! The binary's contract: `list` sees the scenario set, and `run` produces a
-//! parseable observation.
-//!
-//! Both go through the real `cc-parity` binary rather than the library, because
-//! the binary is what a human and a script call; a library function that works
-//! while the CLI misparses its arguments is not the thing anyone uses.
+//! Exercise the real CLI so argument parsing and JSON output are covered.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

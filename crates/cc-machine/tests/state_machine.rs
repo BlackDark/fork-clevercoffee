@@ -1,13 +1,6 @@
-//! The reducer's contract with the caller: one transition, no unknown states, no effects before
-//! boot.
+//! Caller contract: one transition, no re-entry, and no effects before boot.
 //!
-//! These are the properties a caller relies on and the state tables cannot show: a `reduce` call
-//! moves the machine at most once, a self-transition is discarded rather than re-entered, an
-//! uninitialised machine consumes every event, and an unrecognised state id is refused rather
-//! than acted on.
-//!
-//! The last test exercises the actuator port directly: an effect is only worth emitting if
-//! something maps it to hardware.
+//! Also check unknown state IDs and the applier's actuator routing.
 
 mod common;
 

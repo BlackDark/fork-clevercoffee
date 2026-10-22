@@ -1,30 +1,8 @@
-//! The two bodies `cc-hal-esp32` cannot build without a socket, as pure
-//! functions: `GET /api/parameter-help` and the server-wide `404`.
+//! Parameter-help and missing-route responses, independent of sockets.
 //!
-//! # Why these two and nothing else
-//!
-//! Both are wrong in the same way: **the status line does not match the body.** An
-//! error object arrived with `200`, so every third-party client read a failure as a
-//! success; a `/api/*` path that matched no route got a plain-text `404`, so a
-//! client that parses JSON got a parse error instead of a diagnosable answer.
-//! Neither is a socket question.
-//!
-//! What is left in the HAL is the part that *is* a socket question:
-//! `cc_hal_esp32::web` reads `?param=` off the request and writes the bytes, and
-//! `cc_hal_esp32::web_async` registers the 404 through
-//! `httpd_register_err_handler`, which `esp-idf-svc` 0.53.0 does not wrap.
-//!
-//! # Status codes, and why each one
-//!
-//! * **`200`** — the name named a parameter. The body is
-//!   `{"name":…,"helpText":…}`.
-//! * **`404`** — the name named no parameter. Not `200`, because "this firmware
-//!   has no such parameter" is a fact about the request, not a successful lookup.
-//! * **`422`** — there was no `param` at all, and not `400`: `422 Unprocessable
-//!   Content` names exactly this, a request missing a required query key.
-//!
-//! A `404` that arrives *with* the right body is still an improvement over an error
-//! object that arrives with a success, so the codes are not cosmetic here.
+//! Known parameters return 200, unknown names 404, and missing `param` keys 422.
+//! Unmatched API routes return JSON so clients can decode the error.
+//! ESP-IDF registration and response writes remain in the HAL.
 
 use alloc::format;
 use alloc::string::String;

@@ -1,24 +1,4 @@
-//! Proof that the reducer is a pure function.
-//!
-//! The acceptance criterion has three parts, and each gets a test:
-//!
-//! 1. **Deterministic** — the same `(state, ctx, event)` twice gives the same
-//!    result. [`the_same_input_twice_gives_the_same_result`]
-//! 2. **Non-mutating** — `reduce` does not change its input. Checked by
-//!    clone-and-compare, over every state and every event.
-//!    [`reduce_does_not_mutate_its_input`]
-//! 3. **Referentially transparent** — the result depends only on its arguments,
-//!    not on any history. [`the_result_depends_only_on_its_arguments`] reaches
-//!    the same state from two different paths and asserts the two agree, and
-//!    [`two_identical_machines_stay_identical`]
-//!
-//! # Why this is not a formality
-//!
-//! The reducer's whole claim is that the control loop can be tested
-//! exhaustively on a host. That claim collapses if any of the three fails: a
-//! reducer that mutates its input is a reducer whose behaviour depends on what
-//! ran before it, and the `state × event` table would then be describing a
-//! different machine on every row.
+//! Check determinism, unchanged inputs, and independence from prior event history.
 
 mod common;
 

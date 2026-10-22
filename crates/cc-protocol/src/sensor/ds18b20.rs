@@ -1,50 +1,11 @@
-//! The DS18B20 driver: a non-blocking pipeline with an accept/reject decision.
+//! Non-blocking DS18B20 conversion pipeline with explicit fault classification.
 //!
-//! # The pipeline
+//! An 11-bit conversion takes 375 ms; the 400 ms cadence leaves 25 ms slack.
+//! Faster polling returns [`Poll::Waiting`] rather than a stale scratchpad.
 //!
-//! ```text
-//!   poll(now) ──▶ CONVERT T issued ──▶ (>= 375 ms elapse) ──▶ read scratchpad
-//!                                                                    │
-//!                                                       CONVERT T ───┘
-//! ```
-//!
-//! The cadence belongs to the caller: `Timing::TEMPERATURE_SENSOR_INTERVAL_MS` is **400 ms** and
-//! [`CADENCE`] is that number.
-//!
-//! 400 ms against an 11-bit conversion time of 375 ms leaves 25 ms of slack, so the conversion
-//! started on the previous tick has always finished. [`Driver::poll`] enforces the conversion time
-//! explicitly rather than relying on the caller's cadence being long enough, so a caller that polls
-//! faster than 375 ms gets [`Poll::Waiting`] instead of a stale reading.
-//!
-//! # The accept/reject decision
-//!
-//! Every value the bus can report is either a temperature or one of seven named faults: the six the
-//! datasheet defines, plus `OutOfRange`, which this driver adds.
-//!
-//! | fault | the value on the wire | rejected? |
-//! | --- | --- | --- |
-//! | `Disconnected` | -127 | yes |
-//! | `Open` | -127 | yes |
-//! | `ShortGnd` | -127 | yes |
-//! | `ShortVdd` | -127 | yes |
-//! | `PowerOnReset` | -127 | yes |
-//! | `InsufficientPower` | -127 | yes |
-//! | `OutOfRange` | a real count outside `-50 ..= 150` | yes |
-//!
-//! Two things to read out of that table.
-//!
-//! **Every fault carries the same -127 sentinel, and that is the finding.** The scratchpad decode
-//! folds all six of the datasheet's fault values to one, so a caller that reads only the sentinel
-//! cannot tell a power-on reset from an unplugged probe, and the diagnostic it prints points an
-//! operator at the wiring when the fault is on the probe. This driver keeps the [`Ds18b20Fault`],
-//! so the reason survives to the log line and to `SENSOR_ERROR`. Pinned by
-//! `cc_protocol::sensor::onewire::div7_every_ds18b20_fault_is_rejected`.
-//!
-//! **The last row is a deliberate divergence.** A reading above 150 °C is refused, so a 155 °C
-//! reading -- which the sensor can put on the wire but which is outside the DS18B20's specified
-//! -55..125 °C span -- arrives as a *sensor read failure* rather than as a temperature. After ten
-//! of them the machine reaches `SENSOR_ERROR` instead of handing the number to the PID. The heater
-//! is off in both cases, so nothing unsafe is accepted; what changes is what the operator is told.
+//! Keep [`Ds18b20Fault`] distinctions instead of collapsing failures to -127.
+//! Readings outside -50..=150 °C are rejected as sensor failures; repeated failures
+//! reach `SENSOR_ERROR` rather than sending an invalid temperature to the PID.
 
 pub use crate::sensor::onewire::Ds18b20Fault;
 use crate::sensor::onewire::{self, OneWireBus, OneWireError, Rom, RomSelection, ScratchPad};

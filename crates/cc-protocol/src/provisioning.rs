@@ -1,107 +1,23 @@
-//! The UART Wi-Fi provisioning line protocol: the parser and its state machine.
+//! Allocation-free UART Wi-Fi command parser with borrowed credential replies.
 //!
-//! # Why UART and not a captive portal
+//! After `wifi set <ssid>`, accept either `wifi pass <password>` without a deadline
+//! or a positional password within [`PASSWORD_WINDOW_MS`]. Credentials travel over
+//! UART, never host argv, and must not be echoed or logged.
 //!
-//! The chip has no USB peripheral (AG-REPO-10), so provisioning over a serial console is the one
-//! mechanism that always works. The recovered firmware implemented exactly this,
-//! and the log line it
-//! left in the boot log is the specification:
+//! Commands require exact `wifi ` at offset zero, a whole newline-terminated line,
+//! and optional trailing CR. Discard overlong lines whole to resynchronise without
+//! accepting a truncated credential. While armed, the next positional line is the
+//! password; exact [`PASS_PREFIX`] still takes precedence as a command.
+//! Thus a positional password beginning with `wifi pass ` is interpreted as that
+//! command, not as the literal password. The provisioning script uses command form.
 //!
-//! ```text
-//! cc_firmware::serial_wifi: serial: WiFi commands available.
-//!   `wifi set <ssid>` then the password on the next line, `wifi clear`,
-//!   `wifi status`, `wifi apply`.
-//! ```
+//! Hand-written `Debug` implementations and [`Reply::describe`] expose command
+//! names only. Copy accepted credentials directly into `Secret`; the parser's
+//! borrowed password lasts only until the next line overwrites it.
 //!
-//! # Two ways to give the password
-//!
-//! 1. `wifi set <ssid>`, then the password **as an argument**: `wifi pass <password>`.
-//!    No window, no deadline arithmetic, nothing dependent on the console task's
-//!    loop rate. **This is what `scripts/wifi_provision.py` uses**, because a
-//!    window that must stay open across a USB serial session is a window a watchdog
-//!    can close.
-//! 2. `wifi set <ssid>`, then the password **on the next line**, positionally,
-//!    inside a 30 s window ([`PASSWORD_WINDOW_MS`]). The oracle's form; it stays
-//!    because an operator typing by hand must not be broken by a change made to
-//!    suit a script.
-//!
-//! Form 1 exists because of the other half of the reason the positional form was
-//! chosen: `argv` is world-readable. On a host, `wifi set mynet hunter2` puts the
-//! password in `ps` output for any user on the machine and in the shell history
-//! file forever. On the device UART0 *is* the log stream, so anything typed there
-//! is likewise visible to whatever reads the console. A password on a following
-//! line is a thing a human types without it appearing in a process listing, and it
-//! is what the oracle did. Neither form changes that: `wifi pass` is still typed on
-//! the wire, not passed in `argv`, and the device never echoes or logs it.
-//!
-//! # What this type is and is not
-//!
-//! A **pure state machine**: bytes in, [`Reply`] out, no I/O, no clock of its own, **no `alloc`**.
-//! A parser that must allocate to hold a 32-byte SSID can fail where a stack buffer cannot. The
-//! caller (in `cc-hal-esp32`) owns the UART, the line reader, the NVS write, and the
-//! `alloc::string::String` the credential ends up in.
-//!
-//! That split makes the whole protocol — every rejection path included — a host
-//! unit test, and is the same split [`heater`](cc_domain::heater) uses.
-//!
-//! # A credential cannot be printed, because the type cannot print it
-//!
-//! [`Reply`] deliberately does **not** implement `Debug`. A derived `Debug` on a type that can
-//! hold a password is one that prints it, and a log site is one `{:?}` away. Instead:
-//!
-//! * [`Reply`] and [`Accepted`] have hand-written `Debug` impls printing the command
-//!   *name* and never the argument, so `{:?}` is safe at a log site and
-//!   `assert_eq!` still works. Written out rather than derived precisely so a new
-//!   [`Accepted`] variant does not automatically gain a derived `Debug` that prints
-//!   its payload.
-//! * [`Reply::describe`] returns a `&'static str` naming the command, never its
-//!   argument.
-//! * The password is returned as a `&str` **borrowed from the parser**, so it is
-//!   only ever a temporary. The caller copies it into a
-//!   `cc_domain::secret::Secret<String>` on the spot; the parser's copy is
-//!   overwritten by the next line and the parser is dropped at the end of the
-//!   provisioning task.
-//!
-//! # The framing, and why it is unambiguous
-//!
-//! UART0 is a shared wire: log stream and operator on one. Four rules make "which
-//! bytes are a command" decidable, and each is a function a test can call.
-//!
-//! 1. **A command is a whole line, and only a whole line.** Terminated by `\n`; a
-//!    trailing `\r` is stripped. No character-count prefix and no terminator
-//!    escape, because a password could contain either.
-//! 2. **A command line begins with the exact 5 bytes `wifi ` at offset 0.** No
-//!    leading whitespace, no case folding, no aliases. Nothing this firmware's
-//!    logger emits can begin with those bytes: ESP-IDF's `log` format is
-//!    `<I|W|E|D|V><space>(<ms>)<space><tag>: <message>`
-//!    (`esp_log_write` in `components/log/esp_log.c`), so a log line starts with a
-//!    level letter, a space or a digit — never `wifi `. A pinned test asserts the
-//!    parser ignores every one of those prefixes.
-//! 3. **The password line is accepted only in a state no other line can reach**,
-//!    and consumed positionally. `set` arms the parser, the *next* line is the
-//!    password, the line after that is a command again. No keyword precedes it,
-//!    because a keyword would be typed before the password and so would be part of
-//!    what a shoulder-surfer or a pasted `script` captures — and because an
-//!    unparseable password (`wifi`-prefixed, over-long, non-UTF-8) then simply
-//!    *fails to be a credential* instead of corrupting the parser.
-//!    **The one exception is [`PASS_PREFIX`].** A line beginning with the exact
-//!    10 bytes `wifi pass ` is a command even while the parser is armed, which is
-//!    what makes form 1 windowless. A passphrase that literally begins with
-//!    `wifi pass `, typed positionally, is therefore taken as the command — a
-//!    deliberate trade for a pathological passphrase, in exchange for a protocol
-//!    a script cannot be defeated by timing.
-//! 4. **An over-long line is discarded whole, and the parser resynchronises.**
-//!    Lines longer than [`MAX_LINE_BYTES`] cannot be commands (none is that long)
-//!    and are not passwords (a WPA passphrase is at most 63 ASCII characters).
-//!    Discarding the whole overrun rather than truncating stops a long paste being
-//!    silently read as a short valid credential.
-//!
-//! A fifth rule is the caller's to keep, stated here because the parser cannot
-//! enforce it: **the caller must not interleave log output into the one-line
-//! password window.** The parser cannot tell a log line from a password once armed,
-//! so the caller mutes the log stream between `set` and the password line.
-//! `cc-hal-esp32` does this; see `cc_hal_esp32::provisioning` for the window length
-//! and why it is bounded.
+//! The caller must prevent incoming log bytes from becoming positional passwords.
+//! The parser cannot distinguish them while armed; see the HAL's UART separation
+//! and bounded-window handling.
 
 /// The longest line the parser will consider, in bytes.
 ///
