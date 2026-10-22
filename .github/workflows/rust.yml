@@ -28,7 +28,7 @@ name: Rust firmware
 # first version of this workflow failed.
 #
 # So: the host gate compiles the portable crates (`cc-domain`, `cc-safety`,
-# `cc-config`, `cc-machine`, `cc-display`, `cc-web`, `cc-mqtt` — all `#![no_std]`, all
+# `cc-config`, `cc-machine`, `cc-display`, `cc-protocol`, `cc-net` — all `#![no_std]`, all
 # host-testable) on a stock toolchain, which is also what makes the workspace's
 # `rust-version = "1.82"` claim verifiable instead of decorative. The device gate
 # compiles the firmware on the pinned Xtensa fork.
@@ -297,12 +297,18 @@ jobs:
       - name: Restore the ESP-IDF build and the device target dir
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
+          # `target/debug` and `target/release` hold the HOST half of the device
+          # build: build scripts and proc-macros (`--target` puts them there).
+          # Uncached, every run rebuilt them and with them every dependent --
+          # ~170 crates, std included, in both clippy and the release build.
           path: |
             .embuild
             target/xtensa-esp32-espidf
-          key: esp32-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.ESP_IDF_VERSION }}-${{ env.ESP_IDF_SYS_ROOT_CRATE }}-${{ env.RUSTFLAGS }}-${{ hashFiles('components_esp32.lock', 'Cargo.lock', '.mise.toml', 'rust-toolchain.toml', '.cargo/config.toml', 'rust/partitions_4M.csv') }}
+            target/debug
+            target/release
+          key: esp32-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.ESP_IDF_VERSION }}-${{ env.ESP_IDF_SYS_ROOT_CRATE }}-${{ env.RUSTFLAGS }}-${{ hashFiles('components_esp32.lock', 'Cargo.lock', '.mise.toml', 'rust-toolchain.toml', '.cargo/config.toml', 'rust/partitions_4M.csv') }}
           restore-keys: |
-            esp32-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.ESP_IDF_VERSION }}-${{ env.ESP_IDF_SYS_ROOT_CRATE }}-${{ env.RUSTFLAGS }}-
+            esp32-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.ESP_IDF_VERSION }}-${{ env.ESP_IDF_SYS_ROOT_CRATE }}-${{ env.RUSTFLAGS }}-
 
       # A cached `target/` cannot make a build pass on OLD code, and that is worth
       # stating rather than assuming. `actions/cache` uses tar, which preserves
@@ -331,6 +337,10 @@ jobs:
           # recompiles anyway.
           path: ~/.cargo/registry
           key: cargo-reg-v1-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          # A lockfile change re-downloads only what changed. A full re-download
+          # gives every source a new mtime, and cargo then rebuilds every crate.
+          restore-keys: |
+            cargo-reg-v1-${{ runner.os }}-
 
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
@@ -495,6 +505,23 @@ jobs:
           path: docs/operations/image-size/size-records.jsonl
           if-no-files-found: error
 
+      # Last step, so it runs before the post-job cache save. Drops what a
+      # restore can never reuse: the tool archives idf_tools already unpacked,
+      # and the workspace crates' artifacts, which checkout's fresh mtimes make
+      # stale on every run. Smaller cache, faster restore and save.
+      - name: Prune the device cache before it is saved
+        run: |
+          rm -rf .embuild/espressif/dist
+          shopt -s nullglob
+          for profile in target/xtensa-esp32-espidf/debug target/xtensa-esp32-espidf/release \
+                         target/debug target/release; do
+            for dir in "$profile/deps" "$profile/.fingerprint" "$profile/build"; do
+              rm -rf "$dir"/libcc_* "$dir"/cc_* "$dir"/cc-* "$dir"/firmware*
+            done
+            rm -rf "$profile"/firmware* "$profile/incremental"
+          done
+          du -sh .embuild target
+
   # ---------------------------------------------------------------- invariants
   #
   # Cheap greps that encode rules this workspace depends on and that a compiler
@@ -520,8 +547,7 @@ jobs:
 
 
       - name: The portable crates must not name esp-idf in CODE
-        # cc-domain, cc-safety, cc-config, cc-machine, cc-display, cc-web and
-        # cc-mqtt are
+        # The portable crates are
         # `#![no_std]` and host-testable. An `esp_idf_*` import in any of them
         # breaks every host test and every IDE's background check, and it is
         # invisible until it does.
