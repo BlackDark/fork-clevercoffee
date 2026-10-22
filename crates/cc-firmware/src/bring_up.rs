@@ -83,30 +83,172 @@ const DISPLAY_STACK_BYTES: usize = 8 * 1024;
 /// gave 111/136, with the same 32 ms worst case. Sampling did not cause the overrun.
 const BRING_UP_SCALE: bool = false;
 
-/// The startup sequence, in order.
-#[allow(
-    clippy::too_many_lines,
-    reason = "the ordering is the one property that matters here and it is read \
-              as a list: the actuators are driven inactive before the sensor, \
-              the sensor before the network, and the network before any task \
-              exists. Splitting it would hide that."
-)]
+/// The startup sequence. The order is the safety property: the actuators are
+/// driven inactive and read back before the configuration is loaded, the
+/// configuration before any peripheral that depends on it, and the network before
+/// any task exists.
 pub(crate) fn bring_up() -> Result<(), Box<dyn Error>> {
     let peripherals = Peripherals::take()?;
-
-    // The pin map against the wiring, before a single pin is configured.
-    //
-    // `cc_hal_esp32::pins` holds the numbers every log line below prints; the
-    // `peripherals.pins.gpio<NN>` fields are what the machine is actually wired
-    // to. Nothing about `esp-idf-hal` 0.47's typed pin fields lets the second
-    // be derived from the first without `unsafe` — so this checks, once, and
-    // panics with both numbers if they ever disagree. Without it, changing either
-    // side silently makes the boot log describe a machine that is not the one that
-    // booted, which is the one failure a pin map exists to prevent.
+    // The pin map against the wiring, before any pin is configured: every number
+    // the log prints comes from `pins`, and this panics if the two disagree.
     pins::assert_wiring(&peripherals);
-    // The **complete** map, so this one line answers "what is this board
-    // actually wired as". Every other pin line below is a subset of it, printed
-    // from the same constants.
+    log_pin_map();
+
+    // Moved into the control task, so the watchdog subscription is that task's.
+    let twdt = peripherals.twdt;
+    // Not taken at all, so no edit can reach an LEDC duty write by accident.
+    // `Peripherals` is `#[non_exhaustive]` and must be taken whole.
+    let _ = peripherals.ledc;
+
+    let mut actuators = secure_actuators(
+        peripherals.pins.gpio17,
+        peripherals.pins.gpio27,
+        peripherals.pins.gpio2,
+    )?;
+
+    // Pins are reserved now, unconditionally, and their drivers built once the
+    // configuration says how: a configuration flag must never decide which pins
+    // the rest of the firmware gets from the one `Peripherals::take`. All are
+    // inputs or LEDs, taken after the readback, so none can move a relay.
+    let scale_pins = ScalePins {
+        data_1: peripherals.pins.gpio32,
+        data_2: peripherals.pins.gpio25,
+        clock: peripherals.pins.gpio33,
+    };
+    // The ABP2 and the SSD1306 share this bus.
+    let shared_i2c = shared_bus(I2cPins {
+        peripheral: peripherals.i2c0,
+        sda: peripherals.pins.gpio21,
+        scl: peripherals.pins.gpio22,
+    });
+    // GPIO26 and GPIO19 only: the steam LED would be GPIO1, the console's TXD.
+    let led_pins = LedPins {
+        status: peripherals.pins.gpio26,
+        brew: peripherals.pins.gpio19,
+    };
+    let switch_pins = SwitchPins {
+        power: peripherals.pins.gpio39,
+        brew: peripherals.pins.gpio34,
+        steam: peripherals.pins.gpio35,
+        hot_water: peripherals.pins.gpio36,
+        water_tank: peripherals.pins.gpio23,
+    };
+
+    let network::Booted {
+        config,
+        mut store,
+        nvs_description,
+        ..
+    } = load_config()?;
+
+    apply_relay_polarities(&mut actuators, &config);
+    let leds = bring_up_leds(led_pins, &config);
+    // After the configuration, which selects the driver; a read-only pin.
+    let temp_sensor = bring_up_temperature_sensor(peripherals.pins.gpio16, &config)?;
+    let sampler = start_scale(scale_pins, &config, &mut store);
+    // Fatal, unlike the scale: without the switches the machine accepts web
+    // commands it cannot be overridden on.
+    let switches = SwitchBank::new(
+        switch_pins.power,
+        switch_pins.brew,
+        switch_pins.steam,
+        switch_pins.hot_water,
+        switch_pins.water_tank,
+        &config,
+    )?;
+
+    let tier = start_network_tier(
+        peripherals.modem,
+        peripherals.uart0,
+        peripherals.pins.gpio1,
+        peripherals.pins.gpio3,
+        &config,
+        &nvs_description,
+    )?;
+
+    // Leaked: its two users run in different tasks (the ABP2 in control, the
+    // panel in display) and both need `&'static`. It lives for the whole program
+    // because both users do; a leak says so where a borrow would lie.
+    let shared_i2c: Option<&'static cc_hal_esp32::display_shared::SharedBus> =
+        shared_i2c.map(|bus| &*Box::leak(Box::new(bus)));
+
+    let frame = Arc::new(slots::FrameSlot::new());
+    let display = display_task_for(&config, shared_i2c, &frame, &tier.net);
+
+    // Built here, in this 16 KB frame, so the closure carries a pointer; see
+    // `ControlArgs` for why a by-value bundle overflowed the control stack.
+    let args = Box::new(control_task::ControlArgs {
+        actuators,
+        leds,
+        switches,
+        shared_i2c,
+        temp: temp_sensor,
+        net: Arc::clone(&tier.net),
+        commands: Arc::clone(&tier.commands),
+        frame,
+        parameters: Arc::clone(&tier.parameters),
+        // Authoritative from here; the HTTP server's boot copy goes stale until a
+        // live publication replaces it.
+        config,
+        mqtt_configured: tier.mqtt_configured,
+        store,
+        sampler,
+        handoff: tier.handoff.clone(),
+        // `Send`, and polled by the only task whose stalls are already fatal.
+        sta: tier.sta,
+    });
+    let control = cc_hal_esp32::task::spawn_with_prio(
+        c"control",
+        CONTROL_STACK_BYTES,
+        cc_hal_esp32::task::CONTROL_PRIO,
+        move || {
+            if let Err(err) = control_task::run(twdt, args) {
+                error!("control task failed: {err}");
+            }
+        },
+    )?;
+
+    // After the control task, so the watchdog is subscribed before anything else
+    // moves. There is no sensor task: see `sensor_task.rs` (recheck 2027-01).
+    spawn_display(display);
+
+    // `tier` holds the HTTP server and the event loop in this frame, which does
+    // not return while the control task runs: their `Drop`s would stop the httpd
+    // task and delete the default event loop.
+    control.join().map_err(|_| "control task panicked")?;
+    Ok(())
+}
+
+/// The configuration, through the fail-closed rule.
+///
+/// Before Wi-Fi: the SSID and hostname come out of it, and a discarded
+/// configuration is the first thing an operator with a misbehaving machine reads.
+fn load_config() -> Result<network::Booted, EspError> {
+    let booted = network::bring_up_config()?;
+    info!(
+        "nvs: {} — the predecessor firmware's `config` namespace is a different key \
+         space and is ignored by design",
+        booted.nvs_description
+    );
+    info!("nvs: the boot decision was `{:?}`", booted.origin);
+    Ok(booted)
+}
+
+/// Start the display task. A failure costs the panel, not the machine.
+fn spawn_display(display: Box<display_task::DisplayTask>) {
+    let spawned = cc_hal_esp32::task::spawn_with_prio(
+        c"display",
+        DISPLAY_STACK_BYTES,
+        cc_hal_esp32::task::DISPLAY_PRIO,
+        move || display.run(),
+    );
+    if let Err(err) = spawned {
+        error!("display task could not be spawned: {err}");
+    }
+}
+
+/// The complete pin map in one line: "what is this board wired as".
+fn log_pin_map() {
     info!(
         "pins: heater=GPIO{} valve=GPIO{} pump=GPIO{} switch power=GPIO{} \
          brew=GPIO{} steam=GPIO{} hot_water=GPIO{} tank=GPIO{} \
@@ -129,45 +271,32 @@ pub(crate) fn bring_up() -> Result<(), Box<dyn Error>> {
         pins::UART_TX,
         pins::UART_RX,
     );
+}
 
-    // The TWDT driver is *moved* into the control task, so the watchdog
-    // subscription belongs to the control task and to nothing else.
-    let twdt = peripherals.twdt;
-    // The LEDC peripheral is deliberately left unused: not taking it at all means
-    // no future edit can reach a duty write by accident.
-    //
-    // `Peripherals` is `#[non_exhaustive]` and must be taken whole, so the field
-    // is dropped with it. The comment is the record; the type is 4 bytes.
-    let _ = peripherals.ledc;
-
-    // 2. The two plain actuator pins to `inactive`, in `main`, before any task
-    //    exists, so there is no window in which a task could observe them
-    //    un-driven.
-    let water_valve = drive_inactive(peripherals.pins.gpio17, "water valve")?;
-    let pump = drive_inactive(peripherals.pins.gpio27, "pump")?;
-
-    // 3. The heater pin, driven **inactive and read back** before anything else
-    //    touches it. This is the only moment at which the heater pin can be read
-    //    back as a pin: the 10 ms ISR takes ownership of it immediately after,
-    //    and from then on the firmware's view of the pin is the ISR's record of
-    //    what it drove.
-    let heater_pin = drive_inactive(peripherals.pins.gpio2, "heater")?;
+/// Drive the three actuator pins inactive, read each back, and hand them to the
+/// actuator facade. Panics on a failed readback: nothing may run with an actuator
+/// in a state the machine does not consider safe.
+///
+/// The heater is read back as a pin only here; the 10 ms ISR owns it from then
+/// on, starting **disarmed** until the control task opens the gate. There is no
+/// LEDC transport anywhere (see [`HEATER_LEDC_DEFECT`]).
+///
+/// The facade starts high-trigger; [`apply_relay_polarities`] sets the configured
+/// polarity once the configuration exists.
+fn secure_actuators(
+    water_valve: esp_idf_hal::gpio::Gpio17<'static>,
+    pump: esp_idf_hal::gpio::Gpio27<'static>,
+    heater: esp_idf_hal::gpio::Gpio2<'static>,
+) -> Result<cc_hal_esp32::Actuators, EspError> {
+    let water_valve = drive_inactive(water_valve, "water valve")?;
+    let pump = drive_inactive(pump, "pump")?;
+    let heater_pin = drive_inactive(heater, "heater")?;
     assert!(
         heater_pin.is_low(),
         "startup readback failed: heater is not inactive, refusing to continue"
     );
 
-    // 4. The heater transport: a 10 ms `GPTimer` ISR.
-    //
-    //    There is no LEDC construction site in this binary and no LEDC transport
-    //    type in `cc-hal-esp32`, so there is no path on which a duty write can
-    //    reach `ledc_ll_set_duty_start` and its watchdog-eating spin. See
-    //    `HEATER_LEDC_DEFECT` above.
     info!("heater: {HEATER_LEDC_DEFECT}");
-    // The pin is already inactive and has been read back. `TimerIsrPwm` takes
-    // it, configures a 10 ms GPTimer, subscribes the ISR, and starts the timer —
-    // with the chopper **disarmed**, so the timer ticks and the pin does not move
-    // until the control task opens the gate.
     let transport = TimerIsrPwm::new(heater_pin)?;
     let heater_description = "10 ms GPTimer ISR, disarmed";
     info!(
@@ -177,19 +306,10 @@ pub(crate) fn bring_up() -> Result<(), Box<dyn Error>> {
         transport.chopper().window_ms(),
         transport.chopper().counter_ms(),
     );
-    // `max_duty = 1`: the ISR transport works in milliseconds and
-    // `HeaterOutput::set_duty` converts the count back through
-    // `cc_domain::heater::CHOSEN_MAX_DUTY`, so 1 makes the control task's `set_duty`
-    // a pure pass-through of the gate's decision with no second quantisation.
-    //
-    // **The transport choice is stated here, at its one construction site.** A
-    // target whose `ledc_ll.h` has no spin changes this line and adds a transport in
-    // `cc-hal-esp32::heater` (`HEATER_LEDC_DEFECT` above).
+    // `max_duty = 1`: the ISR works in milliseconds, so `set_duty` passes the
+    // gate's decision through with no second quantisation.
     let heater = HeaterOutput::new(transport, 1);
 
-    // 5. Read the actuator pins back and assert. A failure here means an actuator
-    //    is not in the state the machine considers safe, so nothing else may
-    //    proceed.
     let heater_inactive = !heater.transport().is_high();
     for (name, is_inactive) in [
         ("water valve", water_valve.is_low()),
@@ -209,51 +329,26 @@ pub(crate) fn bring_up() -> Result<(), Box<dyn Error>> {
         pins::PUMP,
     );
 
-    // 5b. The scale's pins, if one is configured, and nothing else yet.
-    //
-    //     The three pins are GPIO32/GPIO25 (data) and GPIO33 (clock), per
-    //     `cc_hal_esp32::pins`. They are **inputs and one clock**, so nothing here
-    //     can drive an actuator, and they are taken after the actuator readback
-    //     above rather than before it, so the readback still covers every pin that
-    //     can move a relay.
-    //
-    //     The configuration is not loaded yet at this point in the sequence, so
-    //     whether a scale is fitted is decided below, once `config` exists. What
-    //     is done here is the *pin* reservation, which is why the pins are
-    //     taken unconditionally and the driver is built later: a driver that
-    //     only sometimes exists must not be the thing that decides whether
-    //     `Peripherals::take` hands out these pins.
-    let scale_pins = ScalePins {
-        data_1: peripherals.pins.gpio32,
-        data_2: peripherals.pins.gpio25,
-        clock: peripherals.pins.gpio33,
-    };
+    let actuators = cc_hal_esp32::Actuators::new(
+        pump,
+        water_valve,
+        heater,
+        cc_hal_esp32::actuators::RelayPolarities::all_high_trigger(),
+    );
+    info!(
+        "actuators: pump=GPIO{} valve=GPIO{} heater=GPIO{} owned by the control task; \
+         no inhibit, the water path follows the reducer",
+        pins::PUMP,
+        pins::WATER_VALVE,
+        pins::HEATER,
+    );
+    Ok(actuators)
+}
 
-    // 5e. The I²C pins, reserved for whichever of the two I²C devices this
-    //     machine has fitted.
-    //
-    //     **The ABP2 and the SSD1306 share one bus** — GPIO21/22, per
-    //     `cc_hal_esp32::pins` — and that bus is a mutex-guarded shared resource.
-    //     This task takes `I2C0` for the pressure sensor and the display task shares
-    //     it. The reservation is here, next to the scale's, so the person who wires
-    //     the OLED finds the conflict at the pin stage rather than as a
-    //     `Peripherals::take` failure. See the note in `bring_up_pressure`.
-    let i2c_pins = I2cPins {
-        peripheral: peripherals.i2c0,
-        sda: peripherals.pins.gpio21,
-        scl: peripherals.pins.gpio22,
-    };
-
-    // 5b-bis. The shared I²C bus.
-    //
-    //     The ABP2 and the SSD1306 are on the same two wires (SCL 22, SDA 21)
-    //     and an ESP32 I²C peripheral has exactly one owner, so the bus is put
-    //     behind a `Mutex` **once**, here, and both users take it for the length
-    //     of one transaction. Neither user may hold it across a frame: a panel
-    //     that held the bus would starve the ABP2, and an ABP2 that held it
-    //     would make the panel flicker. `display_shared::SharedBus` is the type
-    //     that enforces this by only handing out a guard.
-    let shared_i2c = match build_shared_i2c(i2c_pins) {
+/// The I²C bus the ABP2 and the panel share, behind one mutex taken per
+/// transaction. `None` costs the pressure sensor and the panel, not the machine.
+fn shared_bus(i2c: I2cPins) -> Option<cc_hal_esp32::display_shared::SharedBus> {
+    match build_shared_i2c(i2c) {
         Ok(bus) => {
             info!(
                 "i2c: I2C0 (SDA GPIO{} SCL GPIO{}) at {} kHz, shared between the \
@@ -268,97 +363,15 @@ pub(crate) fn bring_up() -> Result<(), Box<dyn Error>> {
             warn!("i2c: the bus did not come up: {err:?} — no pressure, no display");
             None
         }
-    };
+    }
+}
 
-    // Move sole actuator ownership into control after inactive readback.
-    // Build with safe default polarities; apply stored polarities after config load
-    // and before spawning control. Any bring-up inhibit must be explicit and logged.
-    let mut actuators = cc_hal_esp32::Actuators::new(
-        pump,
-        water_valve,
-        heater,
-        cc_hal_esp32::actuators::RelayPolarities::all_high_trigger(),
-    );
-    info!(
-        "actuators: pump=GPIO{} valve=GPIO{} heater=GPIO{} owned by the control task; \
-         no inhibit, the water path follows the reducer",
-        pins::PUMP,
-        pins::WATER_VALVE,
-        pins::HEATER,
-    );
-
-    // 5c-bis. The status LED pins, **reserved** here and configured below once
-    //     `config` exists.
-    //
-    //     Reserved for the same reason as the switches' and the scale's: the
-    //     `hardware.leds.*.enabled` flags decide whether these pins are driven at
-    //     all, and `Peripherals::take` happens exactly once. Taking them here —
-    //     unconditionally, before the flags are known — is what makes it
-    //     impossible for a flag to decide *which pins the rest of the firmware
-    //     gets*, which is the same reasoning `SwitchPins` below records.
-    //
-    //     **GPIO26 and GPIO19 only.** The steam LED would be GPIO1, and GPIO1
-    //     belongs to the UART provisioning console (`start_provisioning` below). A
-    //     pin has one owner; see `cc_hal_esp32::pins` for the full reasoning.
-    let led_pins = LedPins {
-        status: peripherals.pins.gpio26,
-        brew: peripherals.pins.gpio19,
-    };
-
-    // 5d. The five operator inputs: the four switches and the tank float.
-    //
-    //     These are **inputs**, so taking them here cannot energise anything, and
-    //     the configuration that decides how they are wired is not loaded yet —
-    //     so the pins are reserved and `SwitchBank::new` is called below, once
-    //     `config` exists. Same shape as the scale's pin reservation above and
-    //     for the same reason: `Peripherals::take` happens once, and a driver
-    //     that only sometimes exists must not be what decides which pins it
-    //     hands out.
-    let switch_pins = SwitchPins {
-        power: peripherals.pins.gpio39,
-        brew: peripherals.pins.gpio34,
-        steam: peripherals.pins.gpio35,
-        hot_water: peripherals.pins.gpio36,
-        water_tank: peripherals.pins.gpio23,
-    };
-
-    // ---- R3: storage and the network tier ------------------------------
-    //
-    // 7. The configuration store, loaded through the fail-closed rule. This is
-    //    before the Wi-Fi bring-up because the SSID and the hostname it needs
-    //    come out of it, and because the boot log's line about a discarded
-    //    configuration is the first thing an operator with a misbehaving machine
-    //    needs to see.
-    //
-    //    Destructured rather than used as a struct: `store` moves into the
-    //    control task (the only writer — `BlobConfigStore::load`/`save` take
-    //    `&mut self`, and one owner beats a lock), `nvs_description` is the one
-    //    thing the HTTP server is given about NVS, and `origin` is printed here
-    //    and never needed again.
-    let network::Booted {
-        config,
-        origin,
-        mut store,
-        nvs_description,
-    } = network::bring_up_config()?;
-    info!(
-        "nvs: {nvs_description} — the predecessor firmware's `config` namespace \
-         is a different key space and is ignored by design"
-    );
-    info!("nvs: the boot decision was `{origin:?}`");
-
-    // **The relay polarities, now that the configuration exists.** `Relay::on()`
-    // switches on the configured `hardware.relays.*.trigger_type`, and applying it
-    // here is what keeps that parameter honest: a pump or valve relay driven from a
-    // hard-coded polarity instead would be **inverted** for a `LOW_TRIGGER` board —
-    // `enable_pump` de-energising its relay — and the parameter is reachable over
-    // plain `POST /api/parameters`.
-    //
-    // In practice this reads high-trigger for every relay, because
-    // `cc_safety::validate_config` refuses `LOW_TRIGGER` for all of them: such a
-    // relay energises while its pin floats, which is before this firmware runs.
-    // Applying the configured value is what would carry the day if that refusal were
-    // ever relaxed.
+/// Apply `hardware.relays.*.trigger_type` to the pump and valve drivers.
+///
+/// A hard-coded polarity would invert a `LOW_TRIGGER` board. In practice every
+/// relay reads high-trigger, because `validate_config` refuses `LOW_TRIGGER`: such
+/// a relay energises while its pin floats, before this firmware runs.
+fn apply_relay_polarities(actuators: &mut cc_hal_esp32::Actuators, config: &cc_config::Config) {
     actuators.set_relay_polarities(cc_hal_esp32::actuators::RelayPolarities::from_config(
         &config.hardware.relays,
     ));
@@ -368,9 +381,7 @@ pub(crate) fn bring_up() -> Result<(), Box<dyn Error>> {
         actuators.relay_polarity().pump.active,
         actuators.relay_polarity().valve.active
     );
-    // A bench build is only ever one `option_env!` away from being impossible to
-    // tell apart from a ship build, so it says so at boot, loudly and unmissably,
-    // next to the relay line it is nearest to being unsafe about.
+    // A bench image must never be mistaken for a ship image.
     if cc_domain::BENCH_UNSAFE_TEMPERATURES {
         warn!(
             "SAFETY BENCH BUILD — CC_BENCH_UNSAFE_TEMPERATURES was set when this \
@@ -379,32 +390,19 @@ pub(crate) fn bring_up() -> Result<(), Box<dyn Error>> {
              It exists for operations/runbook.md §13.1."
         );
     }
+}
 
-    // 7a-ter. The status LEDs, now that `hardware.leds.*` is known.
-    //
-    //     Built here rather than at the pin reservation above for the same reason
-    //     the switches' bank is: the `enabled` flags decide whether a pin is
-    //     driven, and reading them before the configuration exists would make the
-    //     driver — not the operator's setting — the thing that decided.
-    //
-    //     Each LED is turned **off** as it is built, so a machine powered up
-    //     mid-brew does not look idle.
-    //
-    //     `inverted` comes from `hardware.leds.*.inverted` and **not** from the
-    //     relay trigger types: they are separate settings for separate reasons, and
-    //     the LEDs' one is about common-anode parts rather than relay coils.
-    //
-    //     A failure to configure a pin is **not** fatal. `bring_up` returns
-    //     `Result`, and an operator whose LED pin is broken should still get a
-    //     machine that makes coffee; this is the same call the I²C bus above makes
-    //     with `no pressure, no display`.
-    let status_pin = led_output_pin(config.hardware.leds.status.enabled, led_pins.status);
-    let brew_pin = led_output_pin(config.hardware.leds.brew.enabled, led_pins.brew);
+/// The status and brew LEDs, each off as it is built.
+///
+/// `inverted` is the LEDs' own setting (common-anode parts), not the relays'. A
+/// pin that will not configure is not fatal: the machine still makes coffee.
+fn bring_up_leds(pins: LedPins, config: &cc_config::Config) -> cc_hal_esp32::leds::Leds {
+    let leds_config = &config.hardware.leds;
     let leds = cc_hal_esp32::leds::Leds::new(
-        status_pin,
-        brew_pin,
-        config.hardware.leds.status.inverted,
-        config.hardware.leds.brew.inverted,
+        led_output_pin(leds_config.status.enabled, pins.status),
+        led_output_pin(leds_config.brew.enabled, pins.brew),
+        leds_config.status.inverted,
+        leds_config.brew.inverted,
     );
     if leds.any_configured() {
         info!(
@@ -412,57 +410,35 @@ pub(crate) fn bring_up() -> Result<(), Box<dyn Error>> {
              (status inverted={} brew inverted={})",
             cc_hal_esp32::leds::STATUS_PIN,
             cc_hal_esp32::leds::BREW_PIN,
-            config.hardware.leds.status.inverted,
-            config.hardware.leds.brew.inverted,
+            leds_config.status.inverted,
+            leds_config.brew.inverted,
         );
     } else {
         info!("leds: hardware.leds.status.enabled and .brew.enabled are both false");
     }
-    // The third LED, and the only reason it is missing: the steam LED's pin is
-    // GPIO1, which is UART0's TXD and therefore the provisioning console's recovery
-    // path. `Peripherals::take` will not hand one pin to two owners, so an operator
-    // who left `hardware.leds.steam.enabled` true gets a setting this firmware
-    // silently ignores. One `warn!` at boot is the whole diagnostic.
-    if config.hardware.leds.steam.enabled {
+    // GPIO1 is UART0 TXD, the provisioning console's recovery path, and a pin has
+    // one owner. One warning is the whole diagnostic for the ignored setting.
+    if leds_config.steam.enabled {
         warn!(
             "leds: hardware.leds.steam.enabled is set but this firmware drives no steam \
              LED — PIN_STEAMLED (GPIO1) is UART0 TX, reserved for the wifi \
              provisioning console. The steam mode indicator will not light."
         );
     }
+    leds
+}
 
-    // 7a. The temperature probe, **after the configuration and before anything
-    // that reads it**.
-    //
-    //     `hardware.sensors.temperature.type` selects the driver, so the probe
-    //     cannot be built before that value is known. The ordering that matters for
-    //     safety is untouched: the actuators were driven inactive and the heater read
-    //     back above, before this line.
-    //
-    //     GPIO16 is `pins::TEMP_SENSOR` and whichever driver is selected is built on
-    //     it. This is a **read**: the 1-Wire bus is open-drain and the ZACwire line
-    //     is an input, so nothing on this pin is ever energised.
-    let temp_sensor = bring_up_temperature_sensor(peripherals.pins.gpio16, &config)?;
-
-    // 7b. The scale, **constructed at boot**.
-    //
-    //     The branch below is real: the driver is built, its sampling task started,
-    //     and the weight reaches the telemetry the display and MQTT read.
-    //
-    //     The type selects one cell or two (`hardware.sensors.scale.type`,
-    //     `cc_domain::hardware::ScaleType`), which is what makes that setting do
-    //     something. A `Bluetooth` type is refused here rather than silently
-    //     reporting zero grams.
-    let sampler = match bring_up_scale(scale_pins, &config, &mut store) {
-        Ok(sampler) => sampler,
-        Err(err) => {
-            // Not fatal. A machine whose scale will not start must still run its
-            // control loop, and the absence is visible in `/api/status` as a
-            // null weight rather than as a machine that will not boot.
-            warn!("scale: not started — {err}. The weight will be reported absent.");
-            None
-        }
-    };
+/// The scale and its sampling task, or `None`. Not fatal: an absent scale is a
+/// null weight in `/api/status`, not a machine that will not boot.
+fn start_scale(
+    pins: ScalePins,
+    config: &cc_config::Config,
+    store: &mut cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
+) -> Option<cc_hal_esp32::Sampler> {
+    let sampler = bring_up_scale(pins, config, store).unwrap_or_else(|err| {
+        warn!("scale: not started — {err}. The weight will be reported absent.");
+        None
+    });
     if let Some(sampler) = sampler.as_ref() {
         info!(
             "scale: hardware.sensors.scale.type is {:?}, enabled — {}",
@@ -475,99 +451,69 @@ pub(crate) fn bring_up() -> Result<(), Box<dyn Error>> {
             config.hardware.sensors.scale.enabled,
         );
     }
+    sampler
+}
 
-    // 7c. The five operator inputs. Built here because this is the first point
-    //     at which `config` exists, and the switch's type and mode come from it
-    //     (`hardware.switches.*.type` / `.mode`).
-    //
-    //     A failure here is **fatal**, unlike the scale's. A scale that will not
-    //     start costs a weight reading; a switch bank that will not configure costs
-    //     every physical control the machine has, and the machine would sit there
-    //     accepting web commands it could not be overridden on.
-    let switches = SwitchBank::new(
-        switch_pins.power,
-        switch_pins.brew,
-        switch_pins.steam,
-        switch_pins.hot_water,
-        switch_pins.water_tank,
-        &config,
-    )?;
+/// What the network tier hands the tasks, and what must outlive them.
+struct NetworkTier {
+    net: Arc<network::Network>,
+    commands: Arc<cc_hal_esp32::task::CommandQueue>,
+    parameters: Arc<cc_hal_esp32::task::ParameterHandoff>,
+    handoff: network::Handoff,
+    sta: Option<cc_hal_esp32::Sta>,
+    mqtt_configured: bool,
+    /// Its `Drop` stops the httpd task.
+    _http: cc_hal_esp32::Web,
+    /// Its `Drop` can delete the default event loop the netif depends on.
+    _sys_loop: esp_idf_svc::eventloop::EspSystemEventLoop,
+}
 
-    // Optional ABP2 polling uses conversion deadlines, never sleeps in the tick.
-    // Move only the boxed bus into the static task; construct its borrowers there
-    // to avoid a self-referential bundle. Bus failure leaves the panel and pressure
-    // sensor absent without stopping control.
-    let shared_i2c: Option<Box<cc_hal_esp32::display_shared::SharedBus>> = shared_i2c.map(Box::new);
-
-    // 8. The shared HTTP state and the network→control command queue.
+/// The network stack, the radio, HTTP, telnet and the provisioning console.
+///
+/// The stack comes up unconditionally: an unprovisioned machine must still serve
+/// `/api/status` and telnet, or nobody can find out why it is unprovisioned. The
+/// radio comes up only with a stored network, its hostname set on the netif before
+/// association. The MQTT client is built in the control task; here it is only
+/// decided whether there is one.
+fn start_network_tier(
+    modem: esp_idf_hal::modem::Modem<'static>,
+    uart: esp_idf_hal::uart::UART0<'static>,
+    tx: esp_idf_hal::gpio::Gpio1<'static>,
+    rx: esp_idf_hal::gpio::Gpio3<'static>,
+    config: &cc_config::Config,
+    nvs_description: &str,
+) -> Result<NetworkTier, EspError> {
     let net = Arc::new(network::Network::new());
     let commands = Arc::new(cc_hal_esp32::task::CommandQueue::new());
 
-    // 9. Wi-Fi. Brought up only when a network is configured: the netif is
-    //    created with the hostname on it (the ordering `WiFiStaConnect.h` exists
-    //    to protect) and the monitor takes it from there.
-    // Held for the life of `main` so the netif is never torn down while the httpd
-    // task is serving `/api/status`.
-    // 8b. The network stack, **before** the radio and before the HTTP server and
-    //     unconditionally. `esp_netif_init` and `esp_event_loop_create_default`
-    //     are once-per-process, and everything that opens a socket needs them —
-    //     including the HTTP server, which does not care whether a radio
-    //     exists. An unprovisioned machine must still serve `/api/status` and a
-    //     telnet console, or there is no way to find out why it is unprovisioned.
     let sys_loop = cc_hal_esp32::wifi::init_stack()?;
     info!("netif: lwIP and the default event loop are up");
-
-    let wifi = if config.is_wifi_provisioned() {
-        Some(bring_up_wifi(peripherals.modem, &config, &sys_loop)?)
+    let sta = if config.is_wifi_provisioned() {
+        Some(bring_up_wifi(modem, config, &sys_loop)?)
     } else {
         info!("wifi: no SSID configured — the UART provisioning task will run");
         None
     };
 
-    // 10. The HTTP server. `EspHttpServer` is neither `Send` nor `Sync`, so it
-    //     lives in this frame — and `main` blocks on `control.join()` for the
-    //     life of the process, so its `Drop` (which stops the httpd task) never
-    //     runs. See `network::start_http`.
-    //
-    //     The parameter mailbox is created here, beside the command queue, because
-    //     it is the same seam: two producers' worth of request, one consumer, and
-    //     the control task drains both at the top of its tick.
+    // Two producers' worth of request, one consumer: drained beside the command
+    // queue at the top of the control tick.
     let parameters = Arc::new(cc_hal_esp32::task::ParameterHandoff::new());
-    let _http = network::start_http(
+    let http = network::start_http(
         &net,
-        &config,
-        &nvs_description,
+        config,
+        nvs_description,
         Arc::clone(&commands),
         &parameters,
     )?;
 
-    // 10a. The telnet log stream, which `docs/operations/runbook.md` documents as
-    //     the field-diagnosis path. Spawned here, beside the HTTP server and after
-    //     it, because the listener is a network-tier service with no bearing on the
-    //     control loop: a failure to bind is a `warn!` inside the task rather than a
-    //     boot failure.
-    //
-    //     It is at `task::TELNET_PRIO` = 2, the lowest priority in the firmware:
-    //     a terminal that has stopped reading costs the ring a dropped line and
-    //     nothing else, and the ring push is a bounded copy with no allocation.
+    // The lowest-priority task: a stalled terminal costs a dropped line.
     if let Err(err) = cc_hal_esp32::telnet::start() {
         error!("telnet: the log stream task could not be spawned: {err}");
     }
 
-    // 11b. The UART provisioning task. It always starts, and it still **exits
-    //     after success** — it is not a permanent task.
-    //
-    //     Starting it only when no credential is stored made a **wrong** network
-    //     unfixable over the cable: with a credential stored the console never
-    //     armed, and the only way to change it was `POST /api/wifi-reset`, which
-    //     needs a machine that is already online. Found on the bench with the machine
-    //     configured for a network that did not exist and no way to point it at one
-    //     that did. `wifi set` + `wifi apply` replaces whatever is stored, and the
-    //     task costs one UART poll loop.
-    //
-    //     The handoff is shared with the control task, which does the writing: the
-    //     store moved into that task in step 7, and a credential cannot be stored by
-    //     a task that does not hold the store.
+    // Always started, even with a credential stored, so a wrong network can be
+    // fixed over the cable; it exits after success. The control task does the
+    // write, because it holds the store.
     let handoff = network::Handoff::new();
     if config.is_wifi_provisioned() {
         info!(
@@ -575,154 +521,48 @@ pub(crate) fn bring_up() -> Result<(), Box<dyn Error>> {
              available, and `wifi set` + `wifi apply` will replace it"
         );
     }
-    start_provisioning(
-        peripherals.uart0,
-        peripherals.pins.gpio1,
-        peripherals.pins.gpio3,
-        handoff.clone(),
-    );
+    start_provisioning(uart, tx, rx, handoff.clone());
 
-    // 11. Whether MQTT is configured, and nothing else. The **client** is built
-    //     inside the control task, not here.
-    //
-    //     A client built here and read two lines later would be dropped at the end
-    //     of this `match` arm, and `impl Drop for EspMqttClient` calls
-    //     `esp_mqtt_client_destroy` (`esp-idf-svc` `src/mqtt/client.rs:742-747`).
-    //     Destruction microseconds after `esp_mqtt_client_start` is a client that can
-    //     never publish or subscribe.
-    //
-    //     It lives in the control task because that task is the main loop: it owns
-    //     the clock, the configuration, the store, the machine, and the only watchdog
-    //     subscription, so a publish that stalls is visible. See `mqtt_link`.
-    //
-    //     `mqtt.enabled` is false and `mqtt.broker` is empty by default, so an
-    //     unprovisioned machine spends nothing here: no 4 KB of task stack and no two
-    //     1 KB buffers for a client with nowhere to connect.
-    let mqtt_configured = cc_hal_esp32::mqtt::is_configured(&config);
+    let mqtt_configured = cc_hal_esp32::mqtt::is_configured(config);
     if !mqtt_configured {
         info!("mqtt: not configured (mqtt.enabled is false or mqtt.broker is empty)");
     }
 
-    // Control owns actuators, watchdog subscription, deadman, and config writes.
-    // Its config is authoritative; the HTTP server's boot snapshot can remain stale
-    // until reboot unless a live publication replaces it.
-    let control_config = config.clone();
+    Ok(NetworkTier {
+        net,
+        commands,
+        parameters,
+        handoff,
+        sta,
+        mqtt_configured,
+        _http: http,
+        _sys_loop: sys_loop,
+    })
+}
 
-    // ---- the two peer tasks, and the channels between the three -------------
-    //
-    // `switches` and `temp` move **out** of the control task and into the sensor
-    // task, and the panel moves out into the display task. What stays here is
-    // the wiring: one [`slots::SensorSlots`] for the readings, the edges and the
-    // frame request, and one [`cc_hal_esp32::task::SignalQueue`] the producers
-    // use to wake the consumer.
-    //
-    // The bus is leaked deliberately. It was a `Box` owned by the control task's
-    // frame so its two users could hold `&'static` references into it; now two
-    // *different* tasks need one, and a self-referential bundle holding a
-    // reference into itself is not constructible. A `Box::leak` is the honest
-    // spelling of what was always true — the bus lives for the whole program,
-    // because all three of its users run forever.
-    let frame = Arc::new(slots::FrameSlot::new());
-
-    // The I²C bus, leaked. It has two users in **different** tasks — the ABP2 in
-    // the control task and the panel in the display task — and both want a
-    // `&'static` reference into it, which a `Box` owned by one task cannot
-    // honestly give the other. A `Box::leak` says what was always true: the bus
-    // lives for the whole program, because both of its users run until the
-    // process ends. One bounded leak, documented, beats a lifetime lie.
-    let shared_i2c: Option<&'static cc_hal_esp32::display_shared::SharedBus> =
-        shared_i2c.map(|bus| &*Box::leak(bus));
-
-    // The sensor task settles the switches and publishes where they rest. The
-    // control task waits for that before it boots: the power switch decides between
-    // `PID_NORMAL` and `PID_DISABLED`.
-    // The panel, for the display task. Boxed, for the same reason `ControlArgs`
-    // is: `bring_up` runs on ESP-IDF's main task, and a task bundle built *by
-    // value* in this frame is a frame cost this function cannot see.
-    let display_template = display_task::template_for(config.display.template);
-    // `hardware.oled.enabled` gates the **panel**, never the bus: with the flag off
-    // this does not call `bring_up` at all, so no `INIT_SEQUENCE`, no address probe
-    // and no traffic on the bus the pressure sensor shares. That is also the cheaper
-    // reading on that bus.
-    //
-    // **Not** `set_blank(true)`: blanking is the *standby* mechanism
-    // (`machine.standby.should_turn_off_display()`), it keeps the controller
-    // alive so waking is free, and it does not stop the boot screens being
-    // drawn. "Off" has to mean the panel is never touched.
+/// The display task, with the panel brought up only when `hardware.oled.enabled`.
+///
+/// "Off" means the panel is never touched: no init sequence, no probe, no traffic
+/// on the bus the ABP2 shares. Blanking is standby's mechanism, not this one.
+fn display_task_for(
+    config: &cc_config::Config,
+    shared_i2c: Option<&'static cc_hal_esp32::display_shared::SharedBus>,
+    frame: &Arc<slots::FrameSlot>,
+    net: &network::Network,
+) -> Box<display_task::DisplayTask> {
     let panel = if config.hardware.oled.enabled {
         shared_i2c.map(cc_hal_esp32::display_shared::SharedPanel::bring_up)
     } else {
         info!("display: hardware.oled.enabled is false — the panel is not brought up");
         None
     };
-    let display = Box::new(display_task::DisplayTask::new(
+    // Boxed: a task bundle built by value is a frame cost this function cannot see.
+    Box::new(display_task::DisplayTask::new(
         panel,
-        display_template,
-        Arc::clone(&frame),
+        display_task::template_for(config.display.template),
+        Arc::clone(frame),
         Arc::clone(&net.shared),
-    ));
-
-    // The radio moves into the control task rather than staying in this frame.
-    // It is `Send` (`EspWifi` is, and `Monitor` and `String` are), and the
-    // control task is the only task with a watchdog subscription, so the 1 s
-    // radio poll and the `/api/status` radio fields
-    // (`network::publish_radio`) both belong to the task whose stalls are already
-    // fatal. Before this, the radio was polled nowhere and `/api/status`
-    // reported `wifiAssociated: false` on a machine that was associated.
-    //
-    // **The box is built here, in `bring_up`'s 16 KB frame**, and the closure
-    // carries only a pointer. See `ControlArgs` for why that matters: a by-value
-    // argument is materialised in the caller's frame, and the caller here *is*
-    // the 8 KB control stack.
-    let args = Box::new(control_task::ControlArgs {
-        actuators,
-        leds,
-        switches,
-        shared_i2c,
-        temp: temp_sensor,
-        net: Arc::clone(&net),
-        commands: Arc::clone(&commands),
-        frame: Arc::clone(&frame),
-        parameters,
-        config: control_config,
-        mqtt_configured,
-        store,
-        sampler,
-        handoff: handoff.clone(),
-        sta: wifi,
-    });
-    let control = cc_hal_esp32::task::spawn_with_prio(
-        c"control",
-        CONTROL_STACK_BYTES,
-        cc_hal_esp32::task::CONTROL_PRIO,
-        move || {
-            if let Err(err) = control_task::run(twdt, args) {
-                error!("control task failed: {err}");
-            }
-        },
-    )?;
-
-    // The two peers, spawned after the control task so the watchdog — which the
-    // control task owns and which panics the chip when it trips — is already
-    // subscribed before anything else starts moving.
-    //
-    // **The display task and nothing else.** A sensor task was measured and
-    // removed. The bisect is in `sensor_task.rs`. Recheck 2027-01.
-    let display_thread = cc_hal_esp32::task::spawn_with_prio(
-        c"display",
-        DISPLAY_STACK_BYTES,
-        cc_hal_esp32::task::DISPLAY_PRIO,
-        move || display.run(),
-    );
-    if let Err(err) = display_thread {
-        error!("display task could not be spawned: {err}");
-    }
-
-    // The control task is the only feed point, so `main` must not return while
-    // it is alive. A panic inside it is fatal and is reported, not swallowed.
-    control.join().map_err(|_| "control task panicked")?;
-
-    Ok(())
+    ))
 }
 
 /// Log where the switches are resting, once, at boot.
