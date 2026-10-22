@@ -443,98 +443,10 @@ impl Scenario {
         }
 
         for s in &self.stimuli {
-            match &s.kind {
-                StimulusKind::Button { switch, .. } => {
-                    parse_switch(switch).ok_or_else(|| {
-                        invalid(format!(
-                            "unknown switch {switch:?}: expected one of brew, steam, power, \
-                             hot_water"
-                        ))
-                    })?;
-                }
-                StimulusKind::Mqtt { command } => {
-                    parse_command(command).ok_or_else(|| {
-                        invalid(format!(
-                            "unknown command {command:?}: expected a cc_machine::Command \
-                             variant name, e.g. BREW_START"
-                        ))
-                    })?;
-                }
-                StimulusKind::Config { set } => {
-                    for (key, value) in set {
-                        validate_config_key(key, value)
-                            .map_err(|m| invalid(format!("config.set: {m}")))?;
-                    }
-                }
-                StimulusKind::Ota { action, .. } => {
-                    // An OTA session has no reducer event, so a `dry_run` driver
-                    // cannot produce one from the firmware. It **models** one:
-                    // `SafeHardwareShutdown`, then the control loop suspended
-                    // for the session's duration. The scenario therefore asserts
-                    // the modelled behaviour directly. Stated here rather than
-                    // hidden, because the driver does not execute the real OTA
-                    // path.
-                    let _ = action;
-                }
-                StimulusKind::Rest | StimulusKind::Wait { .. } | StimulusKind::Sensor { .. } => {}
-            }
+            validate_stimulus(&s.kind).map_err(invalid)?;
         }
-
         for a in &self.assert {
-            match a {
-                Assertion::VisitedStates { value } | Assertion::NotVisited { value } => {
-                    for name in value {
-                        parse_state(name).ok_or_else(|| {
-                            invalid(format!(
-                                "unknown state {name:?}: expected a SCREAMING_SNAKE \
-                                 `MachineState::name` string, e.g. BREW_RUNNING"
-                            ))
-                        })?;
-                    }
-                }
-                Assertion::FinalState { value } => {
-                    parse_state(value).ok_or_else(|| {
-                        invalid(format!(
-                            "unknown state {value:?}: expected a SCREAMING_SNAKE \
-                             `MachineState::name` string"
-                        ))
-                    })?;
-                }
-                Assertion::Always { effect } | Assertion::Count { effect, .. } => {
-                    if !is_known_effect(effect) {
-                        return Err(invalid(format!("unknown effect {effect:?}")));
-                    }
-                }
-                Assertion::Never {
-                    effect,
-                    after_ms,
-                    before_ms,
-                } => {
-                    if !is_known_effect(effect) {
-                        return Err(invalid(format!("unknown effect {effect:?}")));
-                    }
-                    // An empty window is a vacuous assertion: it can never
-                    // fail, so it is a scenario that reads as coverage and
-                    // tests nothing.
-                    if let (Some(a), Some(b)) = (*after_ms, *before_ms) {
-                        if a >= b {
-                            return Err(invalid(format!(
-                                "never: after_ms {a} is at or after before_ms {b}: the window \
-                                 is empty, so the assertion could never fail"
-                            )));
-                        }
-                    }
-                }
-                Assertion::Ordering { before, after } => {
-                    if !is_known_effect(before) {
-                        return Err(invalid(format!("unknown effect {before:?}")));
-                    }
-                    if !is_known_effect(after) {
-                        return Err(invalid(format!("unknown effect {after:?}")));
-                    }
-                }
-                Assertion::ActuatorSafe | Assertion::NoFluidFlow | Assertion::Http { .. } => {}
-            }
+            validate_assertion(a).map_err(invalid)?;
         }
 
         for (key, value) in &self.config.set {
@@ -598,9 +510,109 @@ fn parse_state(name: &str) -> Option<MachineState> {
     cc_domain::state::ALL.into_iter().find(|s| s.name() == name)
 }
 
+/// Check one stimulus's names against the firmware's vocabulary.
+fn validate_stimulus(kind: &StimulusKind) -> Result<(), String> {
+    match kind {
+        StimulusKind::Button { switch, .. } => {
+            parse_switch(switch).ok_or_else(|| {
+                format!(
+                    "unknown switch {switch:?}: expected one of brew, steam, power, \
+                     hot_water"
+                )
+            })?;
+        }
+        StimulusKind::Mqtt { command } => {
+            parse_command(command).ok_or_else(|| {
+                format!(
+                    "unknown command {command:?}: expected a cc_machine::Command \
+                     variant name, e.g. BREW_START"
+                )
+            })?;
+        }
+        StimulusKind::Config { set } => {
+            for (key, value) in set {
+                validate_config_key(key, value).map_err(|m| format!("config.set: {m}"))?;
+            }
+        }
+        // An OTA session has no reducer event, so a `dry_run` driver cannot
+        // produce one from the firmware. It **models** one: `SafeHardwareShutdown`,
+        // then the control loop suspended for the session's duration. The
+        // scenario therefore asserts the modelled behaviour directly; the driver
+        // does not execute the real OTA path.
+        StimulusKind::Ota { .. }
+        | StimulusKind::Rest
+        | StimulusKind::Wait { .. }
+        | StimulusKind::Sensor { .. } => {}
+    }
+    Ok(())
+}
+
+/// Check one assertion's names, and that it can fail at all.
+fn validate_assertion(a: &Assertion) -> Result<(), String> {
+    match a {
+        Assertion::VisitedStates { value } | Assertion::NotVisited { value } => {
+            for name in value {
+                parse_state(name).ok_or_else(|| {
+                    format!(
+                        "unknown state {name:?}: expected a SCREAMING_SNAKE \
+                         `MachineState::name` string, e.g. BREW_RUNNING"
+                    )
+                })?;
+            }
+        }
+        Assertion::FinalState { value } => {
+            parse_state(value).ok_or_else(|| {
+                format!(
+                    "unknown state {value:?}: expected a SCREAMING_SNAKE \
+                     `MachineState::name` string"
+                )
+            })?;
+        }
+        Assertion::Always { effect } | Assertion::Count { effect, .. } => {
+            if !is_known_effect(effect) {
+                return Err(format!("unknown effect {effect:?}"));
+            }
+        }
+        Assertion::Never {
+            effect,
+            after_ms,
+            before_ms,
+        } => {
+            if !is_known_effect(effect) {
+                return Err(format!("unknown effect {effect:?}"));
+            }
+            // An empty window is a vacuous assertion: it can never
+            // fail, so it is a scenario that reads as coverage and
+            // tests nothing.
+            if let (Some(a), Some(b)) = (*after_ms, *before_ms) {
+                if a >= b {
+                    return Err(format!(
+                        "never: after_ms {a} is at or after before_ms {b}: the window \
+                         is empty, so the assertion could never fail"
+                    ));
+                }
+            }
+        }
+        Assertion::Ordering { before, after } => {
+            if !is_known_effect(before) {
+                return Err(format!("unknown effect {before:?}"));
+            }
+            if !is_known_effect(after) {
+                return Err(format!("unknown effect {after:?}"));
+            }
+        }
+        Assertion::ActuatorSafe | Assertion::NoFluidFlow | Assertion::Http { .. } => {}
+    }
+    Ok(())
+}
+
 /// Resolve a command name to its enumeration.
 fn parse_command(name: &str) -> Option<cc_machine::Command> {
-    use cc_machine::Command::*;
+    use cc_machine::Command::{
+        BackflushCycleStart, BackflushEnter, BackflushStop, BrewStart, BrewStop, ManualFlushStart,
+        ManualFlushStop, NormalOperation, Reboot, SetUserPidEnabled, Standby, SteamStart,
+        SteamStop,
+    };
     Some(match name {
         "BREW_START" => BrewStart,
         "BREW_STOP" => BrewStop,
@@ -749,7 +761,7 @@ fn validate_config_key(key: &str, value: &serde_json::Value) -> Result<(), Strin
 mod tests {
     use super::*;
 
-    const MINIMAL: &str = r#"
+    const MINIMAL: &str = r"
 name: t
 title: T
 mode: dry_run
@@ -757,7 +769,7 @@ stimuli:
   - { at_ms: 0, kind: rest }
 assert:
   - { kind: final_state, value: PID_NORMAL }
-"#;
+";
 
     #[test]
     fn a_minimal_scenario_parses() {
@@ -909,7 +921,7 @@ assert:
 
     #[test]
     fn a_hardware_scenario_that_captures_nothing_is_rejected() {
-        let text = r#"
+        let text = r"
 name: t
 title: T
 mode: hardware
@@ -919,7 +931,7 @@ stimuli:
   - { at_ms: 0, kind: rest }
 assert:
   - { kind: actuator_safe }
-"#;
+";
         let err = Scenario::parse(text, "test").expect_err("must reject");
         assert!(format!("{err}").contains("must capture something"), "{err}");
     }

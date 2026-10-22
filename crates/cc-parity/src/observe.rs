@@ -65,9 +65,7 @@ impl ObservedEffect {
     #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
-            Self::Plain => "",
-            Self::State { .. } => "",
-            Self::Flag { .. } => "",
+            Self::Plain | Self::State { .. } | Self::Flag { .. } => "",
             Self::Duty => "SetHeaterDuty",
             Self::PumpTimeout { .. } => "PumpTimeoutFired",
             Self::Brew => "RecordBrew",
@@ -84,7 +82,11 @@ fn watchdog_name(w: PumpWatchdog) -> &'static str {
 
 /// The final actuator state, as [`ActuatorSafe`](crate::scenario::Assertion::ActuatorSafe)
 /// checks it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "one flag per relay the assertion inspects; a state enum would hide which"
+)]
 pub struct Actuators {
     /// Whether the pump is running.
     pub pump: bool,
@@ -100,18 +102,6 @@ pub struct Actuators {
     /// Whether emergency mode is latched. `actuator_safe` requires it **not**
     /// set — a routine shutdown must not latch.
     pub emergency_latched: bool,
-}
-
-impl Default for Actuators {
-    fn default() -> Self {
-        Self {
-            pump: false,
-            water_valve: false,
-            steam_valve: false,
-            heater_duty: 0,
-            emergency_latched: false,
-        }
-    }
 }
 
 /// Everything a run observed.

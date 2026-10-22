@@ -430,8 +430,9 @@ fmt-check:
     cargo fmt --all -- --check
 
 # DEVIATION D1: --target {{host_target}} is required, see the header.
+# `cc-parity` is not portable, but it is host code: outside this recipe it rotted.
 lint:
-    cargo clippy --locked {{host_crates}} --all-targets --target {{host_target}} -- -D warnings
+    cargo clippy --locked {{host_crates}} -p cc-parity --all-targets --target {{host_target}} -- -D warnings
 
 # The audit runs FIRST and unconditionally, because `lint-esp32` is the recipe
 # that made 67 device tests look green while nothing ever executed them. It is
@@ -910,7 +911,7 @@ bench:
 # "warn"` but nothing ever promoted it, and no recipe or CI step ran rustdoc at
 # all, so the 83 broken intra-doc links accumulated silently (fixed by `cc1b06de`).
 doc:
-    RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps {{host_crates}} --target {{host_target}}
+    RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps {{host_crates}} -p cc-parity --target {{host_target}}
 
 clean:
     cargo clean

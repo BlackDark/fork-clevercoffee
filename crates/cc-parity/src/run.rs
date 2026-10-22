@@ -1,4 +1,4 @@
-//! Scenario driver using [`Recorder`] instead of GPIO and the real effect applier.
+//! Scenario driver using `Recorder` instead of GPIO and the real effect applier.
 //!
 //! Each tick delivers stimuli, reduces safety, applies its verdict, runs the PID,
 //! then sends the control tick. Safety precedes the tick so it uses the current
@@ -65,14 +65,9 @@ impl Actuators for Recorder {
         self.calls.push("disable_heater");
     }
     fn set_heater_duty(&mut self, duty: f32) {
-        // `SetHeaterDuty` is a float from a control loop; `actuator_safe` only
-        // asks whether it is zero, so the duty is quantised to that question.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        // Justification: a negative duty is not producible — `cc_machine` only
-        // ever emits 0.0 or the PID output, which `cc_domain` bounds to
-        // 0..=1000 — and the value is only ever compared against zero.
-        let duty = if duty > 0.0 { 1 } else { 0 };
-        self.state.heater_duty = duty;
+        // `actuator_safe` only asks whether the duty is zero, so it is quantised
+        // to that question.
+        self.state.heater_duty = u32::from(duty > 0.0);
         self.calls.push("set_heater_duty");
     }
     fn emergency_shutdown(&mut self) {
@@ -234,7 +229,7 @@ impl Runner {
         );
         let mut pid = pid;
         pid.set_sample_time(Millis::new(Config::HEATER_WINDOW_MS));
-        pid.set_output_limits(0.0, Config::HEATER_WINDOW_MS as f64);
+        pid.set_output_limits(0.0, f64::from(Config::HEATER_WINDOW_MS));
         pid.set_integrator_limits(0.0, 55.0); // AGGIMAX
         pid.set_smoothing_factor(config.pid.ema_factor);
         pid.set_mode(PidMode::Automatic);
@@ -244,7 +239,7 @@ impl Runner {
 
         let sensors = Sensors::healthy();
         let obs = Observation::new(&scenario.name);
-        let ctx = cc_machine::Context::new(&config, Celsius::new(setpoint as f32));
+        let ctx = cc_machine::Context::new(&config, celsius(setpoint));
 
         // The power switch is read before the state machine exists, which yields
         // both an initial state and the runtime PID flag. A `dry_run` scenario
@@ -281,12 +276,12 @@ impl Runner {
     }
 
     fn ctx(&self) -> cc_machine::Context<'_> {
-        cc_machine::Context::new(&self.config, Celsius::new(self.setpoint as f32))
+        cc_machine::Context::new(&self.config, celsius(self.setpoint))
     }
 
     /// Run for explicit `duration_ms`, or until all stimuli are delivered and the
-    /// state is unchanged for [`QUIESCE_TICKS`]. A long brew can look quiescent while
-    /// still active, so timed scenarios need an explicit duration. [`MAX_TICKS`]
+    /// state is unchanged for `QUIESCE_TICKS`. A long brew can look quiescent while
+    /// still active, so timed scenarios need an explicit duration. `MAX_TICKS`
     /// bounds runs that never settle.
     ///
     /// # Errors
@@ -387,34 +382,7 @@ impl Runner {
         // The last reading is held between samples, so the monitor always sees a
         // value rather than a gap.
         //
-        // The conversion goes through `Config::safety_view`, which is the
-        // hand-off point `cc-config` documents for exactly this (`cc-config`'s
-        // `store` module docs). Re-deriving the five values here would be a
-        // second copy of a mapping that decides whether a stored configuration
-        // is safe to run; only the field *names* are repeated, and a test below
-        // fails if `cc-config` changes one without this.
-        //
-        // (`cc-config` is expected to grow `From<SafetyView> for SafetyConfig`,
-        // which `cc-config`'s own docs already promise. When it does, this
-        // becomes a one-liner and the test below is what notices the change.)
-        let view = self.config.safety_view();
-        let safety_cfg = cc_safety::SafetyConfig {
-            // From the view, like the firmware's boot path: a literal here
-            // would make the harness unable to reproduce a firmware that
-            // *rejects* a low-trigger relay.
-            pump_relay_trigger: view.pump_relay_trigger,
-            valve_relay_trigger: view.valve_relay_trigger,
-            emergency_temp: view.emergency_temp,
-            emergency_hysteresis: view.emergency_hysteresis,
-            steam_setpoint: view.steam_setpoint,
-            effective_brew_setpoint: view.effective_brew_setpoint,
-            brew_mode: view.brew_mode,
-            brew_by_time_enabled: view.brew_by_time_enabled,
-            brew_by_weight_enabled: view.brew_by_weight_enabled,
-            scale_fitted: view.scale_fitted,
-            heater_relay_trigger: view.heater_relay_trigger,
-            temperature_sensor: view.temperature_sensor,
-        };
+        let safety_cfg = self.safety_config();
         let outcome = if sampled {
             // The sample sequence rides along, so S1's debounce counts readings
             // here exactly as it does in the firmware. See
@@ -465,35 +433,39 @@ impl Runner {
             // invocations instead trips the over-temperature latch about 40x
             // early at a 100 Hz loop.
             let sensors = self.sensors;
-            let (m, fx) = cc_machine::reduce(&machine, &ctx, Event::SensorUpdated(sensors));
-            machine = m;
-            effects.extend(&fx);
+            feed(
+                &mut machine,
+                &ctx,
+                Event::SensorUpdated(sensors),
+                &mut effects,
+            );
         }
 
         if let Some(outcome) = outcome {
-            let (m, fx) = cc_machine::reduce(&machine, &ctx, Event::Safety(outcome));
-            machine = m;
-            effects.extend(&fx);
+            feed(&mut machine, &ctx, Event::Safety(outcome), &mut effects);
         }
 
         if computed {
             // The output is published here and zeroed later in the same tick, so
             // no later step reads a stale value.
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "the output is clamped to 0..=HEATER_WINDOW_MS by \
+                          set_output_limits, and every integer in that range is \
+                          exact in f32"
+            )]
             let out = self.pid.output as f32;
-            let (m, fx) = cc_machine::reduce(&machine, &ctx, Event::PidOutput(out));
-            machine = m;
-            effects.extend(&fx);
+            feed(&mut machine, &ctx, Event::PidOutput(out), &mut effects);
         }
 
-        let (m, fx) = cc_machine::reduce(
-            &machine,
+        feed(
+            &mut machine,
             &ctx,
             Event::Tick {
                 now: Millis::new(at),
             },
+            &mut effects,
         );
-        machine = m;
-        effects.extend(&fx);
 
         self.machine = machine;
         self.apply(&effects, at);
@@ -505,6 +477,39 @@ impl Runner {
             .last_sample_at
             .is_none_or(|last| self.now.saturating_sub(last) >= SENSOR_INTERVAL_MS);
         self.sensors_due = next_sample;
+    }
+
+    /// The safety monitor's configuration.
+    ///
+    /// The conversion goes through `Config::safety_view`, which is the
+    /// hand-off point `cc-config` documents for exactly this (`cc-config`'s
+    /// `store` module docs). Re-deriving the five values here would be a
+    /// second copy of a mapping that decides whether a stored configuration
+    /// is safe to run; only the field *names* are repeated, and a test below
+    /// fails if `cc-config` changes one without this.
+    ///
+    /// (`cc-config` is expected to grow `From<SafetyView> for SafetyConfig`,
+    /// which `cc-config`'s own docs already promise. When it does, this
+    /// becomes a one-liner and the test below is what notices the change.)
+    fn safety_config(&self) -> cc_safety::SafetyConfig {
+        let view = self.config.safety_view();
+        cc_safety::SafetyConfig {
+            // From the view, like the firmware's boot path: a literal here
+            // would make the harness unable to reproduce a firmware that
+            // *rejects* a low-trigger relay.
+            pump_relay_trigger: view.pump_relay_trigger,
+            valve_relay_trigger: view.valve_relay_trigger,
+            emergency_temp: view.emergency_temp,
+            emergency_hysteresis: view.emergency_hysteresis,
+            steam_setpoint: view.steam_setpoint,
+            effective_brew_setpoint: view.effective_brew_setpoint,
+            brew_mode: view.brew_mode,
+            brew_by_time_enabled: view.brew_by_time_enabled,
+            brew_by_weight_enabled: view.brew_by_weight_enabled,
+            scale_fitted: view.scale_fitted,
+            heater_relay_trigger: view.heater_relay_trigger,
+            temperature_sensor: view.temperature_sensor,
+        }
     }
 
     /// Apply one event's effects, recording as it goes.
@@ -547,7 +552,7 @@ impl Runner {
         if self.scenario.capture.effects {
             for effect in effects {
                 let name = effect.name();
-                self.obs.push_effect(name, &effect, at);
+                self.obs.push_effect(name, effect, at);
             }
         }
     }
@@ -574,9 +579,7 @@ impl Runner {
                     },
                     ButtonAction::Release => Event::ButtonReleased { switch: id },
                 };
-                let (m, fx) = cc_machine::reduce(&machine, &ctx, ev);
-                machine = m;
-                effects.extend(&fx);
+                feed(&mut machine, &ctx, ev, &mut effects);
             }
 
             StimulusKind::Sensor {
@@ -613,9 +616,7 @@ impl Runner {
 
             StimulusKind::Mqtt { command } => {
                 let cmd = parse_command(command).unwrap_or(Command::BrewStop);
-                let (m, fx) = cc_machine::reduce(&machine, &ctx, Event::Command(cmd));
-                machine = m;
-                effects.extend(&fx);
+                feed(&mut machine, &ctx, Event::Command(cmd), &mut effects);
             }
 
             StimulusKind::Ota { action, path } => match action {
@@ -674,6 +675,86 @@ pub fn run(scenario: Scenario) -> Result<Observation, RunError> {
     Runner::new(scenario)?.run()
 }
 
+/// One failure per emission of `effect` inside `[after_ms, before_ms)`.
+fn never_failures(
+    obs: &Observation,
+    effect: &str,
+    after_ms: Option<u32>,
+    before_ms: Option<u32>,
+) -> Vec<String> {
+    let after = after_ms.unwrap_or(0);
+    let before = before_ms.unwrap_or(u32::MAX);
+    let bound = match before_ms {
+        Some(b) => format!("{after} ms (exclusive) to {b} ms"),
+        None => format!("{after} ms onwards"),
+    };
+    obs.occurrences(effect)
+        .into_iter()
+        .map(|i| obs.effects[i].at_ms)
+        .filter(|at_ms| (after..before).contains(at_ms))
+        .map(|at_ms| {
+            format!("never: {effect} was emitted at {at_ms} ms, inside the window {bound}")
+        })
+        .collect()
+}
+
+/// The first of `wanted` that does not follow the previous one in `seen`.
+fn first_out_of_order<'a>(seen: &[String], wanted: &'a [String]) -> Option<&'a String> {
+    let mut cursor = 0usize;
+    for want in wanted {
+        let Some(off) = seen[cursor..].iter().position(|s| s == want) else {
+            return Some(want);
+        };
+        cursor += off + 1;
+    }
+    None
+}
+
+/// What keeps `actuators` from being the known-safe resting state.
+fn unsafe_actuators(actuators: ObservedActuators, require_zero_duty: bool) -> Vec<&'static str> {
+    let mut bad = Vec::new();
+    if actuators.pump {
+        bad.push("pump is on");
+    }
+    if actuators.water_valve {
+        bad.push("the water valve is open");
+    }
+    if actuators.steam_valve {
+        bad.push("the steam valve is open");
+    }
+    if require_zero_duty && actuators.heater_duty != 0 {
+        bad.push("the heater duty is not zero");
+    }
+    if actuators.emergency_latched {
+        // Latching is not an actuator, but a routine shutdown excludes it, so a
+        // scenario that ends latched has done something a normal run does not.
+        bad.push("the emergency latch is set");
+    }
+    bad
+}
+
+/// Narrow a configured temperature to [`Celsius`], as the firmware does.
+fn celsius(degrees: f64) -> Celsius {
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "configured temperatures are within a range where f32 is exact to \
+                  well under the probe's 0.0625 C resolution"
+    )]
+    Celsius::new(degrees as f32)
+}
+
+/// Fold one event into `machine`, collecting its effects.
+fn feed(
+    machine: &mut cc_machine::Machine,
+    ctx: &cc_machine::Context<'_>,
+    event: Event,
+    effects: &mut Effects,
+) {
+    let (next, fx) = cc_machine::reduce(machine, ctx, event);
+    *machine = next;
+    effects.extend(&fx);
+}
+
 /// Check a scenario's assertions against an observation.
 ///
 /// Split out so the runner's own tests can assert against a hand-built
@@ -685,18 +766,11 @@ pub fn check_assertions(scenario: &Scenario, obs: &Observation) -> Vec<String> {
     for a in &scenario.assert {
         match a {
             Assertion::VisitedStates { value } => {
-                let mut cursor = 0usize;
-                for want in value {
-                    match obs.states[cursor..].iter().position(|s| s == want) {
-                        Some(off) => cursor += off + 1,
-                        None => {
-                            failures.push(format!(
-                                "visited_states: {want} does not appear in order (saw {:?})",
-                                obs.states
-                            ));
-                            break;
-                        }
-                    }
+                if let Some(want) = first_out_of_order(&obs.states, value) {
+                    failures.push(format!(
+                        "visited_states: {want} does not appear in order (saw {:?})",
+                        obs.states
+                    ));
                 }
             }
             Assertion::NotVisited { value } => {
@@ -707,7 +781,7 @@ pub fn check_assertions(scenario: &Scenario, obs: &Observation) -> Vec<String> {
                 }
             }
             Assertion::FinalState { value } => {
-                let last = obs.states.last().map(String::as_str).unwrap_or("<none>");
+                let last = obs.states.last().map_or("<none>", String::as_str);
                 if last != value {
                     failures.push(format!(
                         "final_state: expected {value}, the machine ended in {last} \
@@ -725,23 +799,7 @@ pub fn check_assertions(scenario: &Scenario, obs: &Observation) -> Vec<String> {
                 effect,
                 after_ms,
                 before_ms,
-            } => {
-                let after = after_ms.unwrap_or(0);
-                let before = before_ms.unwrap_or(u32::MAX);
-                for i in obs.occurrences(effect) {
-                    let at_ms = obs.effects[i].at_ms;
-                    if at_ms >= after && at_ms < before {
-                        let bound = match before_ms {
-                            Some(b) => format!("{after} ms (exclusive) to {b} ms"),
-                            None => format!("{after} ms onwards"),
-                        };
-                        failures.push(format!(
-                            "never: {effect} was emitted at {at_ms} ms, inside the window \
-                             {bound}"
-                        ));
-                    }
-                }
-            }
+            } => failures.extend(never_failures(obs, effect, *after_ms, *before_ms)),
             Assertion::Count { effect, min, max } => {
                 let n = obs.occurrences(effect).len();
                 let over = max.is_some_and(|m| n > m);
@@ -771,36 +829,15 @@ pub fn check_assertions(scenario: &Scenario, obs: &Observation) -> Vec<String> {
                 }
             }
             Assertion::ActuatorSafe | Assertion::NoFluidFlow => {
-                // The two differ only on the heater duty. `actuator_safe` is the
-                // known-safe state and requires the duty to be
-                // zero; `no_fluid_flow` is for a machine that is legitimately
-                // heating, where a non-zero duty is the machine working.
+                // The two differ only on the heater duty: `no_fluid_flow` is for a
+                // machine that is legitimately heating.
                 let require_zero_duty = matches!(a, Assertion::ActuatorSafe);
                 let label = if require_zero_duty {
                     "actuator_safe"
                 } else {
                     "no_fluid_flow"
                 };
-                let a = &obs.actuators;
-                let mut bad = Vec::new();
-                if a.pump {
-                    bad.push("pump is on");
-                }
-                if a.water_valve {
-                    bad.push("the water valve is open");
-                }
-                if a.steam_valve {
-                    bad.push("the steam valve is open");
-                }
-                if require_zero_duty && a.heater_duty != 0 {
-                    bad.push("the heater duty is not zero");
-                }
-                if a.emergency_latched {
-                    // Latching is not an actuator, but a routine shutdown excludes
-                    // it, so a scenario that ends latched
-                    // has done something a normal run does not.
-                    bad.push("the emergency latch is set");
-                }
+                let bad = unsafe_actuators(obs.actuators, require_zero_duty);
                 if !bad.is_empty() {
                     failures.push(format!("{label}: {}", bad.join(", ")));
                 }
@@ -945,7 +982,7 @@ mod tests {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scenarios");
         let mut names: Vec<String> = std::fs::read_dir(&dir)
             .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .map(|e| e.path())
             .filter(|p| p.extension().is_some_and(|x| x == "yaml"))
             .map(|p| p.file_stem().unwrap().to_string_lossy().into_owned())
@@ -979,7 +1016,7 @@ mod tests {
     #[test]
     fn every_safety_path_has_at_least_one_scenario() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scenarios");
-        let mut covered: std::collections::BTreeSet<String> = Default::default();
+        let mut covered = std::collections::BTreeSet::<String>::new();
         for entry in std::fs::read_dir(&dir).unwrap() {
             let path = entry.unwrap().path();
             if path.extension().is_some_and(|x| x == "yaml") {
@@ -1045,7 +1082,7 @@ mod tests {
     #[test]
     fn a_rest_scenario_runs_and_ends_safe() {
         let s = scenario(
-            r#"
+            r"
 name: rest
 title: rest
 mode: dry_run
@@ -1053,7 +1090,7 @@ stimuli:
   - { at_ms: 0, kind: rest }
 assert:
   - { kind: actuator_safe }
-"#,
+",
         );
         let obs = run(s).expect("runs");
         assert!(!obs.actuators.pump);
@@ -1124,7 +1161,7 @@ assert:
         assert!(!obs.actuators.water_valve);
         assert!(!obs.actuators.steam_valve);
         assert!(
-            obs.occurrences("SafeHardwareShutdown").len() >= 1,
+            !obs.occurrences("SafeHardwareShutdown").is_empty(),
             "the session must perform a safe shutdown"
         );
 
@@ -1208,7 +1245,7 @@ assert:
     #[test]
     fn a_failing_assertion_names_the_scenario_and_the_reason() {
         let s = scenario(
-            r#"
+            r"
 name: wrong
 title: wrong
 mode: dry_run
@@ -1216,7 +1253,7 @@ stimuli:
   - { at_ms: 0, kind: rest }
 assert:
   - { kind: final_state, value: EMERGENCY_STOP }
-"#,
+",
         );
         let err = run(s).expect_err("must fail");
         let msg = err.to_string();
@@ -1228,7 +1265,7 @@ assert:
     #[test]
     fn a_scenario_that_observes_nothing_enough_to_assert_fails_loudly() {
         let s = scenario(
-            r#"
+            r"
 name: noop
 title: noop
 mode: dry_run
@@ -1236,7 +1273,7 @@ stimuli:
   - { at_ms: 0, kind: rest }
 assert:
   - { kind: always, effect: OpenWaterValve }
-"#,
+",
         );
         let err = run(s).expect_err("must fail");
         assert!(err.to_string().contains("never emitted"), "{err}");
@@ -1252,7 +1289,7 @@ assert:
             mode: Mode::Hardware,
             covers: vec![],
             why: String::new(),
-            config: Default::default(),
+            config: crate::scenario::ConfigOverrides::default(),
             stimuli: vec![Stimulus {
                 at_ms: 0,
                 kind: StimulusKind::Rest,
@@ -1273,7 +1310,7 @@ assert:
     #[test]
     fn a_config_override_reaches_the_reducer() {
         let s = scenario(
-            r#"
+            r"
 name: override
 title: override
 mode: dry_run
@@ -1291,7 +1328,7 @@ stimuli:
   - { at_ms: 0, kind: button, switch: brew, action: press }
 assert:
   - { kind: visited_states, value: [BREW_PREINFUSION, BREW_PREINFUSION_PAUSE, BREW_RUNNING] }
-"#,
+",
         );
         let obs = run(s).expect("runs");
         assert!(
@@ -1307,7 +1344,7 @@ assert:
     #[test]
     fn the_power_switch_reaches_standby_from_the_press() {
         let s = scenario(
-            r#"
+            r"
 name: standby_switch
 title: standby via the power switch
 mode: dry_run
@@ -1322,7 +1359,7 @@ stimuli:
 assert:
   - { kind: visited_states, value: [STANDBY] }
   - { kind: no_fluid_flow }
-"#,
+",
         );
         let obs = run(s).expect("runs");
         assert!(obs.states.contains(&"STANDBY".to_string()), "{obs:?}");
@@ -1333,7 +1370,7 @@ assert:
     #[test]
     fn a_long_press_on_power_requests_a_reboot() {
         let s = scenario(
-            r#"
+            r"
 name: reboot
 title: reboot by long press
 mode: dry_run
@@ -1347,7 +1384,7 @@ stimuli:
 assert:
   - { kind: always, effect: RequestReboot }
   - { kind: always, effect: SafeHardwareShutdown }
-"#,
+",
         );
         let obs = run(s).expect("runs");
         assert!(!obs.occurrences("RequestReboot").is_empty(), "{obs:?}");
