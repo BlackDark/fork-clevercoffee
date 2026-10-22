@@ -132,6 +132,10 @@ host_target := env_var_or_default("CC_HOST_TARGET", `./scripts/host-target.sh`)
 # `just test-esp32`. `cc-protocol` and `cc-netpolicy` are the eighth and ninth.
 # All four are here because `scripts/portable-purity.py` names them as portable,
 # and naming them anywhere else would leave those surfaces untested on the host.
+# Host-only tools, linted and documented with the portable crates but not part of
+# `just test`: `cc-parity` has `just parity-test`, `cc-alloc-count` has no tests.
+host_tools := "-p cc-parity -p cc-alloc-count"
+
 host_crates := "-p cc-domain -p cc-protocol -p cc-netpolicy -p cc-safety -p cc-machine -p cc-display -p cc-config -p cc-web -p cc-mqtt"
 
 # `--locked` on EVERY cargo invocation that resolves the dependency graph --
@@ -430,9 +434,9 @@ fmt-check:
     cargo fmt --all -- --check
 
 # DEVIATION D1: --target {{host_target}} is required, see the header.
-# `cc-parity` is not portable, but it is host code: outside this recipe it rotted.
+# `host_tools` are not portable, but they are host code: outside this recipe they rot.
 lint:
-    cargo clippy --locked {{host_crates}} -p cc-parity --all-targets --target {{host_target}} -- -D warnings
+    cargo clippy --locked {{host_crates}} {{host_tools}} --all-targets --target {{host_target}} -- -D warnings
 
 # The audit runs FIRST and unconditionally, because `lint-esp32` is the recipe
 # that made 67 device tests look green while nothing ever executed them. It is
@@ -911,7 +915,7 @@ bench:
 # "warn"` but nothing ever promoted it, and no recipe or CI step ran rustdoc at
 # all, so the 83 broken intra-doc links accumulated silently (fixed by `cc1b06de`).
 doc:
-    RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps {{host_crates}} -p cc-parity --target {{host_target}}
+    RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps {{host_crates}} {{host_tools}} --target {{host_target}}
 
 clean:
     cargo clean

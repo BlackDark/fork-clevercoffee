@@ -41,6 +41,9 @@ members = [
     # is not in `host_crates` because `just test` is the firmware's test suite,
     # not the harness's. Test it with `just parity-test`.
     "crates/cc-parity",
+    # HOST-ONLY dev-dependency: the counting allocator the zero-allocation gates
+    # and benches install. `std` and `unsafe`, so never a normal dependency.
+    "crates/cc-alloc-count",
 ]
 # `cargo test` / `cargo clippy` with no `-p` must not try to build the device
 # crates on the host.
@@ -85,6 +88,7 @@ cc-web = { path = "crates/cc-web" }
 # `cc-domain` and `cc-config` only, so `just test` reaches the 32-parameter,
 # 13-sensor registration that was previously testable only by flashing a board.
 cc-mqtt = { path = "crates/cc-mqtt" }
+cc-alloc-count = { path = "crates/cc-alloc-count" }
 
 # Device crates.
 cc-hal-esp32 = { path = "crates/cc-hal-esp32" }

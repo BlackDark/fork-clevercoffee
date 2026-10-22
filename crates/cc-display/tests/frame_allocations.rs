@@ -1,16 +1,13 @@
-//! Gate allocations on the rendering thread, sharing the benchmark's counter.
+//! Gate allocations on the rendering thread with the `cc-alloc-count` allocator.
 //!
 //! Process-wide counting includes concurrent libtest work. Rendering is
 //! single-threaded, so thread-local counting still covers every frame allocation.
-
-#[path = "../benches/alloc.rs"]
-mod alloc;
 
 use cc_display::display::Display;
 use cc_display::model::{BrewTimerState, Config, DisplayInput};
 use cc_display::templates::{self, TemplateId};
 
-use alloc::Counting;
+use cc_alloc_count::Counting;
 
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
@@ -75,7 +72,7 @@ fn a_frame_does_not_allocate() {
         &config,
     ));
 
-    let mark = alloc::counters();
+    let mark = cc_alloc_count::counters();
     #[allow(
         clippy::cast_possible_truncation,
         reason = "TEMPLATES.len() is 6, a literal, so the truncation is exact"
@@ -86,7 +83,7 @@ fn a_frame_does_not_allocate() {
             std::hint::black_box(templates::render(template, &mut display, &input, &config));
         }
     }
-    let (allocs, bytes) = alloc::delta_since(mark);
+    let (allocs, bytes) = cc_alloc_count::delta_since(mark);
 
     assert_eq!(
         allocs, 0,

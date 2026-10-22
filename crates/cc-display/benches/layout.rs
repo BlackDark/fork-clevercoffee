@@ -1,10 +1,7 @@
 //! Measure heap allocations per frame; timing is reported only for scale.
 //!
 //! The device renderer has no allocator. `tests/frame_allocations.rs` gates the
-//! same invariant with the shared counter. Run with `just bench`.
-
-#[path = "alloc.rs"]
-mod alloc;
+//! same invariant with the same counter. Run with `just bench`.
 
 use std::time::Instant;
 
@@ -12,7 +9,7 @@ use cc_display::display::Display;
 use cc_display::model::{BrewTimerState, Config, DisplayInput};
 use cc_display::templates::{self, TemplateId};
 
-use alloc::{measured_per, nanos_per, per, Counting};
+use cc_alloc_count::{measured_per, nanos_per, per, Counting};
 
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
@@ -79,7 +76,7 @@ fn main() {
     let mut display = Display::new();
     render_once(&mut display, &input, &config, TemplateId::Standard);
 
-    let mark = alloc::counters();
+    let mark = cc_alloc_count::counters();
     let started = Instant::now();
     #[allow(
         clippy::cast_possible_truncation,
@@ -93,7 +90,7 @@ fn main() {
     }
     let elapsed = started.elapsed();
     let frames = rounds * TEMPLATES.len() as u64;
-    let (allocs, bytes) = alloc::delta_since(mark);
+    let (allocs, bytes) = cc_alloc_count::delta_since(mark);
 
     println!(
         "display frame: {frames} frames across {} templates",

@@ -1,0 +1,12 @@
+[package]
+name = "cc-alloc-count"
+description = "Host-only counting allocator behind the zero-allocation gates and benches."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true

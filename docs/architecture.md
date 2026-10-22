@@ -42,6 +42,7 @@ TB
     subgraph tools["Host tools — never flashed"]
         PARITY["cc-parity<br/>scenario harness"]
         DEVT["cc-device-tests<br/>on-target runner"]
+        ALLOC["cc-alloc-count<br/>zero-allocation gates"]
     end
 
     FW --> MACH

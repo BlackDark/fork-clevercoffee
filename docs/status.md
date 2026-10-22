@@ -82,7 +82,7 @@ page.
   `cc-display`. Measured after the fix: **0 of 80** under the same load.
   `crates/cc-display/tests/frame_allocations.rs`,
   `crates/cc-machine/tests/tick_allocations.rs`, and the shared
-  `benches/alloc.rs` in each crate, which is what the numbers above come from.
+  `crates/cc-alloc-count`, which is what the numbers above come from.
 - **98 parameters are writable over HTTP and survive a reboot.**
   `cc_config::schema::PARAM_COUNT` is 98 (`schema.rs:92`) and pinned by
   `assert_eq!(SCHEMA.len(), PARAM_COUNT)` (`schema.rs:1858`), by

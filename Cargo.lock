@@ -172,6 +172,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-alloc-count"
+version = "0.1.0"
+
+[[package]]
 name = "cc-config"
 version = "0.1.0"
 dependencies = [
@@ -195,6 +199,7 @@ dependencies = [
 name = "cc-display"
 version = "0.1.0"
 dependencies = [
+ "cc-alloc-count",
  "cc-domain",
 ]
 
@@ -252,6 +257,7 @@ dependencies = [
 name = "cc-machine"
 version = "0.1.0"
 dependencies = [
+ "cc-alloc-count",
  "cc-config",
  "cc-domain",
  "cc-safety",

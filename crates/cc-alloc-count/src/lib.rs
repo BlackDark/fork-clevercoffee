@@ -1,8 +1,12 @@
-//! Thread-local allocation counters shared by the benchmark and regression gate.
+//! Thread-local allocation counters behind the zero-allocation gates and benches.
+//!
+//! Install [`Counting`] as the `#[global_allocator]` of a test or bench, then
+//! read [`counters`] either side of the measured window.
 //!
 //! Process-wide counting includes libtest's concurrent allocations. Measure only
-//! the rendering thread; rendering does not spawn work. Const-initialized,
-//! destructor-free cells avoid allocator re-entry during counter access.
+//! the calling thread; the reducer and the renderer do not spawn work.
+//! Const-initialized, destructor-free cells avoid allocator re-entry during
+//! counter access.
 
 #![allow(
     unsafe_code,
@@ -75,40 +79,21 @@ pub fn delta_since(mark: (u64, u64)) -> (u64, u64) {
 
 /// `numerator / denominator` as an `f64`, for a per-iteration rate.
 ///
-/// Only the bench prints ratios; the test asserts on the raw count. Both live in
-/// this module so they cannot drift, so the unused-in-one-of-them half has to be
-/// declared rather than deleted.
 #[must_use]
-#[allow(
-    dead_code,
-    reason = "used by the bench; this module is shared with the test, which only \
-              needs the counts"
-)]
 pub fn per(numerator: u64, denominator: u64) -> f64 {
     numerator as f64 / denominator as f64
 }
 
-/// Nanoseconds per iteration. Bench-only, same reason as [`per`].
+/// Nanoseconds per iteration.
 #[must_use]
-#[allow(
-    dead_code,
-    reason = "used by the bench; this module is shared with the test, which only \
-              needs the counts"
-)]
 pub fn nanos_per(elapsed: Duration, iterations: u64) -> f64 {
     elapsed.as_nanos() as f64 / iterations as f64
 }
 
 /// A measured quantity divided by an iteration count, for reporting a rate in
 /// whatever unit the caller already has (seconds here, so a share of a refresh
-/// budget can be printed without a second cast). Bench-only, same reason as
-/// [`per`].
+/// budget can be printed without a second cast).
 #[must_use]
-#[allow(
-    dead_code,
-    reason = "used by the bench; this module is shared with the test, which only \
-              needs the counts"
-)]
 pub fn measured_per(quantity: f64, iterations: u64) -> f64 {
     quantity / iterations as f64
 }
