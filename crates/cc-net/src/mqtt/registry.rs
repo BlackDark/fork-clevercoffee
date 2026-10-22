@@ -122,12 +122,6 @@ impl Registry {
     /// is worse than one visibly inert. Renaming the entry here would also change a
     /// wire format, so both sides must move together — and only in `cc_config::discovery`.
     #[must_use]
-    #[allow(
-        clippy::too_many_lines,
-        reason = "one flat table per phase. Splitting the conditional groups \
-                  into helpers would scatter a single ordered list, and the \
-                  order is part of what this provides."
-    )]
     pub fn from_config(topics: &Topics, config: &Config) -> Self {
         let mut registry = Self::new();
         let _ = topics;

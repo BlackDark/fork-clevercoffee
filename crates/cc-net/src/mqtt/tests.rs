@@ -1,11 +1,5 @@
 //! Host tests for MQTT topics, membership, plan partitioning, and payload budgets.
 
-#![allow(
-    clippy::wildcard_imports,
-    reason = "cases span four modules; a glob keeps them from rotting against a \
-              rename in any one"
-)]
-
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;

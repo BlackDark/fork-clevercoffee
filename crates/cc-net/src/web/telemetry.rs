@@ -10,7 +10,7 @@
 /// those are owned by tasks the httpd task must not reach into, and a network task
 /// holding a `Config` is how this layering gets bypassed.
 #[derive(Clone, Debug, Default, PartialEq)]
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "`Telemetry` is a *report of facts about the machine*, one field per \
               key `/api/status` publishes, and a dozen of those keys are booleans \

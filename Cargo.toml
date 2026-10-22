@@ -104,6 +104,8 @@ unexpected_cfgs = { level = "warn", check-cfg = [
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
+# Every suppression says why (AG-RUST-10).
+allow_attributes_without_reason = "deny"
 
 [profile.release]
 opt-level = "s"     # flash size is the binding constraint

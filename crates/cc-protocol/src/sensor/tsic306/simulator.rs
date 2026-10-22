@@ -28,7 +28,7 @@ const _: () = assert!(PACKET_BITS_INDEX == protocol::PACKET_BITS as usize);
 /// flag would be easier to write and would prove nothing about which check
 /// catches what.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "every field is an independent damage mode; see this type's docs"
 )]
@@ -153,14 +153,14 @@ impl Waveform {
     fn data_position(index: usize) -> Option<(u8, bool)> {
         match index {
             1..=8 => Some(
-                #[allow(
+                #[expect(
                     clippy::cast_possible_truncation,
                     reason = "the range bounds the value at 7"
                 )]
                 ((index - 1) as u8, true),
             ),
             11..=18 => Some(
-                #[allow(
+                #[expect(
                     clippy::cast_possible_truncation,
                     reason = "the range bounds the value at 7"
                 )]
@@ -197,7 +197,7 @@ impl Waveform {
     /// temperature that is wrong by a factor of 32 in the top three bits — and
     /// `a_whole_eleven_bit_range_decodes_to_itself` is the test that catches it,
     /// which is the reason that test walks all 2048 codes rather than a handful.
-    #[allow(
+    #[expect(
         clippy::unused_self,
         reason = "kept as a method so it reads alongside the other bit helpers"
     )]
@@ -250,10 +250,6 @@ impl Waveform {
     /// "The packet ends with an even parity bit" (app note §1.1): the parity bit
     /// is 1 when the eight data bits hold an odd number of ones, so the packet as
     /// a whole holds an even number.
-    #[allow(
-        clippy::unused_self,
-        reason = "kept as a method so it reads alongside the other bit helpers"
-    )]
     fn parity_at(&self, packet: u8) -> bool {
         let base = usize::from(packet) - 1;
         let first = base * protocol::PACKET_BITS as usize + 1;
@@ -274,10 +270,6 @@ impl Waveform {
     }
 
     /// The data bit as the sensor intended it, with no damage applied.
-    #[allow(
-        clippy::unused_self,
-        reason = "kept as a method so it reads alongside the other bit helpers"
-    )]
     fn bit_at_ideal(&self, index: usize) -> bool {
         let Some(raw_bit) = self.raw_bit_at(index) else {
             return false;
@@ -305,7 +297,7 @@ impl Waveform {
             u32::from(!self.damage.missing_stop_bit)
         };
         let before_second_packet = index >= PACKET_BITS_INDEX;
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
             reason = "index < TRANSMISSION_BITS, which is 20"
         )]
@@ -371,10 +363,6 @@ impl Waveform {
     pub fn edges(&self) -> Vec<Edge> {
         let mut edges = Vec::new();
         let mut previous = true; // the line idles high
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "duration_us is 22 bit windows, under 8 k"
-        )]
         for at_us in 0..=self.duration_us() {
             let level = self.level_at(at_us);
             if level != previous {
@@ -400,19 +388,6 @@ impl Waveform {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::assertions_on_constants,
-    reason = "these tests assert protocol and transport constants against the \
-              datasheet/app note numbers on purpose: that is the claim, and the \
-              compiler is right that a run-time comparison of two constants is \
-              not a test"
-)]
-#[allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    reason = "test-side narrowing of values the protocol bounds to 0..=2047"
-)]
 mod tests {
     use super::*;
 

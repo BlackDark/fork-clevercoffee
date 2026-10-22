@@ -382,7 +382,10 @@ impl TimerIsrPwm {
         let fraction = if max_duty == 0 {
             0.0
         } else {
-            #[allow(clippy::cast_precision_loss)]
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "duty counts are far below 2^24, where f32 stops being exact"
+            )]
             {
                 counts as f32 / max_duty as f32
             }

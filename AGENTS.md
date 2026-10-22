@@ -314,7 +314,10 @@ checks that the pins agree.
 
 **AG-RUST-10.** Do not add `#[allow]`, `#[expect]` or a `macro_rules!` without
 reading why the existing ones are there. `just lint` runs `clippy::pedantic` as
-`deny`.
+`deny`. Suppress with `#[expect(lint, reason = "...")]`, so a suppression that
+stops being needed fails the build; use `allow` only where the lint fires in
+some builds and not others (test-only users, the device-tests feature, crates
+linted only in CI). Every suppression carries a `reason`; clippy enforces it.
 
 **AG-RUST-11.** **The control tick must not allocate the heap.**
 `crates/cc-machine/tests/tick_allocations.rs` asserts zero allocations per tick
@@ -340,7 +343,7 @@ best-practice rationale is in scope ("offsets, not lengths", "why not `String`",
 enough:
 
 1. **Global-lint restatement.** Do not annotate that a workspace lint is held.
-   `Cargo.toml:149-189` sets `missing_docs = "warn"`, `unsafe_code = "deny"` and
+   `Cargo.toml`'s `[workspace.lints]` sets `missing_docs = "warn"`, `unsafe_code = "deny"` and
    clippy `all`+`pedantic` for every crate, so a crate-level attribute repeating
    one of them says nothing about that crate. Only an *escalation* above the
    workspace value carries information: `#![deny(missing_docs)]` turns a missing

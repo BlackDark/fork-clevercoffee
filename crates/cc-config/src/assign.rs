@@ -557,9 +557,8 @@ mod tests {
     }
 
     /// An in-range `i32` that is not the default.
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
         reason = "the mid-point of the schema's own bounds, and every Int \
                   parameter in this firmware is a count or a port number"
     )]
@@ -576,11 +575,6 @@ mod tests {
     }
 
     /// An in-range `f64` that is not the default.
-    #[allow(
-        clippy::cast_precision_loss,
-        reason = "the mid-point of the schema's own bounds; a float parameter \
-                  whose bounds are both above 2^53 does not exist here"
-    )]
     fn float_probe(spec: &ParamSpec) -> f64 {
         let mid = (spec.min.unwrap_or(0.0) + spec.max.unwrap_or(1.0)) / 2.0;
         if Some(mid) == spec.default.as_f64() {

@@ -907,9 +907,11 @@ const fn if_enabled(enabled: bool) -> &'static str {
 #[cfg(any(test, feature = "device-tests"))]
 #[cfg_attr(feature = "device-tests", doc(hidden))]
 pub mod tests {
-    // Justification: these cases test this module's private decisions, which is
-    // why they live beside them; see `crate::task::tests` for the same note.
-    #![allow(clippy::wildcard_imports)]
+    #![allow(
+        clippy::wildcard_imports,
+        reason = "the tests exercise the parent's private items, and the `cfg(test)` \
+                  exception does not cover the device-tests build"
+    )]
 
     use super::{Polarity, RelayPolarities};
     use cc_domain::hardware::RelayTriggerType;

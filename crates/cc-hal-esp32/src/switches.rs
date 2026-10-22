@@ -77,7 +77,10 @@ pub struct SwitchBank {
 /// the edge loop wants one, `/api/status` wants the float, and the boot log
 /// wants all five. A two-variant enum per switch would be a state machine for
 /// something that is a measurement.
-#[allow(clippy::struct_excessive_bools)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "five independent wires, not a state machine"
+)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Levels {
     /// The power switch.
@@ -339,10 +342,10 @@ pub const fn operator_initial_raw(mode: SwitchMode) -> u8 {
 /// and [`tank_reading`] is where a real bug once lived.
 #[cfg(any(test, feature = "device-tests"))]
 pub mod tests {
-    // A panic here is the on-target runner's reporting mechanism, not an
-    // undocumented hazard: `cc-device-tests` is built around "a failed assert
-    // resets the chip". None of this module ships.
-    #![allow(clippy::missing_panics_doc)]
+    #![allow(
+        clippy::missing_panics_doc,
+        reason = "a failed assertion is how the on-target runner reports; none of this ships"
+    )]
 
     use super::tank_reading;
 

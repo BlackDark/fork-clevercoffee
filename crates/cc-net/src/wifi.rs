@@ -12,7 +12,7 @@ use crate::resilience::{CircuitBreaker, RetryPolicy};
 /// performs each step. A type rather than a comment, because this rule is exactly
 /// the sort of thing an edit removes from a comment without noticing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "the type IS four booleans -- it records which of four ordered \
               steps have happened, and the only code that reads it branches on \

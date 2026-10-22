@@ -78,10 +78,6 @@ fn main() {
 
     let mark = cc_alloc_count::counters();
     let started = Instant::now();
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "TEMPLATES.len() is 6, a literal, so the truncation is exact"
-    )]
     let rounds = REPORTED_FRAMES / TEMPLATES.len() as u64;
     for _ in 0..rounds {
         for template in TEMPLATES {

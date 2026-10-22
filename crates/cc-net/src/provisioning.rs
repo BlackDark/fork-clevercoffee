@@ -284,7 +284,7 @@ impl Parser {
             self.line[..len].copy_from_slice(bytes);
             // Bounded by `MAX_LINE_BYTES` (72) by the check at the top of
             // `feed`, which is why the cast cannot truncate.
-            #[allow(
+            #[expect(
                 clippy::cast_possible_truncation,
                 reason = "len <= MAX_LINE_BYTES (72), checked earlier in this function"
             )]
@@ -329,7 +329,7 @@ impl Parser {
             let ssid_len = usize::from(self.armed_len);
             self.line[..len].copy_from_slice(password.as_bytes());
             // Bounded by `MAX_LINE_BYTES` by the check at the top of `feed`.
-            #[allow(
+            #[expect(
                 clippy::cast_possible_truncation,
                 reason = "len <= MAX_LINE_BYTES, checked earlier in this function"
             )]
@@ -369,7 +369,7 @@ impl Parser {
             }
             self.armed[..ssid.len()].copy_from_slice(ssid.as_bytes());
             // Bounded by `MAX_SSID_BYTES` (32) by the check two lines above.
-            #[allow(
+            #[expect(
                 clippy::cast_possible_truncation,
                 reason = "ssid.len() <= MAX_SSID_BYTES (32), checked above"
             )]

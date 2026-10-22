@@ -100,7 +100,7 @@ mod tests {
     // typecheck, and `assert_eq!(x.len(), 0)` would print a count instead of
     // the contents. A `String` emptiness assertion elsewhere in this crate is
     // still linted -- those are written `assert_ne!(x, "")`.
-    #![allow(
+    #![expect(
         clippy::assert_is_empty,
         reason = "the assertions are on collections, so the suggested \
                   assert_eq!(x, \"\") does not typecheck"

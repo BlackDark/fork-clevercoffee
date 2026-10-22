@@ -266,17 +266,8 @@ impl Default for EdgeBuffer {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::assertions_on_constants,
-    reason = "these tests assert protocol and transport constants against the \
-              datasheet/app note numbers on purpose: that is the claim, and the \
-              compiler is right that a run-time comparison of two constants is \
-              not a test"
-)]
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
     reason = "test-side narrowing of values the protocol bounds to 0..=2047"
 )]
 mod tests {
@@ -461,7 +452,6 @@ mod tests {
     fn a_whole_transmission_fits_without_a_single_refusal() {
         // 40 edges, the real count, into the real capacity.
         let ring = EdgeRing::<CAPACITY>::new();
-        #[allow(clippy::cast_possible_truncation, reason = "TRANSMISSION_BITS is 20")]
         let count = 2 * u32::from(protocol::TRANSMISSION_BITS);
         for at_us in 0..count {
             assert_eq!(ring.push(at_us, at_us % 2 == 1), Ok(()));

@@ -74,10 +74,10 @@ fn check_backflush_mode_disabled(machine: &mut Machine, ctx: &Context<'_>) -> Op
 ///
 /// The caller has already set [`Machine::entry_at`], so
 /// [`state_elapsed_ms`](Machine::state_elapsed_ms) is 0 here.
-#[allow(clippy::match_same_arms)]
-// Justification: the eighteen arms are kept separate on purpose. Several states do the same
-// thing, but each is a different state's contract, and a change to one must not silently
-// change another. Merging them would make ADR-0003's table untestable per row.
+#[expect(
+    clippy::match_same_arms,
+    reason = "each arm is a different state's contract; merging arms couples them"
+)]
 #[must_use]
 pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     let mut fx = Effects::new();
@@ -229,10 +229,10 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
 /// ADR-0003: **every state that activates the pump or a valve must deactivate them on exit**,
 /// because the next state's entry may not run if an error interrupts the transition
 /// (AG-REPO-21).
-#[allow(clippy::match_same_arms)]
-// Justification: the eighteen arms are kept separate on purpose. Several states do the same
-// thing, but each is a different state's contract, and a change to one must not silently
-// change another. Merging them would make ADR-0003's table untestable per row.
+#[expect(
+    clippy::match_same_arms,
+    reason = "each arm is a different state's contract; merging arms couples them"
+)]
 #[must_use]
 pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     let mut fx = Effects::new();
@@ -338,10 +338,10 @@ pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) ->
 /// off. A fail-safe may do that between ticks, and the valve check runs after this in the same
 /// tick, so a state that asserts "valve open" and a check that asserts "valve closed" are
 /// both applied and the *whitelist* decides -- not which call came last.
-#[allow(clippy::match_same_arms)]
-// Justification: the eighteen arms are kept separate on purpose. Several states do the same
-// thing, but each is a different state's contract, and a change to one must not silently
-// change another. Merging them would make ADR-0003's table untestable per row.
+#[expect(
+    clippy::match_same_arms,
+    reason = "each arm is a different state's contract; merging arms couples them"
+)]
 #[must_use]
 pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     let mut fx = Effects::new();
@@ -462,10 +462,10 @@ pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> 
 /// the current state is still a self-transition, which the caller discards. The flags a state
 /// acts on are cleared here, before the answer is returned, so even a discarded transition
 /// consumes its flag.
-#[allow(clippy::too_many_lines)]
-// Justification: the eighteen arms are the specification, and the order in which each state
-// tests its conditions decides which flag wins when several are set. Splitting them across
-// private helpers would hide that order.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the eighteen arms are the specification, and their order decides which flag wins"
+)]
 #[must_use]
 pub fn check_specific(
     state: MachineState,
@@ -603,10 +603,10 @@ pub fn check_specific(
                     return Some(MachineState::BrewFinished);
                 }
                 let target_weight = ctx.config.brew.by_weight.target_weight;
-                #[allow(clippy::cast_possible_truncation)]
-                // Justification: the configured target is a `double` and the reading is an
-                // `f32`, so the comparison truncates. The target is displayed to one decimal,
-                // which is coarser than the truncation, so the difference cannot be seen.
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "the f64 target is compared at f32 precision, finer than its one-decimal display"
+                )]
                 let target_weight_f32 = target_weight as f32;
                 if ctx.config.brew.by_weight.enabled
                     && target_weight > 0.0
@@ -853,12 +853,14 @@ fn preinfusion_ms(ctx: &Context<'_>) -> f64 {
 ///
 /// An absurdly large duration lands on `u32::MAX`, which reads as "already elapsed" at every
 /// comparison, and a `NaN` lands on 0.
-#[allow(clippy::cast_possible_truncation)]
-// Justification: the truncation to whole milliseconds is the intended result; a fractional
-// millisecond has no representation here.
-#[allow(clippy::cast_sign_loss)]
-// Justification: `secs_to_u32` checks `seconds > 0.0` before calling this, so the value cast is
-// known to be non-negative.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "truncation to whole milliseconds is the intended result"
+)]
+#[expect(
+    clippy::cast_sign_loss,
+    reason = "the caller checks `seconds > 0.0` first"
+)]
 fn saturating_millis(seconds: f64) -> u32 {
     (seconds * 1000.0) as u32
 }

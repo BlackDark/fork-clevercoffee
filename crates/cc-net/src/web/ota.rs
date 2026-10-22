@@ -190,7 +190,7 @@ pub fn progress_percent(kind: Kind, uploaded: usize) -> u8 {
 /// off their desktop, not a security control: what it protects — writing to the
 /// wrong partition — is prevented by the route, not by the name.
 #[must_use]
-#[allow(
+#[expect(
     clippy::case_sensitive_file_extension_comparisons,
     reason = "the rule IS case-insensitive: `lower` above is the lower-cased \
               string, and the lint fires on the comparison it cannot see through \

@@ -44,7 +44,7 @@ fn the_control_tick_does_not_allocate() {
 
     let mark = cc_alloc_count::counters();
     for i in 0..TICKS {
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
             reason = "TICKS is 1_000, a literal; the truncation is exact"
         )]

@@ -138,7 +138,7 @@ mod tests {
     // The sample numbers here run to a few thousand, and `f32` represents every
     // integer below 2^24 exactly, so the casts lose nothing. The lint cannot
     // know that, and a per-cast `expect` would be noise on five lines.
-    #![allow(
+    #![expect(
         clippy::cast_precision_loss,
         reason = "test sample values are far below f32's exact-integer range"
     )]

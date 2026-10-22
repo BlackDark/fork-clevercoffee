@@ -427,15 +427,11 @@ fn bounded<const N: usize>(value: &str) -> Result<heapless::String<N>, EspError>
 #[cfg(any(test, feature = "device-tests"))]
 #[cfg_attr(feature = "device-tests", doc(hidden))]
 pub mod tests {
-    // A unit-test module globs its parent on purpose: the cases are exercising
-    // the parent's private helpers, which is the point of keeping them in the
-    // same file. `clippy::wildcard_imports` normally makes an exception for
-    // `use super::*` inside a `#[cfg(test)]` module, and this module is
-    // `#[cfg(any(test, feature = "device-tests"))]` -- the on-target runner
-    // compiles it outside a test build -- so the exception no longer applies and
-    // the allowance is made explicitly here instead of in eight import lists
-    // that would rot.
-    #![allow(clippy::wildcard_imports)]
+    #![allow(
+        clippy::wildcard_imports,
+        reason = "the tests exercise the parent's private items, and the `cfg(test)` \
+                  exception does not cover the device-tests build"
+    )]
 
     use super::*;
 

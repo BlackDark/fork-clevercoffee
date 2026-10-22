@@ -448,12 +448,15 @@ pub mod tests {
     // the on-target runner is built around "a failed assert resets the chip"
     // (see `cc-device-tests`). A panic here is the reporting mechanism, not an
     // undocumented hazard, and none of this module ships.
-    #![allow(clippy::missing_panics_doc)]
-    // As in every other module here: these exercise the parent's private
-    // helpers, so the module globs its parent. The `clippy::wildcard_imports`
-    // exception the lint gives a `#[cfg(test)]` module does not apply to this
-    // one, which the on-target runner also compiles.
-    #![allow(clippy::wildcard_imports)]
+    #![allow(
+        clippy::missing_panics_doc,
+        reason = "a failed assertion is how the on-target runner reports; none of this ships"
+    )]
+    #![allow(
+        clippy::wildcard_imports,
+        reason = "the tests exercise the parent's private items, and the `cfg(test)` \
+                  exception does not cover the device-tests build"
+    )]
 
     use super::*;
 

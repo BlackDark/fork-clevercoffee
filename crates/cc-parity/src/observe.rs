@@ -83,7 +83,7 @@ fn watchdog_name(w: PumpWatchdog) -> &'static str {
 /// The final actuator state, as [`ActuatorSafe`](crate::scenario::Assertion::ActuatorSafe)
 /// checks it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "one flag per relay the assertion inspects; a state enum would hide which"
 )]

@@ -1,4 +1,4 @@
-#![allow(
+#![expect(
     clippy::assert_is_empty,
     reason = "the assertion below is on a collection, so the suggested \
               assert_eq!(x, \"\") does not typecheck"

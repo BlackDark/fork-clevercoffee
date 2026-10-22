@@ -7,7 +7,7 @@
 // subset of this module: the PPM/golden helpers are only reached once the golden
 // tests exist, the measurement tables only by the parity tests. Without this,
 // every binary reports the other's helpers as dead code.
-#![allow(
+#![expect(
     dead_code,
     reason = "shared by several test binaries; each uses a subset"
 )]

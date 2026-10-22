@@ -758,7 +758,7 @@ fn draw_brew_info(
 /// checked so a corrupt config cannot produce a negative target.
 fn narrow_f32(value: f64) -> f32 {
     if value.is_finite() && value >= f64::from(f32::MIN) && value <= f64::from(f32::MAX) {
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
             reason = "the range is checked; a weight in grams is far inside f32"
         )]

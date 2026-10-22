@@ -376,7 +376,10 @@ impl Default for Steam {
 // toggles have no relationship to one another, and collapsing them into
 // two-variant enums would make an exported configuration harder to read for no
 // gain.
-#[allow(clippy::struct_excessive_bools)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent user-settable flags, not a state machine"
+)]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Display {

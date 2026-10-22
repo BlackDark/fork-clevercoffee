@@ -109,7 +109,10 @@ pub fn counts_to_bar(pressure_counts: u32) -> Bar {
     // arithmetic yields a negative pressure. Clamping to zero would be safer but it is a behaviour
     // change, so it is left to the caller: this returns the negative value and `is_below_range`
     // exposes the condition so a caller can act on it.
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a pressure in the sensor's range needs nowhere near f64 precision"
+    )]
     Bar::new(bar as f32)
 }
 
@@ -123,7 +126,10 @@ pub fn counts_to_bar(pressure_counts: u32) -> Bar {
 #[must_use]
 pub fn counts_to_celsius(temperature_counts: u32) -> Celsius {
     let counts = f64::from(temperature_counts);
-    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a temperature in the sensor's range needs nowhere near f64 precision"
+    )]
     let celsius = (counts * FULL_SCALE_TEMPERATURE_C / FULL_SCALE + TEMPERATURE_OFFSET_C) as f32;
     Celsius::new(celsius)
 }
@@ -493,7 +499,11 @@ mod tests {
     fn mid_scale_pressure_is_about_half() {
         // Halfway between the offset and the top.
         let mid = (OUTPUT_MIN + OUTPUT_MAX) / 2.0;
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "the mid-scale count is a small positive value"
+        )]
         let counts = mid as u32;
         let bar = counts_to_bar(counts);
         assert!((bar.raw() - 5.0).abs() < 0.01, "got {bar}");

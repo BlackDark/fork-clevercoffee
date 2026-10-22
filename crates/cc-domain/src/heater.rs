@@ -88,12 +88,10 @@ pub const REPRODUCTION_TOLERANCE_MS: f64 = 0.01;
 /// `counter_ms` is one of `0, 10, …, 990`. This is the reference definition of the output
 /// and the specification [`chopper_on_ticks`] is tested against; the ISR uses its integer
 /// twin, [`chopper_tick_level_ms`].
-// Justification: `counter_ms` is a chopper counter, so it is at most `WINDOW_MS` (1000) and
-// every value in `0..=1000` is exactly representable in an `f32`.
-#[allow(clippy::cast_precision_loss)]
-// Justification: as above — the counter never exceeds 1000, which `f32` holds
-// exactly.
-#[allow(clippy::cast_sign_loss)]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "a chopper counter is at most WINDOW_MS (1000), exact in f32"
+)]
 #[must_use]
 pub fn chopper_tick_level(pid_output: Duty, counter_ms: u32) -> bool {
     // The level is the negation of `<=`: off at equality, not below it.
@@ -226,10 +224,11 @@ pub fn duty_counts(pid_output: Duty, max_duty: u32) -> u32 {
         // The cast is exact: `on_fraction` is in `0.0 ..= 1.0` and `max_duty` is
         // a `u32`, so `counts` is in `0.0 ..= f64::from(max_duty)` and the
         // truncation cannot lose anything.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        // Justification: as above — the value has just been clamped into
-        // `0.0 ..= f64::from(max_duty)`, a range every value of which is exactly
-        // representable in a `u32` and none of which is negative.
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "clamped to 0..=max_duty just above: non-negative and exact in u32"
+        )]
         {
             counts as u32
         }
@@ -329,10 +328,11 @@ fn round_half_away_from_zero(value: f64) -> f64 {
     if value.is_nan() || value <= 0.0 {
         return 0.0;
     }
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_precision_loss,
-        clippy::cast_sign_loss
+        clippy::cast_sign_loss,
+        reason = "the only caller passes a ratio of two u32s times a u32: non-negative and within u32"
     )]
     // Justification: `value` is in `0.0 ..= u32::MAX` by the only caller's
     // arithmetic — `on_fraction` is a ratio of two `u32`s and `max_duty` is a
@@ -538,10 +538,10 @@ mod tests {
 
     /// The quantisation, including the two edges a division gets wrong.
     #[test]
-    // Justification: the loop bounds are `n <= CHOPPER_STEPS` (100) and
-    // `ticks <= CHOPPER_STEPS`, so the product is at most 1000 and every value
-    // involved is exactly representable in an `f32`.
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "the product is at most 1000, exact in f32"
+    )]
     fn the_ten_millisecond_quantisation() {
         // Below one step: still a whole step, because the chopper turns the relay on
         // at counter 0 for any positive output.
@@ -591,9 +591,10 @@ mod tests {
     /// 131 072/100 = 1310.72 counts per 1 % step, so the worst-case
     /// reproduction error of a duty the chopper produces is half a count = **3.8 µs**.
     #[test]
-    // Justification: `ticks <= CHOPPER_STEPS` (100), so the product is at most
-    // 1000 and exactly representable in an `f32`.
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "the product is at most 1000, exact in f32"
+    )]
     fn duty_counts_at_the_chosen_resolution() {
         const MAX_DUTY: u32 = CHOSEN_MAX_DUTY;
 
@@ -708,9 +709,10 @@ mod tests {
     /// Separate from the test above because that one passes at whatever the
     /// measured error happens to be, and this one cannot: it is arithmetic.
     #[test]
-    // Justification: `ticks <= CHOPPER_STEPS` (100), so the product is at most
-    // 1000 and every value involved is exactly representable in an `f32`.
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "the product is at most 1000, exact in f32"
+    )]
     fn the_chosen_carrier_reproduces_the_chopper_on_time_at_the_analytic_bound() {
         let half_a_count_ms = 0.5 * f64::from(WINDOW_MS) / f64::from(CHOSEN_MAX_DUTY);
         assert!(
@@ -987,19 +989,22 @@ pub fn duty_ms_from_fraction(fraction: f32, max_duty: u32) -> u32 {
     // Round to the *nearest* 10 ms step, not down. Truncating would make every
     // duty biased low by up to a whole step (10 ms of 1000, i.e. 1 %); rounding
     // bounds the error at half a step, which is 0.5 %.
-    #[allow(
-        clippy::cast_precision_loss,
-        reason = "max_duty is a duty resolution (131072), exactly an f32"
-    )]
     let scaled = f64::from(max_duty) * f64::from(fraction.clamp(0.0, 1.0));
     let exact_steps = scaled / f64::from(max_duty) * f64::from(CHOPPER_STEPS);
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "`min(CHOPPER_STEPS)` bounds the value to 0..=100"
+    )]
     let steps = if exact_steps <= 0.0 {
         0u32
     } else {
         // `floor(x + 0.5)` without a libm: `exact_steps` is in `0..=100`, well
         // inside the range where `f64` addition and subtraction are exact.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "`exact_steps` is in 0..=100, so the rounded value is non-negative and small"
+        )]
         let rounded = (exact_steps + 0.5) as u64;
         rounded.min(u64::from(CHOPPER_STEPS)) as u32
     };
@@ -1172,12 +1177,6 @@ impl IsrChopper {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::float_cmp,
-    clippy::cast_precision_loss,
-    reason = "the tests compare and convert exact 10 ms grid values, which is the \
-              assertion; an approximate comparison would hide what is being pinned"
-)]
 mod isr_tests {
     use super::*;
     use alloc::vec::Vec;
@@ -1309,7 +1308,7 @@ mod isr_tests {
                 .iter()
                 .filter(|level| **level)
                 .count();
-            #[allow(clippy::cast_possible_truncation, reason = "at most CHOPPER_STEPS")]
+            #[expect(clippy::cast_possible_truncation, reason = "at most CHOPPER_STEPS")]
             let on_ticks = on_ticks as u32;
             assert_eq!(on_ticks, chopper_on_ticks(duty), "pid_output {output} ms");
         }
@@ -1418,14 +1417,6 @@ mod isr_tests {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::float_cmp,
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "the tests convert and compare exact 10 ms grid values in f32, which \
-              is the assertion"
-)]
 mod transport_tests {
     use super::*;
 
@@ -1435,7 +1426,10 @@ mod transport_tests {
         let duty = Duty::new(f32::from(output));
         let counts = duty_counts(duty, CHOSEN_MAX_DUTY);
         duty_ms_from_fraction(
-            #[allow(clippy::cast_precision_loss)]
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "counts are at most CHOSEN_MAX_DUTY, exact in f32"
+            )]
             {
                 counts as f32 / CHOSEN_MAX_DUTY as f32
             },
@@ -1489,7 +1483,10 @@ mod transport_tests {
             let duty = Duty::new(f32::from(output));
             let counts = duty_counts(duty, CHOSEN_MAX_DUTY);
             let back = duty_ms_from_fraction(
-                #[allow(clippy::cast_precision_loss)]
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "counts are at most CHOSEN_MAX_DUTY, exact in f32"
+                )]
                 {
                     counts as f32 / CHOSEN_MAX_DUTY as f32
                 },
@@ -1508,7 +1505,10 @@ mod transport_tests {
             let duty = Duty::new(f32::from(output));
             let counts = duty_counts(duty, CHOSEN_MAX_DUTY);
             let back = duty_ms_from_fraction(
-                #[allow(clippy::cast_precision_loss)]
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "counts are at most CHOSEN_MAX_DUTY, exact in f32"
+                )]
                 {
                     counts as f32 / CHOSEN_MAX_DUTY as f32
                 },
@@ -1621,7 +1621,7 @@ impl AtomicChopper {
     /// inputs with a relaxed load, and a duty that is half-published would show
     /// up as one window of the wrong duty.
     pub fn set_duty(&self, duty: Duty) {
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
             reason = "a duty is 0..=WINDOW_MS, which is exactly a u32"
@@ -1690,11 +1690,6 @@ impl AtomicChopper {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::float_cmp,
-    reason = "the tests compare exact f32 values that the code under test produces \
-              by the same expression, which is the assertion"
-)]
 mod atomic_chopper_tests {
     use super::*;
     use alloc::vec::Vec;
@@ -1849,7 +1844,10 @@ mod atomic_chopper_tests {
                 // `duty` is at most `WINDOW_MS` (1000) and every value in
                 // `0..=1000` is exact in an `f32`, so this cast is lossless --
                 // the same justification the module's other widenings carry.
-                #[allow(clippy::cast_precision_loss)]
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "duty is at most WINDOW_MS (1000), exact in f32"
+                )]
                 let expected = chopper_tick_level(Duty::new(duty as f32), counter);
                 assert_eq!(
                     chopper_tick_level_ms(duty, counter),

@@ -52,7 +52,7 @@ fn main() {
     let mark = cc_alloc_count::counters();
     let started = Instant::now();
     for i in 0..REPORTED_TICKS {
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
             reason = "REPORTED_TICKS is 100_000, a literal; the truncation is exact"
         )]

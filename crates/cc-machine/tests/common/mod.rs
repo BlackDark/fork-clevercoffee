@@ -3,7 +3,10 @@
 //! Assert ordered effects: counting calls cannot distinguish a pulse from a
 //! steady output. `elapse` sends ticks; `advance_clock` only moves fixture time.
 
-#![allow(dead_code)] // Each suite uses a different subset of the fixture.
+#![allow(
+    dead_code,
+    reason = "each test binary uses a different subset of the fixture"
+)]
 
 use cc_config::Config;
 use cc_domain::state::MachineState;
@@ -20,9 +23,10 @@ pub fn context_for(config: &Config) -> Context<'_> {
     // The setpoint is the brew setpoint plus its offset, which is what process control reports
     // in every state except steam. The state machine only passes it through, so the value is not
     // load-bearing for any assertion here.
-    #[allow(clippy::cast_possible_truncation)]
-    // Justification: `brew.setpoint` is a configured `f64` and `Celsius` is an `f32`; the fixture
-    // is not testing the cast, it is supplying a plausible setpoint.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a plausible setpoint for the fixture; the cast is not under test"
+    )]
     let raw = (config.brew.setpoint + config.brew.temp_offset) as f32;
     Context::new(config, Celsius::new(raw))
 }
@@ -335,23 +339,13 @@ pub fn entry_half(win: &[Effect], new: MachineState) -> Vec<Effect> {
     }
 }
 
-/// Exact comparison of a millisecond value.
-///
-/// `assert_eq!` on `f64` is denied by `clippy::float_cmp`. Every value compared
-/// through this helper is an exact multiple of 1000 built from a small literal, so
-/// the arithmetic is exact in binary floating point and a tolerance would hide a
-/// real mistake rather than paper over one.
-#[allow(clippy::float_cmp)]
-// Justification: every value compared here is an exact multiple of 1000 derived
-// from a small integer literal, so the comparison is exact by construction.
+/// Exact comparison of a millisecond value: every value compared is an exact
+/// multiple of 1000 from a small literal, so a tolerance would hide a real mistake.
 pub fn assert_ms(actual: f64, expected: f64) {
     assert_eq!(actual, expected, "millisecond value");
 }
 
-/// Exact comparison of a weight in grams.
-#[allow(clippy::float_cmp)]
-// Justification: as `assert_ms` — the weights compared are whole grams or tenths
-// of a gram, both exact in `f32`.
+/// Exact comparison of a weight in grams; the weights compared are exact in `f32`.
 pub fn assert_g(actual: f32, expected: f32) {
     assert_eq!(actual, expected, "weight in grams");
 }

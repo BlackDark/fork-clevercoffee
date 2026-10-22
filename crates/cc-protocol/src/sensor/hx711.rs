@@ -489,7 +489,7 @@ impl Cell {
             .saturating_sub(u64::from(low))
             .saturating_sub(u64::from(high));
         let divisor = 1u64 << self.samples_in_use.trailing_zeros();
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
             reason = "the sum is at most 34 values of 0xFFFFFF, so the quotient \
                       is below 0xFFFFFF and fits a u32"
@@ -1236,12 +1236,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(
-        clippy::float_cmp,
-        reason = "the factors here are 3.0 and 4.0, which an f64 holds exactly; \
-                  `==` is the assertion, and a tolerance would hide a factor that \
-                  came back as 3.0000000000000004"
-    )]
     fn a_zero_or_non_finite_calibration_is_refused() {
         // The factor is divided by unchecked at the weight, and the config API can set it to zero,
         // so the check has to live here.
@@ -1255,12 +1249,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(
-        clippy::float_cmp,
-        reason = "DEFAULT_CALIBRATION is 1.0, which an f64 holds exactly, and \
-                  this test exists precisely to prove the stored value is \
-                  *that* constant rather than something close to it"
-    )]
     fn a_zero_calibration_at_construction_falls_back_to_the_default() {
         let cell = Cell::new(0.0, 1);
         assert_eq!(cell.calibration(), DEFAULT_CALIBRATION);
@@ -1269,12 +1257,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(
-        clippy::float_cmp,
-        reason = "267000 / 100 is 2670 exactly in binary floating point, so \
-                  `==` is the assertion: a factor that came back as 2669.9999 \
-                  would be a defect, not a rounding artefact to tolerate"
-    )]
     fn calibrating_against_a_known_mass_gives_counts_per_gram() {
         // (smoothed - tare) / known_mass is the factor that makes the current reading equal the
         // mass.
@@ -1287,11 +1269,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(
-        clippy::float_cmp,
-        reason = "1.0 is held exactly by an f64 and a refused calibration must \
-                  leave the factor bit-for-bit unchanged"
-    )]
     fn calibrating_against_nothing_is_refused() {
         let mut cell = Cell::new(1.0, 1);
         assert_eq!(cell.calibrate(100.0), None, "an empty cell");

@@ -520,10 +520,6 @@ impl Display {
     /// **The boundaries are asymmetric.** The tree tests `v0 < a1` and
     /// `v1 > a0`, so both upper limits are *excluded* and a box that only
     /// touches the window edge does not intersect.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "the eight coordinates mirror U8g2's own (x0, y0, x1, y1) argument names for the two rectangles; collapsing them into two Rect values would hide which one is the window"
-    )]
     fn is_intersection(shape: Rect, win: Rect) -> bool {
         Self::intersection_tree(win.y0, win.y1, shape.y0, shape.y1)
             && Self::intersection_tree(win.x0, win.x1, shape.x0, shape.x1)
@@ -553,7 +549,7 @@ impl Display {
     /// "above the top of the screen", and that is what makes the wrapped-range
     /// arm reachable.
     const fn u16_of(v: i32) -> u16 {
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
             reason = "the truncation to 16 bits IS the u8g2_uint_t cast"
@@ -1347,7 +1343,7 @@ impl Polygon<'_> {
     fn len(&self) -> i32 {
         // A `drawTriangle` has 3 points and a `PG_MAX_POINTS` of 6; the cast is
         // bounded by the caller's slice, which is a literal.
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
             clippy::cast_possible_wrap,
             reason = "bounded by PG_MAX_POINTS = 6, which U8g2 also asserts"

@@ -8,7 +8,7 @@
 //! Const-initialized, destructor-free cells avoid allocator re-entry during
 //! counter access.
 
-#![allow(
+#![expect(
     unsafe_code,
     reason = "a GlobalAlloc impl is unsafe by definition and there is no safe \
               way to count allocations. Every block forwards the call and its \
@@ -16,7 +16,7 @@
               would otherwise have run -- so the counters are a side effect and \
               not a change of behaviour."
 )]
-#![allow(
+#![expect(
     clippy::cast_precision_loss,
     reason = "a benchmark's per-iteration ratio; iteration and allocation \
               counts are far below the 2^53 where u64 stops being exact in f64"

@@ -449,7 +449,7 @@ impl Runner {
         if computed {
             // The output is published here and zeroed later in the same tick, so
             // no later step reads a stale value.
-            #[allow(
+            #[expect(
                 clippy::cast_possible_truncation,
                 reason = "the output is clamped to 0..=HEATER_WINDOW_MS by \
                           set_output_limits, and every integer in that range is \
@@ -708,7 +708,7 @@ fn unsafe_actuators(actuators: ObservedActuators, require_zero_duty: bool) -> Ve
 
 /// Narrow a configured temperature to [`Celsius`], as the firmware does.
 fn celsius(degrees: f64) -> Celsius {
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "configured temperatures are within a range where f32 is exact to \
                   well under the probe's 0.0625 C resolution"

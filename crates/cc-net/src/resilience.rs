@@ -89,7 +89,7 @@ impl RetryPolicy {
     /// a long outage produce a *fast* retry loop, which is the opposite of what
     /// backoff is for.
     #[must_use]
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "`capped` is `min(delay, max_delay_ms)`, and `max_delay_ms` is \
                   a `u32`, so the truncation is unreachable -- the `as u32` is \

@@ -179,12 +179,14 @@ fn preinfusion_base_ms(config: &Config) -> f64 {
 /// A negative duration is handled by [`secs_to_ms`] before this is reached; an absurdly large
 /// one lands on `u32::MAX`, and a `NaN` on 0. A range-checked `Config` produces neither, and
 /// this is what keeps an unchecked one from taking the machine down.
-#[allow(clippy::cast_possible_truncation)]
-// Justification: the truncation to whole milliseconds is the intended result; a
-// fractional millisecond has no representation here.
-#[allow(clippy::cast_sign_loss)]
-// Justification: `secs_to_ms` checks `seconds > 0.0` before calling this, so the
-// value cast is known to be non-negative.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "truncation to whole milliseconds is the intended result"
+)]
+#[expect(
+    clippy::cast_sign_loss,
+    reason = "the caller checks `seconds > 0.0` first"
+)]
 fn saturating_millis(seconds: f64) -> u32 {
     (seconds * 1000.0) as u32
 }
@@ -203,7 +205,7 @@ fn secs_to_ms(seconds: f64) -> u32 {
 /// Boot, every configuration write, the control tick and `cc-parity` all call it;
 /// two field-by-field copies drifted once and energised a low-trigger pump at boot.
 #[must_use]
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "`Config` temperatures are `f64` because a numeric parameter is a \
               `double`; `SafetyConfig` is `Celsius`-typed, which is `f32`. Over the \
@@ -234,15 +236,8 @@ mod tests {
     use super::*;
     use cc_config::Config;
 
-    /// Exact comparison of a millisecond value.
-    ///
-    /// `assert_eq!` on `f64` is denied by `clippy::float_cmp`. These values come
-    /// from `small_literal * 1000.0`, which is exact in binary floating point, so
-    /// an exact comparison is the *right* one here and a tolerance would hide a
-    /// genuine arithmetic mistake.
-    #[allow(clippy::float_cmp)]
-    // Justification: every value compared here is an exact multiple of 1000 from
-    // a small literal, so there is no rounding to tolerate.
+    /// Exact comparison of a millisecond value: `small_literal * 1000.0` is exact
+    /// in binary floating point, so a tolerance would hide a real mistake.
     fn assert_ms(actual: f64, expected: f64) {
         assert_eq!(actual, expected);
     }

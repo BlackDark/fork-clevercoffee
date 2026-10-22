@@ -51,7 +51,6 @@ impl Frame {
     /// The two agree exactly at the top of the range and differ by at most one 0.1 °C step
     /// everywhere else.
     #[must_use]
-    #[allow(clippy::cast_precision_loss)]
     pub fn celsius(self) -> f32 {
         f32::from(self.raw) / protocol::RANGE_STEPS * protocol::RANGE_SPAN_C + protocol::RANGE_MIN_C
     }
@@ -286,23 +285,15 @@ fn packet(bits: &[bool; 9], number: u8) -> Result<u8, FrameError> {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::float_cmp,
-    reason = "the tests compare f32 temperatures that the code under test computes \
-              by the same expression, or that are exactly representable grid \
-              points; an approximate comparison would hide what is being pinned"
-)]
-#[allow(
+#[expect(
     clippy::assertions_on_constants,
     reason = "these tests assert protocol and transport constants against the \
               datasheet/app note numbers on purpose: that is the claim, and the \
               compiler is right that a run-time comparison of two constants is \
               not a test"
 )]
-#[allow(
-    clippy::cast_possible_truncation,
+#[expect(
     clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
     reason = "test-side narrowing of values the protocol bounds to 0..=2047"
 )]
 mod tests {

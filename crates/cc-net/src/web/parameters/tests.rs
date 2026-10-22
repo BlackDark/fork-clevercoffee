@@ -6,7 +6,7 @@
 // COLLECTIONS, so the lint's suggestion (`assert_eq!(x, "")`) does not
 // typecheck, and `assert_eq!(x.len(), 0)` would print a count instead of the
 // contents.
-#![allow(
+#![expect(
     clippy::assert_is_empty,
     reason = "the assertions are on collections, so the suggested \
               assert_eq!(x, \"\") does not typecheck"
