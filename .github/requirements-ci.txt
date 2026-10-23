@@ -1,2 +1,0 @@
-# Pinned for reproducible CI and better pip cache hits (see setup-python cache).
-platformio==6.2.0
