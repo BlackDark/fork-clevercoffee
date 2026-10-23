@@ -1,145 +1,82 @@
+# Tag v* → CI, then merged USB images and OTA images for every profile on a GitHub release.
 name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
 
 permissions:
-  contents: write
-
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+  contents: read
 
 jobs:
-  release:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  images:
+    needs: ci
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ESP_TOOLCHAIN: "1.99.0.0"
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v3
         with:
-          python-version: "3.14"
-          cache: pip
-          cache-dependency-path: .github/requirements-ci.txt
-
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+          install_args: just espup espflash
+      - uses: actions/cache@v4
+        id: esp-cache
         with:
           path: |
-            ~/.platformio/.cache
-            .pio/buildcache
-          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini', 'platformio_extra.ini') }}
-          restore-keys: |
-            ${{ runner.os }}-pio-
-
-      - name: Install PlatformIO
-        run: pip install -r .github/requirements-ci.txt
-
-      - name: Set CLEVERCOFFEE_VERSION
-        run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
-          echo "CLEVERCOFFEE_VERSION=${VERSION}" >> "${GITHUB_ENV}"
-
-      - name: Run native tests
-        run: pio test -e native_test
-
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+            ~/.rustup/toolchains/esp
+            ~/export-esp.sh
+          key: esp-${{ runner.os }}-${{ env.ESP_TOOLCHAIN }}
+      - if: steps.esp-cache.outputs.cache-hit != 'true'
+        run: espup install --targets esp32 --toolchain-version "$ESP_TOOLCHAIN" --skip-version-parse
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: Swatinem/rust-cache@v2
         with:
-          version: 11
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+          workspaces: firmware
+      - uses: actions/download-artifact@v4
         with:
-          node-version: "24"
-          cache: pnpm
-          cache-dependency-path: ui/pnpm-lock.yaml
-
-      - name: Build firmware
-        run: pio run -e esp32_usb
-        env:
-          CLEVERCOFFEE_VERSION: ${{ env.CLEVERCOFFEE_VERSION }}
-          PLATFORMIO_BUILD_FLAGS: '-D VERSION=\"${{ env.CLEVERCOFFEE_VERSION }}\"'
-
-      - name: Build filesystem
-        run: pio run --target buildfs -e esp32_usb
-        env:
-          CLEVERCOFFEE_VERSION: ${{ env.CLEVERCOFFEE_VERSION }}
-          PLATFORMIO_BUILD_FLAGS: '-D VERSION=\"${{ env.CLEVERCOFFEE_VERSION }}\"'
-
-      - name: Stage release artifacts
+          name: ui-dist
+          path: ui/packages/frontend/dist
+      - name: Images
         run: |
-          mkdir -p release-artifacts
-          for file in firmware.bin littlefs.bin bootloader.bin partitions.bin; do
-            cp ".pio/build/esp32_usb/${file}" "release-artifacts/${file}"
+          for p in minimal standard full; do
+            just size "$p"
+            just image "$p"
           done
-          ls -la release-artifacts/
+          ls -l target/*.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-images
+          path: |
+            target/clevercoffee-*.bin
+            target/app-*.bin
 
-      - name: Verify release artifacts
-        run: |
-          for file in firmware.bin littlefs.bin bootloader.bin partitions.bin; do
-            test -f "release-artifacts/${file}" || {
-              echo "Missing release artifact: ${file}"
-              exit 1
-            }
-          done
-
-      - name: Generate release notes
-        env:
-          TAG: ${{ github.ref_name }}
-          REPO: ${{ github.repository }}
-        run: |
-          BASE="https://github.com/${REPO}/releases/download/${TAG}"
-
-          printf '%s\n' \
-            "## CleverCoffee ${TAG}" \
-            "" \
-            "### OTA updates (web UI)" \
-            "" \
-            "Open **System → OTA Updates** on the device and use these direct download URLs:" \
-            "" \
-            "| File | Purpose | URL |" \
-            "|------|---------|-----|" \
-            "| \`firmware.bin\` | Application firmware | [Download](${BASE}/firmware.bin) |" \
-            "| \`littlefs.bin\` | Web UI filesystem | [Download](${BASE}/littlefs.bin) |" \
-            "" \
-            "Direct links:" \
-            "" \
-            "- Firmware: \`${BASE}/firmware.bin\`" \
-            "- Filesystem: \`${BASE}/littlefs.bin\`" \
-            "" \
-            "### USB flash (initial install or recovery)" \
-            "" \
-            "Flash all four files with the ESP Flash Download Tool or \`esptool.py\`:" \
-            "" \
-            "| File | Flash address | Purpose |" \
-            "|------|---------------|---------|" \
-            "| \`bootloader.bin\` | \`0x1000\` | ESP32 bootloader |" \
-            "| \`partitions.bin\` | \`0x8000\` | Partition table |" \
-            "| \`firmware.bin\` | \`0x10000\` | Application |" \
-            "| \`littlefs.bin\` | \`0x350000\` | Filesystem (web UI) |" \
-            "" \
-            "Merge into a single image:" \
-            "" \
-            '```bash' \
-            "esptool.py --chip esp32 merge_bin -o merged-flash.bin \\" \
-            "  --flash_mode dio --flash_size 4MB \\" \
-            "  0x1000 bootloader.bin \\" \
-            "  0x8000 partitions.bin \\" \
-            "  0x10000 firmware.bin \\" \
-            "  0x350000 littlefs.bin" \
-            '```' \
-            "" \
-            "Flash settings: SPI speed 40 MHz, SPI mode DIO, flash size 4 MB." \
-            > release_notes.md
-
-      - name: Publish GitHub release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+  publish:
+    needs: images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-images
+          path: images
+      - uses: softprops/action-gh-release@v2
         with:
           name: CleverCoffee ${{ github.ref_name }}
-          body_path: release_notes.md
-          files: |
-            release-artifacts/firmware.bin
-            release-artifacts/littlefs.bin
-            release-artifacts/bootloader.bin
-            release-artifacts/partitions.bin
+          generate_release_notes: true
           fail_on_unmatched_files: true
+          body: |
+            | File | Use |
+            | --- | --- |
+            | `clevercoffee-<profile>.bin` | First install over USB: `espflash write-bin --chip esp32 0x0 clevercoffee-standard.bin` |
+            | `app-<profile>.bin` | Update from the web UI (System → Firmware Update) |
+
+            Profiles: `minimal`, `standard` (MQTT + display), `full` (+ scales, pressure sensor). See docs/firmware.md.
+          files: |
+            images/clevercoffee-*.bin
+            images/app-*.bin

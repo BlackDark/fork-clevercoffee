@@ -1,0 +1,94 @@
+# Header from BlackDark/agent-presets snippets/ci.yml. Three parallel jobs instead of one
+# `mise run check`: host (stable Rust), ui (pnpm), firmware (Xtensa, needs the UI build).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  # Must match `just setup`.
+  ESP_TOOLCHAIN: "1.99.0.0"
+
+jobs:
+  host:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v3
+        with:
+          install_args: just
+      - uses: Swatinem/rust-cache@v2
+      - run: just host-check
+
+  ui:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v3
+        with:
+          install_args: just node pnpm
+      - run: just ui-check
+      - run: just ui
+        env:
+          VITE_APP_VERSION: ${{ github.ref_name }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/packages/frontend/dist
+          retention-days: 7
+
+  firmware:
+    needs: ui
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v3
+        with:
+          install_args: just espup espflash
+      - name: Cache Xtensa toolchain
+        id: esp-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.rustup/toolchains/esp
+            ~/export-esp.sh
+          key: esp-${{ runner.os }}-${{ env.ESP_TOOLCHAIN }}
+      - name: Install Xtensa toolchain
+        if: steps.esp-cache.outputs.cache-hit != 'true'
+        run: espup install --targets esp32 --toolchain-version "$ESP_TOOLCHAIN" --skip-version-parse
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: firmware
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/packages/frontend/dist
+      - run: just firmware-lint
+      - run: just size standard
+      - run: just size full
+      - run: just size minimal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: target/app-*.bin
+          retention-days: 14
