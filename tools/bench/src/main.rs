@@ -69,8 +69,22 @@ fn request(host: &str, method: &str, path: &str, ct: &str, body: &[u8]) -> Resul
             headers.push((k.trim().to_string(), v.trim().to_string()));
         }
     }
+    // By length when given: after `/api/debug/hang` the device answers but never
+    // closes the connection (the hung control loop starves the network stack).
+    let length = headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("Content-Length"))
+        .and_then(|(_, v)| v.parse::<usize>().ok());
     let mut body = Vec::new();
-    r.read_to_end(&mut body).map_err(|e| e.to_string())?;
+    match length {
+        Some(n) => {
+            body.resize(n, 0);
+            r.read_exact(&mut body).map_err(|e| e.to_string())?;
+        }
+        None => {
+            r.read_to_end(&mut body).map_err(|e| e.to_string())?;
+        }
+    }
     Ok(Response {
         status,
         headers,
@@ -129,14 +143,25 @@ fn param_value(params: &Value, key: &str) -> Option<Value> {
 
 type Check = (&'static str, fn(&str) -> Result<(), String>);
 
+/// Lowest acceptable heap low-water mark (`minFreeHeap`), bytes. The `full` image on
+/// the bench bottoms out near 16 KB (docs/firmware.md); a failed allocation is a reboot.
+const HEAP_FLOOR: u64 = 12_000;
+
 const CHECKS: &[Check] = &[
     ("status", |h| {
         let v = ok_json(&get(h, "/api/status")?)?;
-        for k in ["temperature", "setpoint", "machineState", "uptime", "freeHeap"] {
+        for k in [
+            "temperature",
+            "setpoint",
+            "machineState",
+            "uptime",
+            "freeHeap",
+            "minFreeHeap",
+        ] {
             ensure(!v[k].is_null(), || format!("missing {k}"))?;
         }
-        ensure(v["freeHeap"].as_u64().unwrap_or(0) > 20_000, || {
-            format!("low heap: {}", v["freeHeap"])
+        ensure(v["minFreeHeap"].as_u64().unwrap_or(0) >= HEAP_FLOOR, || {
+            format!("heap low-water mark {} below {HEAP_FLOOR}", v["minFreeHeap"])
         })
     }),
     ("all parameters (largest response)", |h| {
@@ -215,7 +240,25 @@ const CHECKS: &[Check] = &[
             }
             got.push_str(&String::from_utf8_lossy(&buf[..n]));
         }
+        // Open UI tabs hold the stream slots (`STA_STREAMS`): the device turns a further
+        // stream away rather than block a worker. Close the tabs to test the stream.
+        ensure(!got.starts_with("HTTP/1.1 503"), || {
+            "all event-stream slots busy (UI tabs open?)".into()
+        })?;
         ensure(got.contains("data:"), || "no event within 5 s".into())
+    }),
+    ("more connections than HTTP workers", |h| {
+        // Without a listen backlog the device used to refuse (RST) a connection while
+        // every worker was busy; now it drops the SYN and the client's retry gets in.
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                let h = h.to_string();
+                thread::spawn(move || get(&h, "/api/status").and_then(|r| ok_json(&r)).map(drop))
+            })
+            .collect();
+        workers
+            .into_iter()
+            .try_for_each(|w| w.join().map_err(|_| "thread panicked".to_string())?)
     }),
 ];
 
