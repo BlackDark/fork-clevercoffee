@@ -10,9 +10,8 @@ repository.workspace = true
 [features]
 # Compiles this crate's `#[test]` functions as `pub fn`s listed in
 # `device_tests::CASES`, for the on-target runner (`just test-esp32`). Never
-# enabled by the shipped `firmware`. Turns on `cc-net/device-tests` for the
-# base64 encoder the authentication tests use.
-device-tests = ["cc-net/device-tests"]
+# enabled by the shipped `firmware`.
+device-tests = []
 
 [dependencies]
 cc-domain.workspace = true
@@ -35,16 +34,6 @@ esp-idf-sys.workspace = true
 # The `embedded-svc` Wi-Fi configuration structs use `heapless::String`.
 heapless.workspace = true
 log.workspace = true
-# Used only by this crate's tests, but a regular dependency: the on-target runner
-# builds this crate as a library with `--features device-tests`, and Cargo does
-# not link dev-dependencies into that. Nothing in the image names it.
-serde_json.workspace = true
-
-# The tests' encoder, unified into this crate's test target only, so
-# `cargo clippy -p cc-hal-esp32 --all-targets` builds on its own and the library
-# never sees the feature.
-[dev-dependencies]
-cc-net = { workspace = true, features = ["device-tests"] }
 
 [lints]
 workspace = true

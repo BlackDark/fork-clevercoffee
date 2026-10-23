@@ -7,12 +7,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[features]
-# Compiles `web::http_auth::tests_support`, the base64 encoder `cc-hal-esp32`'s
-# on-target authentication tests need. Only `cc-hal-esp32/device-tests` enables
-# it; no shipped image does.
-device-tests = []
-
 [dependencies]
 cc-domain.workspace = true
 cc-config.workspace = true

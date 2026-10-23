@@ -246,7 +246,6 @@ dependencies = [
  "esp-idf-sys",
  "heapless",
  "log",
- "serde_json",
  "ssd1306",
 ]
 
