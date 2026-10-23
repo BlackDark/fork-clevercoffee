@@ -1,0 +1,22 @@
+[package]
+name = "cc-web"
+description = "CleverCoffee HTTP routes and handlers over a hardware-free backend trait (picoserve)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cc-api.workspace = true
+cc-core.workspace = true
+heapless.workspace = true
+picoserve.workspace = true
+
+[dev-dependencies]
+picoserve = { workspace = true, features = ["tokio"] }
+tokio.workspace = true
+serde_json = "1.0.154"
+
+[lints]
+workspace = true
