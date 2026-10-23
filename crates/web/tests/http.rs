@@ -1,6 +1,7 @@
 //! Every endpoint over real HTTP: the picoserve service on a tokio socket, a fake
-#![allow(clippy::needless_pass_by_value, clippy::unused_async)]
 //! backend wrapping the real `Machine`.
+
+#![allow(clippy::needless_pass_by_value, clippy::unused_async_trait_impl)]
 
 use std::cell::RefCell;
 use std::time::Duration;
