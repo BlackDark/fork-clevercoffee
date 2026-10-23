@@ -80,12 +80,13 @@ image p=profile: (build p)
 # Fails when the app outgrows 90 % of its OTA slot (0x1E0000 bytes).
 size p=profile: (build p)
     espflash save-image --chip esp32 --partition-table firmware/partitions.csv {{elf}} target/app-{{p}}.bin
-    @size=$(stat -c %s target/app-{{p}}.bin); limit=$((0x1E0000 * 9 / 10)); \
+    @size=$(wc -c < target/app-{{p}}.bin | tr -d " "); limit=$((0x1E0000 * 9 / 10)); \
       echo "app: $size bytes, limit $limit"; [ "$size" -le "$limit" ]
 
-# Flashes over USB and opens the serial monitor.
+# Flashes over USB and opens the serial monitor. Erases `otadata`: after an OTA update
+# the bootloader would otherwise keep starting the other slot, not the image just flashed.
 flash p=profile: (build p)
-    espflash flash --chip esp32 --partition-table firmware/partitions.csv --monitor {{elf}}
+    espflash flash --chip esp32 --partition-table firmware/partitions.csv --erase-parts otadata --monitor {{elf}}
 
 # Serial monitor.
 monitor:
@@ -120,7 +121,9 @@ ui-dev:
 # Bench profile (docs/bench.md) plus WiFi, applied at next boot.
 bench-provision ssid password:
     just provision --ssid "{{ssid}}" --password "{{password}}" system.hostname=cc-bench \
-      pid.enabled=1 hardware.switches.brew.type=0 hardware.switches.power.enabled=0 \
+      pid.enabled=1 hardware.switches.brew.enabled=1 hardware.switches.brew.type=0 \
+      hardware.switches.steam.enabled=1 hardware.switches.hot_water.enabled=1 \
+      hardware.switches.power.enabled=0 \
       hardware.sensors.temperature.type=1 hardware.sensors.watertank.enabled=1 \
       hardware.sensors.watertank.mode=0
 
