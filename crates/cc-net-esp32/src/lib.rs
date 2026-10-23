@@ -28,6 +28,7 @@ extern crate std;
 #[doc(hidden)]
 pub mod device_tests;
 
+pub mod handoff;
 pub mod mqtt;
 pub mod ota;
 pub mod provisioning;

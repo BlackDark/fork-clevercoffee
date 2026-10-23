@@ -479,7 +479,7 @@ pub enum SamplerEvent {
 
 /// The control → sampler queue depth.
 ///
-/// 4, drop-newest, for the same reason [`crate::task::CommandQueue`] is: a full
+/// 4, drop-newest, for the same reason `cc_net_esp32::handoff::CommandQueue` is: a full
 /// queue means the sampler is behind, which is a condition to shed rather than
 /// to report. Every command is idempotent, so dropping one loses an operator
 /// action and nothing else.
@@ -553,7 +553,7 @@ impl Sampler {
         // every method takes `&self`, because the FreeRTOS queue is internally
         // synchronised. So the handle and the task share one through an `Arc`
         // rather than each holding a copy — the same shape as
-        // `crate::task::CommandQueue`, which is handed to the HTTP layer as an
+        // `cc_net_esp32::handoff::CommandQueue`, which is handed to the HTTP layer as an
         // `Arc` for exactly this reason.
         let commands = Arc::new(HalQueue::new(COMMAND_DEPTH));
         let events = Arc::new(HalQueue::new(EVENT_DEPTH));

@@ -1,0 +1,549 @@
+//! The cross-task mailboxes: network tasks → control task.
+//!
+//! # What this is, and why it is a wrapper
+//!
+//! Commands into the control task (brew start, setpoint change, factory reset)
+//! arrive on a bounded `Queue<Command, 32>` drained at the top of every tick, and
+//! never as a direct call from a network task into control state.
+//!
+//! [`Queue`] is bounded by `T: Copy`
+//! (`esp-idf-hal` 0.47 `task.rs:980`), so [`Command`] is `Copy` and
+//! carries no `String`, no `Vec` and no `Box`. The wrapper exists to give the
+//! two policies that matter names: **drop-newest** on a full queue, and a
+//! `no_std`-compatible error that is not an ESP-IDF code.
+//!
+//! # Drop-newest, and why not drop-oldest
+//!
+//! `Event` drops oldest
+//! (freshness wins) and `Command` drops newest (the newest request is the most
+//! relevant). A `POST /api/setpoint`
+//! arriving while the queue is full of older setpoints must win, or the UI
+//! shows a value the machine never applied.
+//!
+//! # Why a parameter write does not travel as a [`Command`]
+//!
+//! `POST /api/parameters` carries a *list of key/value pairs*, and a `Command`
+//! cannot: `Queue<T>` is bounded by `T: Copy` (`esp-idf-hal` 0.47 `task.rs:978`,
+//! "ensures the contained elements are not `Drop`") and the rule follows —
+//! *"No `String`, no `Vec`, no `Box` in a cross-task message."* A `Vec` of
+//! pairs in a `Command` does not compile, and inlining the values into fixed
+//! arrays would cap the value length at a number chosen by the queue's
+//! ergonomics rather than by the schema.
+//!
+//! So the pairs travel in [`ParameterHandoff`], a bounded mailbox that is
+//! drained at the same point in the tick as the queue. **The rule is still
+//! applied in one place**: `cc_config::assign::apply` is what the control task
+//! calls, and it is also what the inbound MQTT will call — MQTT being
+//! *on* the control task already, so it hands over nothing.
+
+use alloc::collections::VecDeque;
+use alloc::string::String;
+use alloc::vec::Vec;
+use std::sync::Mutex;
+
+use esp_idf_hal::task::queue::Queue;
+
+use cc_net::web::Command;
+
+/// The queue depth: `Queue<Command, 32>`.
+pub const COMMAND_QUEUE_DEPTH: usize = 32;
+
+/// A bounded, non-blocking, drop-newest channel from the network tasks to the
+/// control task.
+///
+/// `Queue::send` takes a `TickType_t` timeout
+/// (`esp-idf-hal` 0.47 `task.rs:1030`); [`CommandQueue::try_send`] passes 0, so
+/// a producer never blocks. That is the whole point: a web request must not be
+/// able to stall because the control loop is mid-tick.
+pub struct CommandQueue {
+    inner: Queue<Command>,
+}
+
+impl CommandQueue {
+    /// Create the queue.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            inner: Queue::new(COMMAND_QUEUE_DEPTH),
+        }
+    }
+
+    /// Offer a command, dropping it if the queue is full.
+    ///
+    /// Returns `true` if it was queued. A `false` is **not** an error the
+    /// caller should surface: the queue being full means the control loop is
+    /// behind, which is a condition to shed, not to report. The HTTP handler
+    /// answers `202 Accepted` either way, because the request was understood.
+    ///
+    /// `&self`, not `&mut self`: `Queue::send_back` takes `&self`
+    /// (`esp-idf-hal` 0.47 `task.rs:1030`) because the `FreeRTOS` queue is
+    /// internally synchronised, so a producer needs no exclusive access. That is
+    /// what lets a `&CommandQueue` be captured by a `Send + 'static` HTTP
+    /// handler without a lock.
+    #[must_use]
+    pub fn try_send(&self, command: Command) -> bool {
+        // The `bool` is "was a higher-priority task awoken", which in a
+        // non-ISR context is always `false`; the *error* is the signal that the
+        // queue was full. A zero timeout means the only way to fail is a full
+        // queue, which is the drop-newest case.
+        self.inner.send_back(command, 0).is_ok()
+    }
+
+    /// Take the next command, without blocking.
+    #[must_use]
+    pub fn recv(&self) -> Option<Command> {
+        self.inner.recv_front(0).map(|(item, _)| item)
+    }
+
+    /// How many commands are waiting.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Whether the queue is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+}
+
+impl core::fmt::Debug for CommandQueue {
+    /// The depth, never the contents.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "CommandQueue({} queued)", self.len())
+    }
+}
+
+impl Default for CommandQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// How long a command's caller waits for the control task to apply it.
+///
+/// Forty control periods at 10 ms, so the wait survives a control task that is
+/// busy and a command queue with several entries ahead of it.
+pub const COMMAND_ACK_TIMEOUT_MS: u32 = 400;
+
+/// How often a waiting caller re-checks. Five milliseconds is half a control
+/// period, so the ack is noticed within one tick of happening.
+pub const COMMAND_ACK_POLL_MS: u32 = 5;
+
+/// How many parameter-write requests may be waiting for the control task.
+///
+/// Four, and it is not a tuning knob: the control task takes **one** of them at
+/// the top of every tick, so four requests is four ticks' worth of backlog —
+/// 40 ms, against an ack timeout of [`PARAMETER_ACK_TIMEOUT_MS`] — and the
+/// fifth is a client that is posting faster than the tick drains. The bound
+/// exists so a client looping on `POST /api/parameters` cannot grow the heap;
+/// it is reached by four browser tabs, not by a person.
+pub const STAGED_PARAMETER_DEPTH: usize = 4;
+
+/// How long `POST /api/parameters` waits for the control task to apply what it
+/// staged, in milliseconds.
+///
+/// Four control periods (400 ms each at the time of writing), which is long
+/// enough that a loaded control task still answers and short enough that a
+/// stalled one fails visibly rather than hanging a browser. See
+/// [`ParameterHandoff::stage_and_wait`] for why the wait is bounded.
+pub const PARAMETER_ACK_TIMEOUT_MS: u32 = 1_600;
+
+/// The poll interval inside that wait.
+pub const PARAMETER_ACK_POLL_MS: u32 = 5;
+
+/// One `POST /api/parameters`, already validated by the handler.
+///
+/// `pairs` is what survived [`cc_net::web::classify_parameters`], so the control
+/// task re-applies rather than re-decides: the two go through the same
+/// [`cc_config::assign::parse`] and the second is idempotent.
+pub type ParameterRequest = Vec<(String, String)>;
+
+/// A bounded mailbox for parameter writes, network tasks → control task.
+///
+/// The same shape as [`CommandQueue`] and for the same reason, with one
+/// difference in policy. [`CommandQueue`] **drops the newest** command when it is
+/// full, because a superseded setpoint is the least interesting thing in the
+/// machine. A parameter write cannot be dropped: the HTTP response has already
+/// been sent, and an operator who set six parameters and watched `200` has been
+/// told they were set. So this **refuses** instead, and
+/// [`ParameterHandoff::stage`] returning `false` is what the handler turns into
+/// a `503` — a visible error rather than a silent loss.
+///
+/// A `std::sync::Mutex` and not a `FreeRTOS` one for the reason
+/// `network::Handoff` gives: the critical section is a `VecDeque::push_back`, and
+/// holding a `FreeRTOS` mutex across that is a priority inversion bought for
+/// nothing. A poisoned mailbox returns empty to the control task and refuses to
+/// the producer, so neither side can act on half a request.
+#[derive(Clone, Default)]
+pub struct ParameterHandoff {
+    /// Requests staged for the control task.
+    queue: alloc::sync::Arc<Mutex<VecDeque<ParameterRequest>>>,
+    /// The values the control task last published, for `GET /api/parameters`.
+    ///
+    /// See [`ParameterHandoff::publish_live`] for why the GET cannot use the
+    /// boot-time `Config` snapshot.
+    /// An [`Arc`], not a `String`.
+    ///
+    /// `GET /api/parameters` used to `live().clone()` the whole ~8.8 KB body on
+    /// **every request**, under the lock, on the httpd task -- whose stack is
+    /// 8 KB, which is the same lesson ADR-0002 records for the 7.2 KB history
+    /// ring. A reader now clones an `Arc` (one refcount bump) and hands the
+    /// `&str` to `respond_large`, which is what the body always was: bytes the
+    /// control task already built.
+    ///
+    /// The writer still allocates, once a second, in the control task. That
+    /// allocation was never the problem; N copies of it per second were.
+    live: alloc::sync::Arc<Mutex<Option<alloc::sync::Arc<alloc::string::String>>>>,
+    /// How many staged requests the control task has drained and applied.
+    ///
+    /// The read-after-write ack. See [`ParameterHandoff::stage_and_wait`].
+    applied: alloc::sync::Arc<core::sync::atomic::AtomicU32>,
+    /// 0 applied, 1 refused. `stage_and_wait` returns only bool, so without this
+    /// a refusal looks like success and the route answers 200. Finding #12.
+    refused: alloc::sync::Arc<core::sync::atomic::AtomicU32>,
+    /// The implicated keys for that refusal. Pointers only; the control task
+    /// copies them in, the HTTP task formats them.
+    refused_slot: alloc::sync::Arc<Mutex<([&'static str; 4], usize)>>,
+}
+
+impl ParameterHandoff {
+    /// A mailbox with nothing staged.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            queue: alloc::sync::Arc::new(Mutex::new(VecDeque::new())),
+            live: alloc::sync::Arc::new(Mutex::new(None)),
+            applied: alloc::sync::Arc::new(core::sync::atomic::AtomicU32::new(0)),
+            refused: alloc::sync::Arc::new(core::sync::atomic::AtomicU32::new(0)),
+            refused_slot: alloc::sync::Arc::new(Mutex::new(([""; 4], 0))),
+        }
+    }
+
+    /// The queue half, for the [`Self::take_one`] drain and `len`.
+    fn queue(&self) -> &Mutex<VecDeque<ParameterRequest>> {
+        &self.queue
+    }
+
+    /// Publish rendered live parameters for GET without copying borrowed field values.
+    ///
+    /// Before the first publication, readers get `None` and fall back to the boot
+    /// snapshot rather than reporting an empty schema.
+    pub fn publish_live(&self, body: alloc::string::String) {
+        if let Ok(mut slot) = self.live.lock() {
+            *slot = Some(alloc::sync::Arc::new(body));
+        }
+    }
+
+    /// The last published body, if the control task has published one.
+    ///
+    /// A cheap `Arc` clone rather than a copy of ~8.8 KB. The caller reads it
+    /// through the guard, so it must **drop the `Arc` before the body is used**
+    /// if it wants to keep the lock short -- see the `GET /api/parameters`
+    /// handler, which binds the clone first and only then takes `&body`.
+    #[must_use]
+    pub fn live(&self) -> Option<alloc::sync::Arc<alloc::string::String>> {
+        self.live.lock().ok().and_then(|slot| slot.clone())
+    }
+
+    /// Stage a request for the control task.
+    ///
+    /// Returns `false` when the mailbox is full or poisoned, in which case
+    /// nothing is staged and the caller owes the client an error.
+    #[must_use]
+    pub fn stage(&self, request: ParameterRequest) -> bool {
+        let Ok(mut slot) = self.queue().lock() else {
+            return false;
+        };
+        if slot.len() >= STAGED_PARAMETER_DEPTH {
+            return false;
+        }
+        slot.push_back(request);
+        true
+    }
+
+    /// How many requests the control task has applied.
+    ///
+    /// Incremented once per drained request, whatever the request contained: the
+    /// handler's verdict already decided which pairs were acceptable, so the
+    /// control task's only job on the ack path is to say "I have had your
+    /// message".
+    pub fn note_applied(&self) {
+        self.applied
+            .fetch_add(1, core::sync::atomic::Ordering::Release);
+    }
+
+    /// Copy `'static` key pointers, then set the flag. Caller must
+    /// [`Self::note_applied`] or the HTTP wait times out and the 400 never runs.
+    pub fn note_refused(&self, keys: &'static [&'static str]) {
+        if let Ok(mut slot) = self.refused_slot.lock() {
+            let (buf, len) = &mut *slot;
+            *buf = [""; 4];
+            let n = keys.len().min(buf.len());
+            buf[..n].copy_from_slice(&keys[..n]);
+            *len = n;
+        }
+        self.refused.store(1, core::sync::atomic::Ordering::Release);
+    }
+
+    /// Whether the request whose ack ended the last wait was refused.
+    #[must_use]
+    pub fn was_refused(&self) -> bool {
+        self.refused.load(core::sync::atomic::Ordering::Acquire) > 0
+    }
+
+    /// The implicated keys named by the last refusal. Empty if none.
+    #[must_use]
+    pub fn refused_keys(&self) -> ([&'static str; 4], usize) {
+        self.refused_slot.lock().map_or(([""; 4], 0), |slot| *slot)
+    }
+
+    /// Read the refusal and clear it.
+    ///
+    /// An empty POST never calls [`Self::stage_and_wait`], so a leftover flag
+    /// would 400 a write that did not happen.
+    #[must_use]
+    pub fn take_refused(&self) -> Option<([&'static str; 4], usize)> {
+        if !self.was_refused() {
+            return None;
+        }
+        let keys = self.refused_keys();
+        self.refused.store(0, core::sync::atomic::Ordering::Release);
+        if let Ok(mut slot) = self.refused_slot.lock() {
+            *slot = ([""; 4], 0);
+        }
+        Some(keys)
+    }
+
+    /// The current applied count, for the waiter's termination condition.
+    #[must_use]
+    pub fn applied(&self) -> u32 {
+        self.applied.load(core::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Stage a request and wait for control to apply it and publish live values.
+    ///
+    /// Otherwise an immediate UI refetch could return the old setting and undo its
+    /// displayed toggle. Returns false on staging failure or after
+    /// [`PARAMETER_ACK_TIMEOUT_MS`]; the HTTP task never owns the store.
+    #[must_use]
+    pub fn stage_and_wait(&self, request: ParameterRequest) -> bool {
+        use core::sync::atomic::Ordering;
+        let before = self.applied.load(Ordering::Acquire);
+        // Clear this wait's verdict. One waiter at a time.
+        if let Ok(mut slot) = self.refused_slot.lock() {
+            *slot = ([""; 4], 0);
+        }
+        self.refused.store(0, Ordering::Release);
+        if !self.stage(request) {
+            return false;
+        }
+        let deadline = cc_hal_esp32::time::now_ms().wrapping_add(PARAMETER_ACK_TIMEOUT_MS);
+        // 5 ms is well under the control period, so the wait ends within one
+        // poll of the apply rather than quantised to the next one.
+        while self.applied.load(Ordering::Acquire) == before {
+            if cc_hal_esp32::time::now_ms().wrapping_sub(deadline) < PARAMETER_ACK_POLL_MS {
+                return false;
+            }
+            esp_idf_hal::delay::FreeRtos::delay_ms(PARAMETER_ACK_POLL_MS);
+        }
+        true
+    }
+
+    /// Take the **oldest** staged request, leaving the rest. Called by the
+    /// control task, once per tick.
+    ///
+    /// # Why one, and not all of them
+    ///
+    /// Draining the whole mailbox meant every drained request ran its own
+    /// `persist_config` — a ~2 KB JSON serialise plus an NVS erase-and-write —
+    /// on the control task, in the 10 ms period, **before** the heater decision
+    /// for that period. At [`STAGED_PARAMETER_DEPTH`] that is four flash
+    /// transactions in one tick.
+    ///
+    /// This is a latency defect and not a hazard, and the distinction matters:
+    /// the fail-safe direction is already correct, because the 1000 ms deadman
+    /// drops the heater where the 5 s task watchdog would have reset the chip.
+    /// So the smallest honest fix is to bound the work per tick rather than to
+    /// restructure the mailbox or move persistence off this task.
+    ///
+    /// # Why one, and not coalesce-the-rest-into-one-`persist_config`
+    ///
+    /// Coalescing is the other option and it needs more machinery for the same
+    /// result: the drained requests have to be merged into one `apply` (with
+    /// four posts setting the same key, "which value wins" becomes a question
+    /// this file would have to answer), and `note_applied` — the read-after-write
+    /// ack four `stage_and_wait` callers are blocked on — has to be called four
+    /// times for one apply. One request per tick keeps the ack 1:1 with the
+    /// request it answers, which is the property [`stage_and_wait`] is built on.
+    ///
+    /// # Why no request starves
+    ///
+    /// The mailbox holds at most [`STAGED_PARAMETER_DEPTH`] requests, one is
+    /// taken per tick, and the control period is 10 ms, so the last of four
+    /// waits at most 40 ms — against an ack timeout of
+    /// [`PARAMETER_ACK_TIMEOUT_MS`] (1600 ms). The mailbox is never near empty
+    /// in practice; it is reached by four browser tabs, not by a person.
+    #[must_use]
+    pub fn take_one(&self) -> Option<ParameterRequest> {
+        self.queue()
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.pop_front())
+    }
+
+    /// How many requests are waiting.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.queue().lock().map_or(0, |slot| slot.len())
+    }
+
+    /// Whether nothing is waiting.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl core::fmt::Debug for ParameterHandoff {
+    /// The depth, never the contents — a parameter value may be a credential.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "ParameterHandoff({} staged)", self.len())
+    }
+}
+
+#[cfg(any(test, feature = "device-tests"))]
+#[cfg_attr(feature = "device-tests", doc(hidden))]
+pub mod tests {
+    #![allow(
+        clippy::wildcard_imports,
+        reason = "the tests exercise the parent's private items, and the `cfg(test)` \
+                  exception does not cover the device-tests build"
+    )]
+
+    use super::*;
+    use alloc::vec;
+
+    #[cfg_attr(test, test)]
+    pub fn a_command_carries_no_pointer() {
+        // The bound, as a
+        // compile-time fact: `Queue` requires
+        // `T: Copy`, and `Command` is only `Copy` because every variant is
+        // `Copy`. A future `String` in a variant would make this file stop
+        // compiling, which is the intended enforcement — and it is why a
+        // parameter write travels in `ParameterHandoff` instead.
+        fn assert_copy<T: Copy>() {}
+        assert_copy::<Command>();
+        // 16, not the 8 it used to be. `SetSetpoint` carries an `f64` because
+        // `brew.setpoint` is a float parameter; as an `i32` it silently dropped
+        // `93.5` to `93` on the bench. The bound still exists and still means
+        // "a fixed-size `Copy` slot, no allocator" — which is the property this
+        // case is for — so it is written as the constant the queue is sized
+        // against rather than as a number that drifts with the enum.
+        assert_eq!(core::mem::size_of::<Command>(), 16);
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_staged_parameter_request_reaches_the_control_task() {
+        let handoff = ParameterHandoff::new();
+        assert!(handoff.is_empty());
+        assert!(handoff.stage(vec![("pid.enabled".into(), "1".into())]));
+        assert_eq!(handoff.len(), 1);
+        let taken = handoff.take_one();
+        assert_eq!(taken.as_ref().unwrap()[0].0, "pid.enabled");
+        assert!(handoff.is_empty(), "taking empties it");
+        assert!(handoff.take_one().is_none());
+    }
+
+    /// The 2.8 defect, as a test: four posts could land four NVS erase-and-writes
+    /// in one 10 ms tick, on the control task, before its heater decision.
+    ///
+    /// The fix is that the control task takes **one** request per tick and
+    /// leaves the rest, so a tick can only ever pay one `persist_config`.
+    #[cfg_attr(test, test)]
+    pub fn only_one_staged_request_is_taken_per_tick() {
+        let handoff = ParameterHandoff::new();
+        for port in ["1883", "1884", "8883", "1885"] {
+            assert!(handoff.stage(vec![("mqtt.port".into(), port.into())]));
+        }
+
+        // Tick 1..4 take them in order, oldest first — a later post never
+        // overtakes an earlier one, so two posts to the same key are applied in
+        // the order they were made.
+        for expected in ["1883", "1884", "8883", "1885"] {
+            let taken = handoff.take_one().expect("a staged request");
+            assert_eq!(taken[0].1, expected);
+        }
+        assert!(handoff.is_empty(), "four ticks drained a four-deep mailbox");
+
+        // And the ack path is 1:1 with the requests, which is what lets four
+        // `stage_and_wait` callers each be released by their own tick.
+        let handoff = ParameterHandoff::new();
+        assert!(handoff.stage(vec![("pid.enabled".into(), "1".into())]));
+        assert!(handoff.stage(vec![("pid.enabled".into(), "0".into())]));
+        assert_eq!(handoff.applied(), 0);
+        assert!(handoff.take_one().is_some());
+        handoff.note_applied();
+        assert_eq!(handoff.applied(), 1, "one taken, one acked");
+        assert_eq!(handoff.len(), 1, "the second post is still waiting");
+    }
+
+    /// Refusal must `note_applied`, or the handler times out and the 400 is dead.
+    /// `stage_and_wait` sleeps on `FreeRTOS`, so this test does not call it.
+    #[cfg_attr(test, test)]
+    pub fn note_refused_then_note_applied_acks_the_refusal() {
+        const KEYS: &[&str] = &["safety.emergency_temp"];
+        let handoff = ParameterHandoff::new();
+        assert!(!handoff.was_refused());
+        assert_eq!(handoff.applied(), 0);
+        handoff.note_refused(KEYS);
+        handoff.note_applied();
+        assert!(handoff.was_refused());
+        assert_eq!(handoff.applied(), 1);
+        let (stored, n) = handoff.refused_keys();
+        assert_eq!(&stored[..n], KEYS);
+        let (taken, n) = handoff
+            .take_refused()
+            .expect("the refusal is consumed once");
+        assert_eq!(&taken[..n], KEYS);
+        assert!(
+            !handoff.was_refused(),
+            "a later post must not inherit this refusal"
+        );
+        assert!(handoff.take_refused().is_none());
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_full_parameter_mailbox_refuses_rather_than_dropping() {
+        // The policy difference from `CommandQueue`, and the reason for it: a
+        // command that is dropped was never promised to anyone, but a parameter
+        // write whose `200` has already been sent was. A `false` here is what
+        // the handler turns into a `503`.
+        let handoff = ParameterHandoff::new();
+        for _ in 0..STAGED_PARAMETER_DEPTH {
+            assert!(handoff.stage(vec![("pid.enabled".into(), "1".into())]));
+        }
+        assert!(!handoff.stage(vec![("pid.enabled".into(), "0".into())]));
+        assert_eq!(handoff.len(), STAGED_PARAMETER_DEPTH);
+        // And the refusal did not overwrite what was already there: four ticks
+        // later all four are still staged, and every one says `1`.
+        for _ in 0..STAGED_PARAMETER_DEPTH {
+            let taken = handoff.take_one().expect("a staged request");
+            assert_eq!(taken[0].1, "1");
+        }
+        assert!(handoff.is_empty());
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_parameter_mailbox_prints_its_depth_and_never_its_contents() {
+        // A parameter value may be `system.wifi.password`. `Handoff` makes the
+        // same promise about a staged credential (`network.rs:524-530`).
+        let handoff = ParameterHandoff::new();
+        assert_eq!(alloc::format!("{handoff:?}"), "ParameterHandoff(0 staged)");
+        assert!(handoff.stage(vec![("system.wifi.password".into(), "hunter2".into())]));
+        let printed = alloc::format!("{handoff:?}");
+        assert!(!printed.contains("hunter2"), "{printed}");
+        assert!(printed.contains("1 staged"), "{printed}");
+    }
+}

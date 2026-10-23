@@ -650,14 +650,8 @@ const TCP_NODELAY: c_int = 1;
 pub mod tests {
     #![allow(
         clippy::wildcard_imports,
-        reason = "a unit-test module globs its parent on purpose: the cases are \
-                  exercising the parent's private helpers, which is the point of \
-                  keeping them in the same file. `clippy::wildcard_imports` makes \
-                  an exception for `use super::*` inside a `#[cfg(test)]` module, \
-                  and this module is `#[cfg(any(test, feature = \
-                  \"device-tests\"))]` — the on-target runner compiles it outside a \
-                  test build — so the exception no longer applies. Allow it here \
-                  rather than in eight import lists that would rot."
+        reason = "the tests exercise the parent's private items, and the `cfg(test)` \
+                  exception does not cover the device-tests build"
     )]
 
     use super::*;

@@ -458,8 +458,8 @@ fn start_scale(
 /// What the network tier hands the tasks, and what must outlive them.
 struct NetworkTier {
     net: Arc<network::Network>,
-    commands: Arc<cc_hal_esp32::task::CommandQueue>,
-    parameters: Arc<cc_hal_esp32::task::ParameterHandoff>,
+    commands: Arc<cc_net_esp32::handoff::CommandQueue>,
+    parameters: Arc<cc_net_esp32::handoff::ParameterHandoff>,
     handoff: network::Handoff,
     sta: Option<cc_net_esp32::Sta>,
     mqtt_configured: bool,
@@ -485,7 +485,7 @@ fn start_network_tier(
     nvs_description: &str,
 ) -> Result<NetworkTier, EspError> {
     let net = Arc::new(network::Network::new());
-    let commands = Arc::new(cc_hal_esp32::task::CommandQueue::new());
+    let commands = Arc::new(cc_net_esp32::handoff::CommandQueue::new());
 
     let sys_loop = cc_net_esp32::wifi::init_stack()?;
     info!("netif: lwIP and the default event loop are up");
@@ -502,7 +502,7 @@ fn start_network_tier(
 
     // Two producers' worth of request, one consumer: drained beside the command
     // queue at the top of the control tick.
-    let parameters = Arc::new(cc_hal_esp32::task::ParameterHandoff::new());
+    let parameters = Arc::new(cc_net_esp32::handoff::ParameterHandoff::new());
     let http = network::start_http(
         &net,
         config,
