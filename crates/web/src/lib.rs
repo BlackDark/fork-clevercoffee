@@ -29,6 +29,9 @@ use picoserve::routing::PathRouterService;
 pub const MAX_CONFIG_UPLOAD: usize = 16 * 1024;
 /// Server-sent events interval.
 pub const EVENT_INTERVAL_MS: u64 = 1_000;
+/// Time allowed for a whole firmware upload. picoserve gives a request body 3 s in
+/// total; the ESP32 takes 30 to 60 s for an image.
+pub const UPLOAD_TIMEOUT_MS: u64 = 180_000;
 
 /// An embedded UI file.
 #[derive(Debug, Clone, Copy)]
@@ -86,6 +89,8 @@ pub trait Backend {
     fn wifi_reset(&self);
     fn asset(&self, path: &str) -> Option<Asset>;
     async fn sleep_ms(&self, ms: u64);
+    /// A timer that resolves after `ms` (the firmware upload deadline).
+    fn deadline(&self, ms: u64) -> core::pin::Pin<alloc::boxed::Box<dyn core::future::Future<Output = ()>>>;
 
     fn ota_status(&self) -> OtaStatus;
     fn ota_begin(&self) -> Result<(), OtaError>;
@@ -402,7 +407,8 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                     &mut Writer::new(w)
                 )));
             }
-            ("GET", "/api/health") => reply!(Response::empty(StatusCode::OK).with_headers(CORS)),
+            // An empty string, not `Response::empty`: that sends no Content-Length.
+            ("GET", "/api/health") => reply!(Response::new(StatusCode::OK, "").with_headers(CORS)),
             ("GET", "/api/temperatures") => {
                 let st = b.read(|_, s, _| *s);
                 reply!(json(StatusCode::OK, move |w| cc_api::write_temperatures(
@@ -641,6 +647,9 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                 let sent = resp
                     .write_to(request.body_connection.finalize().await?, response_writer)
                     .await;
+                // The hung control loop runs above the network stack: let the reply
+                // leave the socket buffer first.
+                b.sleep_ms(200).await;
                 b.debug_hang();
                 sent
             }
@@ -860,7 +869,11 @@ async fn ota_upload<B: Backend, R: Read>(b: &B, request: &mut Request<'_, R>) ->
     let boundary = multipart::boundary_from_content_type(ct).ok_or(OtaError::Invalid)?;
     let mut parser = multipart::Parser::new(boundary).map_err(|_| OtaError::Invalid)?;
     b.ota_begin()?;
-    let mut reader = request.body_connection.body().reader();
+    let mut reader = request
+        .body_connection
+        .body()
+        .reader()
+        .with_different_timeout_signal(b.deadline(UPLOAD_TIMEOUT_MS));
     let mut buf = alloc::vec![0u8; 1024];
     let mut in_file = false;
     let mut saw_file = false;

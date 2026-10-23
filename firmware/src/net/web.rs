@@ -86,6 +86,10 @@ impl Backend for Device {
         Timer::after(Duration::from_millis(ms)).await;
     }
 
+    fn deadline(&self, ms: u64) -> core::pin::Pin<alloc::boxed::Box<dyn core::future::Future<Output = ()>>> {
+        alloc::boxed::Box::pin(Timer::after(Duration::from_millis(ms)))
+    }
+
     fn ota_status(&self) -> OtaStatus {
         ota::status()
     }
@@ -125,7 +129,16 @@ fn dispatch(events: &[Event]) {
 
 static DEVICE: Device = Device;
 
-static CONFIG: picoserve::Config = picoserve::Config::const_default().keep_connection_alive();
+/// picoserve's defaults, but 5 s instead of 1 s to write a piece of a response: one
+/// lost packet costs about a second of TCP retransmission, and a write timeout ends
+/// the connection with a RST (seen under parallel downloads on the bench).
+static CONFIG: picoserve::Config = picoserve::Config::new(picoserve::Timeouts {
+    start_read_request: Duration::from_secs(5),
+    persistent_start_read_request: Duration::from_secs(1),
+    read_request: Duration::from_secs(3),
+    write: Duration::from_secs(5),
+})
+.keep_connection_alive();
 
 /// HTTP workers: two on the home network (one may hold the event stream), one on
 /// the access point.

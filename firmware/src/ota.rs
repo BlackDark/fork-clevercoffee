@@ -137,13 +137,17 @@ async fn flush_sector(s: &mut Session) -> Result<(), OtaError> {
         return Err(OtaError::TooLarge);
     }
     let at = s.part.offset + s.written;
-    flash::erase(at, at + SECTOR).await.map_err(|_| OtaError::Write)?;
+    flash::erase(at, at + SECTOR).await.map_err(|e| {
+        warn!("ota: erase at {at:#x}: {e:?}");
+        OtaError::Write
+    })?;
     // Pad the tail to whole words; the rest of the sector stays erased.
     let len = s.filled.next_multiple_of(4);
     s.sector[s.filled..len].fill(0xFF);
-    flash::write(at, &s.sector[..len])
-        .await
-        .map_err(|_| OtaError::Write)?;
+    flash::write(at, &s.sector[..len]).await.map_err(|e| {
+        warn!("ota: write at {at:#x}: {e:?}");
+        OtaError::Write
+    })?;
     s.written += SECTOR;
     s.filled = 0;
     s.sector.fill(0xFF);

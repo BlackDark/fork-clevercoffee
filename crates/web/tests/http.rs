@@ -89,6 +89,9 @@ impl Backend for Fake {
     async fn sleep_ms(&self, ms: u64) {
         tokio::time::sleep(Duration::from_millis(ms / 20)).await;
     }
+    fn deadline(&self, ms: u64) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()>>> {
+        Box::pin(tokio::time::sleep(Duration::from_millis(ms)))
+    }
     fn ota_status(&self) -> OtaStatus {
         OtaStatus {
             status: "idle",
@@ -236,6 +239,18 @@ async fn status_and_reads() {
         assert_eq!(r.status, 200);
         assert!(r.header("Content-Disposition").unwrap().contains("config.json"));
         assert_eq!(r.json()["brew"]["setpoint"], 95);
+    })
+    .await;
+}
+
+// Without a length a keep-alive client waits for the server to close the connection
+// (1 s on the device) before it sees the end of an empty body.
+#[tokio::test(flavor = "current_thread")]
+async fn health_has_a_content_length() {
+    with_server(ready(), |port| async move {
+        let r = get(port, "/api/health").await;
+        assert_eq!(r.status, 200);
+        assert_eq!(r.header("Content-Length"), Some("0"));
     })
     .await;
 }
@@ -406,6 +421,36 @@ async fn firmware_upload_streams_the_file_part() {
     assert!(*fake.restarted.borrow());
 }
 
+// picoserve allows 3 s for a whole request body; an image takes the ESP32 30 to 60 s.
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn slow_firmware_upload_is_not_cut_off() {
+    let image: Vec<u8> = (0..8_000u32).map(|i| (i % 253) as u8).collect();
+    let mut body = Vec::new();
+    body.extend_from_slice(
+        b"--B\r\nContent-Disposition: form-data; name=\"firmware\"; filename=\"fw.bin\"\r\n\r\n",
+    );
+    body.extend_from_slice(&image);
+    body.extend_from_slice(b"\r\n--B--\r\n");
+    let fake = with_server(ready(), |port| async move {
+        let mut s = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let head = format!(
+            "POST /api/ota/firmware HTTP/1.1\r\nHost: x\r\nConnection: close\r\nContent-Type: multipart/form-data; boundary=B\r\nContent-Length: {}\r\n\r\n",
+            body.len()
+        );
+        s.write_all(head.as_bytes()).await.unwrap();
+        for chunk in body.chunks(body.len() / 4 + 1) {
+            tokio::time::sleep(Duration::from_millis(1_500)).await;
+            s.write_all(chunk).await.unwrap();
+        }
+        let mut out = Vec::new();
+        s.read_to_end(&mut out).await.unwrap();
+        let out = String::from_utf8_lossy(&out);
+        assert!(out.starts_with("HTTP/1.1 200"), "{out}");
+    })
+    .await;
+    assert_eq!(*fake.ota.borrow(), image);
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn ui_is_served_from_the_firmware() {
     with_server(ready(), |port| async move {
@@ -450,6 +495,7 @@ async fn server_sent_events() {
         assert!(seen.contains("event:hello"));
         assert!(seen.contains("event:new_temps"));
         assert!(seen.contains("\"targetTemp\":95"));
+
     })
     .await;
 }
