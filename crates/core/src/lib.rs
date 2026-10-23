@@ -1,4 +1,4 @@
-//! CleverCoffee's machine logic, free of hardware: everything here runs and is tested
+//! `CleverCoffee`'s machine logic, free of hardware: everything here runs and is tested
 //! on a PC. The firmware feeds [`machine::Inputs`] in and drives pins from
 //! [`machine::Outputs`].
 

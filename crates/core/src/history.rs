@@ -29,7 +29,10 @@ impl Default for History {
 
 impl History {
     pub const fn new() -> Self {
-        Self { points: HistoryBuf::new(), skip: 0 }
+        Self {
+            points: HistoryBuf::new(),
+            skip: 0,
+        }
     }
 
     /// Offers a sample; keeps every [`HISTORY_EVERY`]-th.
@@ -63,7 +66,11 @@ mod tests {
     fn keeps_every_third_and_wraps() {
         let mut h = History::new();
         for i in 0..(HISTORY_LEN as u32 * 3 + 30) {
-            h.offer(Point { temperature: i as f32, setpoint: 0.0, heater_power: 0.0 });
+            h.offer(Point {
+                temperature: i as f32,
+                setpoint: 0.0,
+                heater_power: 0.0,
+            });
         }
         assert_eq!(h.len(), HISTORY_LEN);
         let first = h.iter().next().unwrap().temperature;

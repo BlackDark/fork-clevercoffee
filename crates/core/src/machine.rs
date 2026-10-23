@@ -92,7 +92,10 @@ pub enum Event {
     ConfigChanged,
     /// The shot counter changed and should be persisted.
     ShotCounterChanged,
-    StateChanged { from: State, to: State },
+    StateChanged {
+        from: State,
+        to: State,
+    },
     Scale(ScaleAction),
     /// Power switch long press.
     Reboot,
@@ -285,7 +288,11 @@ impl Machine {
     pub fn new(cfg: &Config, shots_since_backflush: u32, now_ms: u64) -> Self {
         let mk = |enabled: bool, kind, mode| enabled.then(|| Switch::new(kind, mode));
         let switches = Switches {
-            brew: mk(cfg.hardware_switches_brew_enabled, cfg.hardware_switches_brew_type, cfg.hardware_switches_brew_mode),
+            brew: mk(
+                cfg.hardware_switches_brew_enabled,
+                cfg.hardware_switches_brew_type,
+                cfg.hardware_switches_brew_mode,
+            ),
             steam: mk(
                 cfg.hardware_switches_steam_enabled,
                 cfg.hardware_switches_steam_type,
@@ -301,7 +308,11 @@ impl Machine {
                 cfg.hardware_switches_power_type,
                 cfg.hardware_switches_power_mode,
             ),
-            tank: mk(cfg.hardware_sensors_watertank_enabled, SwitchType::Toggle, cfg.hardware_sensors_watertank_mode),
+            tank: mk(
+                cfg.hardware_sensors_watertank_enabled,
+                SwitchType::Toggle,
+                cfg.hardware_sensors_watertank_mode,
+            ),
             brew_was: false,
             steam_was: false,
             hot_water_was: false,
@@ -309,7 +320,12 @@ impl Machine {
             backflush_press_pending: false,
             power_press_ms: None,
         };
-        let mut pid = Pid::new(Self::regular_tunings(cfg), PID_SAMPLE_MS, 0.0, HEATER_WINDOW_MS as f64);
+        let mut pid = Pid::new(
+            Self::regular_tunings(cfg),
+            PID_SAMPLE_MS,
+            0.0,
+            HEATER_WINDOW_MS as f64,
+        );
         pid.set_integrator_limits(0.0, cfg.pid_regular_i_max);
         pid.set_smoothing(cfg.pid_ema_factor);
         Self {
@@ -691,7 +707,11 @@ impl Machine {
     }
 
     fn pid_state(cfg: &Config) -> State {
-        if cfg.pid_enabled { State::PidNormal } else { State::PidDisabled }
+        if cfg.pid_enabled {
+            State::PidNormal
+        } else {
+            State::PidDisabled
+        }
     }
 
     fn preinfusion_base_ms(cfg: &Config) -> f64 {
@@ -718,7 +738,11 @@ impl Machine {
             State::BrewPreinfusion => self.brew_time_ms = elapsed,
             State::BrewPreinfusionPause => self.brew_time_ms = cfg.brew_pre_infusion_time * 1000.0 + elapsed,
             State::BrewRunning => {
-                let base = if automatic { Self::preinfusion_base_ms(cfg) } else { 0.0 };
+                let base = if automatic {
+                    Self::preinfusion_base_ms(cfg)
+                } else {
+                    0.0
+                };
                 self.brew_time_ms = base + elapsed;
             }
             State::ManualFlush => self.brew_time_ms = elapsed,
@@ -753,7 +777,10 @@ impl Machine {
             return Some(State::SensorError);
         }
         if !self.water_tank_full
-            && !matches!(s, State::WaterTankEmpty | State::Standby | State::EmergencyStop | State::SensorError)
+            && !matches!(
+                s,
+                State::WaterTankEmpty | State::Standby | State::EmergencyStop | State::SensorError
+            )
         {
             return Some(State::WaterTankEmpty);
         }
@@ -777,7 +804,11 @@ impl Machine {
                 if !self.pid_runtime {
                     Some(State::PidDisabled)
                 } else if r.brew_start {
-                    Some(if automatic { State::BrewPreinfusion } else { State::BrewRunning })
+                    Some(if automatic {
+                        State::BrewPreinfusion
+                    } else {
+                        State::BrewRunning
+                    })
                 } else if r.steam_start {
                     Some(State::Steam)
                 } else if r.flush_start {
@@ -846,9 +877,11 @@ impl Machine {
                     (elapsed >= FINISHED_DISPLAY_MS).then_some(pid_state)
                 }
             }
-            State::ManualFlush => {
-                r.flush_stop.then_some(if self.backflush_mode { State::BackflushIdle } else { pid_state })
-            }
+            State::ManualFlush => r.flush_stop.then_some(if self.backflush_mode {
+                State::BackflushIdle
+            } else {
+                pid_state
+            }),
             State::Steam => r.steam_stop.then_some(pid_state),
             State::BackflushIdle => backflush_off().or_else(|| {
                 if r.flush_start {
@@ -864,7 +897,7 @@ impl Machine {
                     (elapsed >= (cfg.backflush_fill_time * 1000.0) as u64).then_some(State::BackflushFlushing)
                 }
             }),
-            State::BackflushFlushing => backflush_off().or_else(|| {
+            State::BackflushFlushing => backflush_off().or({
                 if r.backflush_stop {
                     Some(State::BackflushIdle)
                 } else if elapsed >= (cfg.backflush_flush_time * 1000.0) as u64 {
@@ -897,9 +930,10 @@ impl Machine {
                 }
             }
             State::EmergencyStop => {
-                let cleared = self.raw_temp.is_some_and(|t| {
-                    t >= VALID_TEMP_RANGE_C.0 && t <= EMERGENCY_SAFE_C
-                }) && !self.emergency.active;
+                let cleared = self
+                    .raw_temp
+                    .is_some_and(|t| t >= VALID_TEMP_RANGE_C.0 && t <= EMERGENCY_SAFE_C)
+                    && !self.emergency.active;
                 cleared.then_some(State::Init)
             }
             State::Standby => {
@@ -935,7 +969,11 @@ impl Machine {
             State::BrewPreinfusionPause => self.brew_time_ms = cfg.brew_pre_infusion_time * 1000.0,
             State::BrewRunning => {
                 let automatic = cfg.brew_mode == BrewMode::Automatic;
-                self.brew_time_ms = if automatic { Self::preinfusion_base_ms(cfg) } else { 0.0 };
+                self.brew_time_ms = if automatic {
+                    Self::preinfusion_base_ms(cfg)
+                } else {
+                    0.0
+                };
                 self.brew_target_ms = Self::target_brew_ms(cfg);
                 if !from.is_brew_active() {
                     self.brew_started_ms = Some(self.now_ms);
@@ -943,8 +981,8 @@ impl Machine {
             }
             State::BrewFinished => {
                 self.brew_started_ms = None;
-                let weight_counts = cfg.hardware_sensors_scale_enabled
-                    && self.scale.brew_weight() >= MIN_COUNTED_SHOT_G;
+                let weight_counts =
+                    cfg.hardware_sensors_scale_enabled && self.scale.brew_weight() >= MIN_COUNTED_SHOT_G;
                 if self.brew_time_ms >= MIN_COUNTED_SHOT_MS || weight_counts {
                     self.shots_since_backflush = self.shots_since_backflush.saturating_add(1);
                     let _ = ev.push(Event::ShotCounterChanged);
@@ -979,13 +1017,22 @@ impl Machine {
     // --- temperature control ------------------------------------------------------
 
     fn regular_tunings(cfg: &Config) -> Tunings {
-        let p = if cfg.pid_use_ponm { Proportional::OnMeasurement } else { Proportional::OnError };
+        let p = if cfg.pid_use_ponm {
+            Proportional::OnMeasurement
+        } else {
+            Proportional::OnError
+        };
         Tunings::from_kp_tn_tv(cfg.pid_regular_kp, cfg.pid_regular_tn, cfg.pid_regular_tv, p)
     }
 
     fn tunings_for(&self, cfg: &Config) -> Tunings {
         match self.state {
-            State::Steam => Tunings { kp: cfg.pid_steam_kp, ki: 0.0, kd: 0.0, proportional: Proportional::OnError },
+            State::Steam => Tunings {
+                kp: cfg.pid_steam_kp,
+                ki: 0.0,
+                kd: 0.0,
+                proportional: Proportional::OnError,
+            },
             s if s.is_brew() && cfg.pid_bd_enabled => {
                 Tunings::from_kp_tn_tv(cfg.pid_bd_kp, cfg.pid_bd_tn, cfg.pid_bd_tv, Proportional::OnError)
             }
@@ -997,7 +1044,11 @@ impl Machine {
         let steaming = self.state == State::Steam;
         let raw = self.raw_temp.unwrap_or(0.0);
         self.pid_input = if steaming { raw } else { raw - cfg.brew_temp_offset };
-        self.setpoint = if steaming { cfg.steam_setpoint } else { cfg.brew_setpoint };
+        self.setpoint = if steaming {
+            cfg.steam_setpoint
+        } else {
+            cfg.brew_setpoint
+        };
 
         let delay_ms = cfg.brew_pid_delay * 1000.0;
         self.brew_delay_active = self.state.is_brew()
@@ -1013,7 +1064,9 @@ impl Machine {
         self.pid.set_integrator_limits(0.0, cfg.pid_regular_i_max);
         self.pid.set_smoothing(cfg.pid_ema_factor);
 
-        let heat = self.state.allows_heating(cfg.hardware_sensors_watertank_keep_heater_on_empty)
+        let heat = self
+            .state
+            .allows_heating(cfg.hardware_sensors_watertank_keep_heater_on_empty)
             && !self.brew_delay_active
             && !self.temp_fault
             && !self.emergency.active
@@ -1031,7 +1084,8 @@ impl Machine {
 
     fn compute_outputs(&self, cfg: &Config, inp: &Inputs) -> Outputs {
         let s = self.state;
-        let hot_water = self.switches.hot_water_was && self.hot_water_since_ms.is_some() && !self.hot_water_timed_out;
+        let hot_water =
+            self.switches.hot_water_was && self.hot_water_since_ms.is_some() && !self.hot_water_timed_out;
         let (mut pump, mut valve) = match s {
             State::BrewPreinfusion | State::BrewRunning | State::ManualFlush | State::BackflushFilling => {
                 (true, true)
@@ -1057,7 +1111,11 @@ impl Machine {
         }
 
         let blink = self.now_ms % HEATER_WINDOW_MS < HEATER_WINDOW_MS / 2;
-        let tolerance = if s == State::Steam { STEAM_LED_TOLERANCE_C } else { cfg.display_blinking_delta };
+        let tolerance = if s == State::Steam {
+            STEAM_LED_TOLERANCE_C
+        } else {
+            cfg.display_blinking_delta
+        };
         let led_state_ok = s.code() <= State::BackflushFinished.code();
         Outputs {
             heater,
@@ -1074,7 +1132,9 @@ impl Machine {
 impl Config {
     /// Sets the brew setpoint from the setpoint endpoint (range checked).
     fn set_from_str_value_brew_setpoint(&mut self, t: f64) -> bool {
-        let Some(i) = crate::config::find("brew.setpoint") else { return false };
+        let Some(i) = crate::config::find("brew.setpoint") else {
+            return false;
+        };
         self.set(i, crate::config::Value::Double(t)).is_ok()
     }
 }

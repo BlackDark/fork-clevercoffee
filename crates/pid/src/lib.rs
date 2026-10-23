@@ -1,4 +1,4 @@
-//! PID controller with the semantics of the Arduino `PID_v1` fork CleverCoffee used.
+//! PID controller with the semantics of the Arduino `PID_v1` fork `CleverCoffee` used.
 //!
 //! Kept bit-compatible on purpose: the tunings users already have (Kp, Tn, Tv, I-max)
 //! must behave the same on the new firmware. Differences from the C++:
@@ -10,7 +10,7 @@
 //! - [`Proportional::OnError`]: classic P on error, filtered derivative on input,
 //!   conditional integration (anti-windup) and an extra integrator clamp.
 //! - [`Proportional::OnMeasurement`]: P acts on the input change and is folded into
-//!   the integrator ("PonM"), which avoids overshoot after setpoint changes.
+//!   the integrator ("`PonM`"), which avoids overshoot after setpoint changes.
 
 #![no_std]
 
@@ -35,7 +35,12 @@ impl Tunings {
     /// (derivative time, s). `Tn == 0` disables the integral part.
     pub fn from_kp_tn_tv(kp: f64, tn: f64, tv: f64, proportional: Proportional) -> Self {
         let ki = if tn == 0.0 { 0.0 } else { kp / tn };
-        Self { kp, ki, kd: tv * kp, proportional }
+        Self {
+            kp,
+            ki,
+            kd: tv * kp,
+            proportional,
+        }
     }
 }
 
@@ -206,7 +211,12 @@ impl Pid {
 
         self.last_input = input;
         self.last_time_ms = Some(now_ms);
-        self.last = Parts { p, i: self.integrator, d, error };
+        self.last = Parts {
+            p,
+            i: self.integrator,
+            d,
+            error,
+        };
         Some(self.output)
     }
 

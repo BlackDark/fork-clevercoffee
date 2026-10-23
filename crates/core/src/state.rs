@@ -76,7 +76,10 @@ impl State {
     pub const fn is_backflush(self) -> bool {
         matches!(
             self,
-            State::BackflushIdle | State::BackflushFilling | State::BackflushFlushing | State::BackflushFinished
+            State::BackflushIdle
+                | State::BackflushFilling
+                | State::BackflushFlushing
+                | State::BackflushFinished
         )
     }
 
@@ -103,7 +106,9 @@ impl State {
     pub const fn allows_heating(self, keep_heater_on_empty_tank: bool) -> bool {
         match self {
             State::WaterTankEmpty => keep_heater_on_empty_tank,
-            State::Init | State::PidDisabled | State::SensorError | State::EmergencyStop | State::Standby => false,
+            State::Init | State::PidDisabled | State::SensorError | State::EmergencyStop | State::Standby => {
+                false
+            }
             s => !s.is_backflush(),
         }
     }

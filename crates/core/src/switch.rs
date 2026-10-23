@@ -23,7 +23,14 @@ impl Switch {
         // Start from the resting level so a normally-closed switch does not read as a
         // press at boot.
         let rest = matches!(mode, SwitchMode::NormallyClosed);
-        Self { kind, mode, last_raw: rest, raw_since_ms: 0, pressed: false, pressed_since_ms: 0 }
+        Self {
+            kind,
+            mode,
+            last_raw: rest,
+            raw_since_ms: 0,
+            pressed: false,
+            pressed_since_ms: 0,
+        }
     }
 
     pub fn kind(&self) -> SwitchType {
@@ -61,7 +68,11 @@ impl Switch {
 
     /// How long the current press lasts so far.
     pub fn held_ms(&self, now_ms: u64) -> u64 {
-        if self.pressed { now_ms.saturating_sub(self.pressed_since_ms) } else { 0 }
+        if self.pressed {
+            now_ms.saturating_sub(self.pressed_since_ms)
+        } else {
+            0
+        }
     }
 }
 

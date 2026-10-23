@@ -32,13 +32,22 @@ pub enum ScaleReading {
 pub enum Calibration {
     Idle,
     /// Taring the empty scale.
-    Taring { until_ms: u64 },
+    Taring {
+        until_ms: u64,
+    },
     /// Waiting for the known weight to be placed.
-    Placing { until_ms: u64 },
+    Placing {
+        until_ms: u64,
+    },
     /// Finished: the new factor, already written to the config.
-    Done { factor: f64, at_ms: u64 },
+    Done {
+        factor: f64,
+        at_ms: u64,
+    },
     /// No usable reading change: the factor was left as it was.
-    Failed { at_ms: u64 },
+    Failed {
+        at_ms: u64,
+    },
 }
 
 /// Something the scale needs the hardware to do.
@@ -140,7 +149,8 @@ impl Scale {
 
     /// The scale stopped reporting.
     pub fn is_faulty(&self, now_ms: u64) -> bool {
-        self.last_reading_ms.is_none_or(|t| now_ms.saturating_sub(t) > SCALE_TIMEOUT_MS)
+        self.last_reading_ms
+            .is_none_or(|t| now_ms.saturating_sub(t) > SCALE_TIMEOUT_MS)
     }
 
     /// Asks for a tare; HX711 scales tare on their next reading.
@@ -159,7 +169,9 @@ impl Scale {
             return false;
         }
         self.tare_pending = true;
-        self.calibration = Calibration::Taring { until_ms: now_ms + CALIBRATION_TARE_MS };
+        self.calibration = Calibration::Taring {
+            until_ms: now_ms + CALIBRATION_TARE_MS,
+        };
         true
     }
 
@@ -199,7 +211,9 @@ impl Scale {
     fn advance_calibration(&mut self, cfg: &mut Config, now_ms: u64) -> bool {
         match self.calibration {
             Calibration::Taring { until_ms } if now_ms >= until_ms => {
-                self.calibration = Calibration::Placing { until_ms: now_ms + CALIBRATION_PLACE_MS };
+                self.calibration = Calibration::Placing {
+                    until_ms: now_ms + CALIBRATION_PLACE_MS,
+                };
                 false
             }
             Calibration::Placing { until_ms } if now_ms >= until_ms => {
@@ -208,7 +222,10 @@ impl Scale {
                 if factor.is_finite() && factor.abs() >= 1e-6 && factor.abs() <= 999_999.0 {
                     cfg.hardware_sensors_scale_calibration = factor;
                     cfg.hardware_sensors_scale_calibration2 = factor;
-                    self.calibration = Calibration::Done { factor, at_ms: now_ms };
+                    self.calibration = Calibration::Done {
+                        factor,
+                        at_ms: now_ms,
+                    };
                     true
                 } else {
                     self.calibration = Calibration::Failed { at_ms: now_ms };
@@ -223,7 +240,10 @@ impl Scale {
     pub fn track_brew(&mut self, brew_active: bool, cfg: &Config, now_ms: u64) -> Option<ScaleAction> {
         let weight = self.grams.unwrap_or(0.0);
         if brew_active && !self.brew.active {
-            self.brew = BrewWeight { active: true, ..BrewWeight::default() };
+            self.brew = BrewWeight {
+                active: true,
+                ..BrewWeight::default()
+            };
             let auto_tare = cfg.hardware_sensors_scale_type == ScaleType::Bluetooth
                 && cfg.brew_by_weight_enabled
                 && cfg.brew_by_weight_auto_tare
@@ -274,7 +294,10 @@ mod tests {
     }
 
     fn raw(c: i32) -> ScaleReading {
-        ScaleReading::Raw { cell1: c, cell2: None }
+        ScaleReading::Raw {
+            cell1: c,
+            cell2: None,
+        }
     }
 
     #[test]
@@ -289,17 +312,37 @@ mod tests {
 
     #[test]
     fn dual_cells_add_up() {
-        let mut cfg = Config { hardware_sensors_scale_type: ScaleType::Hx711Dual, ..hx_cfg() };
+        let mut cfg = Config {
+            hardware_sensors_scale_type: ScaleType::Hx711Dual,
+            ..hx_cfg()
+        };
         cfg.hardware_sensors_scale_calibration2 = 50.0;
         let mut s = Scale::new();
-        s.on_reading(ScaleReading::Raw { cell1: 0, cell2: Some(0) }, &mut cfg, 0);
-        s.on_reading(ScaleReading::Raw { cell1: 1000, cell2: Some(500) }, &mut cfg, 100);
+        s.on_reading(
+            ScaleReading::Raw {
+                cell1: 0,
+                cell2: Some(0),
+            },
+            &mut cfg,
+            0,
+        );
+        s.on_reading(
+            ScaleReading::Raw {
+                cell1: 1000,
+                cell2: Some(500),
+            },
+            &mut cfg,
+            100,
+        );
         assert_eq!(s.weight(), Some(20.0));
     }
 
     #[test]
     fn calibration_computes_the_factor() {
-        let mut cfg = Config { hardware_sensors_scale_known_weight: 200.0, ..hx_cfg() };
+        let mut cfg = Config {
+            hardware_sensors_scale_known_weight: 200.0,
+            ..hx_cfg()
+        };
         let mut s = Scale::new();
         s.on_reading(raw(1000), &mut cfg, 0);
         assert!(s.start_calibration(&cfg, 0));
@@ -337,7 +380,10 @@ mod tests {
         s.track_brew(false, &cfg, 40);
         s.on_reading(raw(30_000), &mut cfg, 50); // cup removed and put back
         s.track_brew(false, &cfg, 50);
-        assert!((s.brew_weight() - 36.0).abs() < 1e-3, "final weight stays visible");
+        assert!(
+            (s.brew_weight() - 36.0).abs() < 1e-3,
+            "final weight stays visible"
+        );
     }
 
     #[test]

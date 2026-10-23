@@ -83,7 +83,8 @@ impl BrewTimer {
             BrewTimer::Idle if brew_active => BrewTimer::Running,
             BrewTimer::Running if !brew_active => BrewTimer::PostBrew { since_ms: now_ms },
             BrewTimer::PostBrew { since_ms }
-                if now_ms.saturating_sub(since_ms) > (cfg.display_post_brew_timer_duration * 1000.0) as u64 =>
+                if now_ms.saturating_sub(since_ms)
+                    > (cfg.display_post_brew_timer_duration * 1000.0) as u64 =>
             {
                 BrewTimer::Idle
             }
@@ -102,7 +103,11 @@ mod tests {
     use super::*;
 
     fn cfg() -> Config {
-        Config { standby_enabled: true, standby_time: 1.0, ..Config::default() }
+        Config {
+            standby_enabled: true,
+            standby_time: 1.0,
+            ..Config::default()
+        }
     }
 
     #[test]

@@ -177,51 +177,111 @@ macro_rules! param_ty {
     (choice($t:ty)) => { $t };
 }
 macro_rules! param_kind {
-    (bool) => { Kind::Bool };
-    (int($min:expr, $max:expr)) => { Kind::Int { min: $min, max: $max } };
-    (double($min:expr, $max:expr)) => { Kind::Double { min: $min, max: $max } };
-    (text($len:literal)) => { Kind::Text { max_len: $len, secret: false } };
-    (secret($len:literal)) => { Kind::Text { max_len: $len, secret: true } };
-    (choice($t:ty)) => { Kind::Choice { options: <$t as Choice>::OPTIONS } };
+    (bool) => {
+        Kind::Bool
+    };
+    (int($min:expr, $max:expr)) => {
+        Kind::Int { min: $min, max: $max }
+    };
+    (double($min:expr, $max:expr)) => {
+        Kind::Double { min: $min, max: $max }
+    };
+    (text($len:literal)) => {
+        Kind::Text {
+            max_len: $len,
+            secret: false,
+        }
+    };
+    (secret($len:literal)) => {
+        Kind::Text {
+            max_len: $len,
+            secret: true,
+        }
+    };
+    (choice($t:ty)) => {
+        Kind::Choice {
+            options: <$t as Choice>::OPTIONS,
+        }
+    };
 }
 macro_rules! param_default {
-    (text($len:literal), $d:expr) => { text($d) };
-    (secret($len:literal), $d:expr) => { text($d) };
-    ($k:ident $(($($a:tt)*))?, $d:expr) => { $d };
+    (text($len:literal), $d:expr) => {
+        text($d)
+    };
+    (secret($len:literal), $d:expr) => {
+        text($d)
+    };
+    ($k:ident $(($($a:tt)*))?, $d:expr) => {
+        $d
+    };
 }
 macro_rules! param_get {
-    (bool, $v:expr) => { Value::Bool($v) };
-    (int($min:expr, $max:expr), $v:expr) => { Value::Int($v) };
-    (double($min:expr, $max:expr), $v:expr) => { Value::Double($v) };
-    (text($len:literal), $v:expr) => { Value::Text($v.as_str()) };
-    (secret($len:literal), $v:expr) => { Value::Text($v.as_str()) };
-    (choice($t:ty), $v:expr) => { Value::Choice(Choice::to_i32($v)) };
+    (bool, $v:expr) => {
+        Value::Bool($v)
+    };
+    (int($min:expr, $max:expr), $v:expr) => {
+        Value::Int($v)
+    };
+    (double($min:expr, $max:expr), $v:expr) => {
+        Value::Double($v)
+    };
+    (text($len:literal), $v:expr) => {
+        Value::Text($v.as_str())
+    };
+    (secret($len:literal), $v:expr) => {
+        Value::Text($v.as_str())
+    };
+    (choice($t:ty), $v:expr) => {
+        Value::Choice(Choice::to_i32($v))
+    };
 }
 macro_rules! param_set {
     (bool, $slot:expr, $v:expr) => {{
-        match $v { Value::Bool(b) => { $slot = b; Ok(()) } _ => Err(SetError::WrongType) }
+        match $v {
+            Value::Bool(b) => {
+                $slot = b;
+                Ok(())
+            }
+            _ => Err(SetError::WrongType),
+        }
     }};
     (int($min:expr, $max:expr), $slot:expr, $v:expr) => {{
         match $v {
-            Value::Int(i) if ($min..=$max).contains(&i) => { $slot = i; Ok(()) }
+            Value::Int(i) if ($min..=$max).contains(&i) => {
+                $slot = i;
+                Ok(())
+            }
             Value::Int(_) => Err(SetError::OutOfRange),
             _ => Err(SetError::WrongType),
         }
     }};
     (double($min:expr, $max:expr), $slot:expr, $v:expr) => {{
         match $v {
-            Value::Double(d) if d.is_finite() && d >= $min && d <= $max => { $slot = d; Ok(()) }
-            Value::Int(i) if f64::from(i) >= $min && f64::from(i) <= $max => { $slot = f64::from(i); Ok(()) }
+            Value::Double(d) if d.is_finite() && ($min..=$max).contains(&d) => {
+                $slot = d;
+                Ok(())
+            }
+            Value::Int(i) if ($min..=$max).contains(&f64::from(i)) => {
+                $slot = f64::from(i);
+                Ok(())
+            }
             Value::Double(_) | Value::Int(_) => Err(SetError::OutOfRange),
             _ => Err(SetError::WrongType),
         }
     }};
-    (text($len:literal), $slot:expr, $v:expr) => { set_text(&mut $slot, $v) };
-    (secret($len:literal), $slot:expr, $v:expr) => { set_text(&mut $slot, $v) };
+    (text($len:literal), $slot:expr, $v:expr) => {
+        set_text(&mut $slot, $v)
+    };
+    (secret($len:literal), $slot:expr, $v:expr) => {
+        set_text(&mut $slot, $v)
+    };
     (choice($t:ty), $slot:expr, $v:expr) => {{
         match $v {
             Value::Choice(i) | Value::Int(i) => match <$t as Choice>::from_i32(i) {
-                Some(c) => { $slot = c; Ok(()) }
+                Some(c) => {
+                    $slot = c;
+                    Ok(())
+                }
                 None => Err(SetError::NotAnOption),
             },
             _ => Err(SetError::WrongType),
@@ -293,7 +353,9 @@ fn text<const N: usize>(s: &str) -> String<N> {
 }
 
 fn set_text<const N: usize>(slot: &mut String<N>, v: Value<'_>) -> Result<(), SetError> {
-    let Value::Text(t) = v else { return Err(SetError::WrongType) };
+    let Value::Text(t) = v else {
+        return Err(SetError::WrongType);
+    };
     let mut s = String::new();
     s.push_str(t).map_err(|_| SetError::TooLong)?;
     *slot = s;
@@ -629,9 +691,9 @@ mod tests {
     fn every_default_is_valid() {
         let mut c = Config::default();
         let defaults = Config::default();
-        for i in 0..PARAMS.len() {
+        for (i, p) in PARAMS.iter().enumerate() {
             let v = defaults.get(i);
-            assert_eq!(c.set(i, v), Ok(()), "{}", PARAMS[i].key);
+            assert_eq!(c.set(i, v), Ok(()), "{}", p.key);
         }
     }
 
@@ -669,9 +731,18 @@ mod tests {
         let mut c = Config::default();
         assert_eq!(c.set_from_str("brew.setpoint", "200"), Err(SetError::OutOfRange));
         assert_eq!(c.set_from_str("brew.setpoint", "hot"), Err(SetError::Unparsable));
-        assert_eq!(c.set_from_str("pid.enabled", "yes please"), Err(SetError::Unparsable));
-        assert_eq!(c.set_from_str("display.template", "9"), Err(SetError::NotAnOption));
-        assert_eq!(c.set_from_str("backflush.cycles", "2.5"), Err(SetError::Unparsable));
+        assert_eq!(
+            c.set_from_str("pid.enabled", "yes please"),
+            Err(SetError::Unparsable)
+        );
+        assert_eq!(
+            c.set_from_str("display.template", "9"),
+            Err(SetError::NotAnOption)
+        );
+        assert_eq!(
+            c.set_from_str("backflush.cycles", "2.5"),
+            Err(SetError::Unparsable)
+        );
         assert_eq!(c.set_from_str("nope", "1"), Err(SetError::UnknownKey));
         let long = "x".repeat(40);
         assert_eq!(c.set_from_str("system.hostname", &long), Err(SetError::TooLong));
