@@ -78,9 +78,15 @@ pub async fn run(mut io: Io, polarity: Polarity, mut wdt: Wdt<TIMG1<'static>>) -
     let start = Instant::now();
     let mut last_history_ms = 0u64;
     let mut slowest_us = 0u64;
+    // Time between tick starts: flash writes stall the CPU (cache off), and so does
+    // anything at a higher priority; the tick itself can be fast and still late.
+    let mut longest_gap_us = 0u64;
+    let mut last_start = Instant::now();
     loop {
         ticker.next().await;
         let t0 = Instant::now();
+        longest_gap_us = longest_gap_us.max(t0.duration_since(last_start).as_micros());
+        last_start = t0;
         let now_ms = t0.duration_since(start).as_millis();
         let pending = shared::take_pending();
         let inputs = Inputs {
@@ -164,8 +170,9 @@ pub async fn run(mut io: Io, polarity: Polarity, mut wdt: Wdt<TIMG1<'static>>) -
             slowest_us = took;
         }
         if timing_debug && now_ms % 10_000 < TICK_MS {
-            info!("control loop: slowest tick {slowest_us} µs");
+            info!("control loop: slowest tick {slowest_us} µs, longest gap {longest_gap_us} µs");
             slowest_us = 0;
+            longest_gap_us = 0;
         }
     }
 }
