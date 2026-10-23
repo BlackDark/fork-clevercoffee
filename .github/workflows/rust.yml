@@ -485,6 +485,9 @@ jobs:
       - name: clippy (device, pedantic, -D warnings)
         run: just lint-esp32
 
+      - name: rustdoc (device, -D warnings)
+        run: just doc-esp32
+
       - name: Build the firmware
         run: just build-esp32
 
@@ -507,11 +510,11 @@ jobs:
 
       # Last step, so it runs before the post-job cache save. Drops what a
       # restore can never reuse: the tool archives idf_tools already unpacked,
-      # and the workspace crates' artifacts, which checkout's fresh mtimes make
+      # the rendered device rustdoc, and the workspace crates' artifacts, which checkout's fresh mtimes make
       # stale on every run. Smaller cache, faster restore and save.
       - name: Prune the device cache before it is saved
         run: |
-          rm -rf .embuild/espressif/dist
+          rm -rf .embuild/espressif/dist target/xtensa-esp32-espidf/doc
           shopt -s nullglob
           for profile in target/xtensa-esp32-espidf/debug target/xtensa-esp32-espidf/release \
                          target/debug target/release; do

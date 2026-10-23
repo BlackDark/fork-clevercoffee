@@ -338,6 +338,7 @@ gate:
     just lint
     just lint-esp32
     just doc
+    just doc-esp32
     just test
     just parity-test
     just doc-links
@@ -652,6 +653,13 @@ bench:
 # `cargo doc` with warnings as errors, so a broken intra-doc link fails the gate.
 doc:
     RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps {{host_crates}} {{host_tools}} --target {{host_target}}
+
+# The same for the device crates. Without `cc-device-tests`, so the test-only
+# feature is off and the shipped code is what gets documented.
+doc-esp32: ui
+    {{env_prefix}} MCU={{mcu_esp32}} RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps \
+        -p cc-hal-esp32 -p cc-net-esp32 -p cc-firmware \
+        --target {{tgt_esp32}} -Zbuild-std=std,panic_abort
 
 clean:
     cargo clean
