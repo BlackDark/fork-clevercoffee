@@ -6,7 +6,7 @@
 #   portable   cc-domain, cc-protocol, cc-safety, cc-config, cc-machine,
 #              cc-display, cc-net
 #              no_std, host-tested, must not name esp_idf_* (CI: portable-purity)
-#   device     cc-hal-esp32, cc-firmware, cc-device-tests
+#   device     cc-hal-esp32, cc-net-esp32, cc-firmware, cc-device-tests
 #              Xtensa only, so not in `default-members`
 #   host tools cc-parity (scenario harness), cc-alloc-count (test allocator)
 
@@ -21,6 +21,7 @@ members = [
     "crates/cc-display",
     "crates/cc-net",
     "crates/cc-hal-esp32",
+    "crates/cc-net-esp32",
     "crates/cc-firmware",
     # The on-target test runner (`just test-esp32`): `cc-hal-esp32` names
     # `esp_idf_hal`, so its tests can only run on the chip. Never flashed as
@@ -56,6 +57,7 @@ cc-display = { path = "crates/cc-display" }
 cc-config = { path = "crates/cc-config" }
 cc-net = { path = "crates/cc-net" }
 cc-hal-esp32 = { path = "crates/cc-hal-esp32" }
+cc-net-esp32 = { path = "crates/cc-net-esp32" }
 cc-alloc-count = { path = "crates/cc-alloc-count" }
 
 # `cc-config`'s Serialize/Deserialize and the JSON blob. Already in the device

@@ -102,7 +102,7 @@ why `AG-RUST-3` pins the host toolchain instead of saying `stable`.
 - Static buffers in singletons (the Logger ring buffer, history arrays) must be
   sized conservatively; always calculate the total static RAM cost.
 - The web UI is served from flash and costs 0 B of RAM
-  (`cc-hal-esp32/build.rs` embeds the gzip bundle with `include_bytes!`). Do not
+  (`cc-net-esp32/build.rs` embeds the gzip bundle with `include_bytes!`). Do not
   "improve" that by buffering it in RAM.
 - The ABP2 pressure sensor and the SSD1306 share the I²C bus. A frame is chunked
   into 8 bus writes for exactly that reason; do not make it one write per pixel
@@ -218,7 +218,7 @@ Amending a path means changing the reader in the same commit.
 
 **AG-REPO-31.** **`docs/api/openapi.yaml` is checked against the routes the
 firmware serves.** `scripts/check-openapi.py` compares it against the `ROUTES`
-table in `cc-hal-esp32/src/web.rs`, in both directions, and runs in `just
+table in `cc-net-esp32/src/web.rs`, in both directions, and runs in `just
 check` and in CI. It exists because the spec sat for the whole port with no
 consumer and no check, and omitted exactly the three routes carrying deliberate
 divergences (`/api/sleep`, `/api/wake`, `/events`). A reference that is silent
@@ -274,7 +274,7 @@ Everything in this section is scoped `AG-RUST-*` and applies to `crates/`,
 scenario tests, and the device-test audit.
 
 **AG-RUST-2.** **`just check` is not sufficient.** It does not compile
-`cc-hal-esp32` or `cc-firmware`. **For a change that can affect the firmware
+the device crates. **For a change that can affect the firmware
 image, run `just gate`**, which adds the device clippy, the Xtensa release build
 and the size budget. The device steps use the `esp` toolchain and need
 `just setup` to have run. `just doctor` checks the device toolchain;
@@ -298,7 +298,7 @@ toolchain pins and cache keys are shaped as they are:
 [`docs/operations/ci.md`](docs/operations/ci.md).
 
 **AG-RUST-6.** **The web UI must be built before the firmware will link.**
-`cc-hal-esp32/build.rs` deliberately panics without
+`cc-net-esp32/build.rs` deliberately panics without
 `ui/packages/frontend/dist`. `just build-esp32` and `just lint-esp32` depend on
 the `ui:` recipe for exactly this; a bare `cargo build` will not do it.
 

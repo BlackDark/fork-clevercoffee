@@ -38,7 +38,7 @@ pub struct DisplayTask {
     /// Where the control task's frame requests arrive.
     frame: Arc<FrameSlot>,
     /// The telemetry snapshot, for the Wi-Fi address on the boot screen.
-    shared: Arc<cc_hal_esp32::web::Shared>,
+    shared: Arc<cc_net_esp32::web::Shared>,
     /// The brew-timer state of the last frame drawn, so a transition can be
     /// announced rather than the state merely repeated.
     last_brew_timer: cc_display::model::BrewTimerState,
@@ -51,7 +51,7 @@ impl DisplayTask {
         panel: Option<SharedPanel<'static>>,
         template: TemplateId,
         frame: Arc<FrameSlot>,
-        shared: Arc<cc_hal_esp32::web::Shared>,
+        shared: Arc<cc_net_esp32::web::Shared>,
     ) -> Self {
         Self {
             panel,

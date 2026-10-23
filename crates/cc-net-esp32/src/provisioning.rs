@@ -22,7 +22,7 @@ use esp_idf_hal::units::Hertz;
 use esp_idf_svc::sys::EspError;
 use log::info;
 
-use crate::time::now_ms;
+use cc_hal_esp32::time::now_ms;
 
 /// The baud rate of the shared UART0 log stream, and therefore of provisioning.
 ///
@@ -34,8 +34,8 @@ pub const BAUD: u32 = 115_200;
 /// A UART0 port that both reads the operator's typing and writes replies.
 ///
 /// One type owning one `UartDriver`, so there is exactly one owner of the pin
-/// and no aliasing between a reader and a writer. `cc_hal_esp32::time` and the
-/// ESP-IDF console keep writing the *log* stream to the same wire through
+/// and no aliasing between a reader and a writer. The logger ([`crate::telnet`]) and
+/// the ESP-IDF console keep writing the *log* stream to the same wire through
 /// `stdout`; this is the other direction plus a direct write for the replies.
 ///
 /// # Why replies do not go through `print!`

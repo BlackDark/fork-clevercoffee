@@ -28,6 +28,7 @@ cc-machine.workspace = true
 cc-display.workspace = true
 cc-safety.workspace = true
 cc-hal-esp32.workspace = true
+cc-net-esp32.workspace = true
 cc-protocol.workspace = true
 # `Telemetry`, `Command` and `parameters_json`, which the control task publishes.
 cc-net.workspace = true
@@ -36,7 +37,7 @@ esp-idf-svc.workspace = true
 log.workspace = true
 # `Telemetry::ip` is a `heapless::String<15>`, not a `String`: the snapshot the
 # httpd task reads must be a fixed-size copy with no allocator traffic. See
-# `cc_hal_esp32::web::Snapshot`. Already in the device graph via cc-hal-esp32.
+# `cc_net_esp32::web::Snapshot`.
 heapless.workspace = true
 
 # `embuild` is a BUILD dependency of the *binary* crate, not just of esp-idf-sys.

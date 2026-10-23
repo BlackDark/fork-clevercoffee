@@ -17,11 +17,11 @@ use cc_config::predecessor::{startup_notice, PredecessorProbe};
 use cc_config::{Config, NVS_NAMESPACE};
 use cc_hal_esp32::heap::{free_heap, min_free_heap};
 use cc_hal_esp32::nvs::EspNvsBlob;
-use cc_hal_esp32::provisioning::{self, Action, Session};
 use cc_hal_esp32::time::now_ms;
-use cc_hal_esp32::web::{Shared, Sse, Web};
-use cc_hal_esp32::wifi::Sta;
 use cc_net::web::{temperatures_json, Command};
+use cc_net_esp32::provisioning::{self, Action, Session};
+use cc_net_esp32::web::{Shared, Sse, Web};
+use cc_net_esp32::wifi::Sta;
 use cc_safety::ConfigOrigin;
 use log::{info, warn};
 
@@ -206,7 +206,7 @@ pub struct Network {
     /// without reaching through [`crate::web::Web`], and so it outlives the
     /// server handle: a restart request raised by the last upload must still be
     /// seen by the tick that acts on it.
-    pub ota: Arc<cc_hal_esp32::ota::Session>,
+    pub ota: Arc<cc_net_esp32::ota::Session>,
     /// The SSE counters.
     pub sse: Arc<Sse>,
 }
@@ -217,8 +217,8 @@ impl Network {
     pub fn new() -> Self {
         Self {
             shared: Arc::new(Shared::new()),
-            ota: Arc::new(cc_hal_esp32::ota::Session::new()),
-            sse: Arc::new(Sse::new(cc_hal_esp32::web::SseMode::Chunked)),
+            ota: Arc::new(cc_net_esp32::ota::Session::new()),
+            sse: Arc::new(Sse::new(cc_net_esp32::web::SseMode::Chunked)),
         }
     }
 }
@@ -264,8 +264,8 @@ pub fn start_http(
     )?;
     info!(
         "http: {} routes registered; the large-response floor is {} B",
-        cc_hal_esp32::web::routes().len(),
-        cc_hal_esp32::web::HEAP_FLOOR_BYTES
+        cc_net_esp32::web::routes().len(),
+        cc_net_esp32::web::HEAP_FLOOR_BYTES
     );
     Ok(web)
 }
@@ -333,7 +333,7 @@ pub fn log_heap_once_a_minute(network: &Network) {
          ({} served, {} refused)",
         free_heap(),
         min_free_heap(),
-        cc_hal_esp32::web::HEAP_FLOOR_BYTES,
+        cc_net_esp32::web::HEAP_FLOOR_BYTES,
         network.shared.large_responses(),
         network.shared.large_refused(),
     );
@@ -341,13 +341,13 @@ pub fn log_heap_once_a_minute(network: &Network) {
 
 /// What the provisioning task captured, waiting for the control task to store it.
 ///
-/// A credential is **not** a [`cc_hal_esp32::web::Command`]. Those are `Copy` and eight
+/// A credential is **not** a [`cc_net_esp32::web::Command`]. Those are `Copy` and eight
 /// bytes because they cross a task queue, and a `String` cannot. That constraint is why a
 /// credential takes this route instead, and it is a good one: a credential that could
 /// travel as a command would be a credential an HTTP handler could set.
 pub enum Staged {
     /// `wifi set <ssid>`, the password line, then `wifi apply`.
-    Set(cc_hal_esp32::provisioning::Pending),
+    Set(cc_net_esp32::provisioning::Pending),
     /// `wifi clear`, then `wifi apply`.
     Clear,
 }
@@ -476,7 +476,7 @@ pub fn apply_staged(
               and is never handed anywhere else. A `&mut` would suggest it \
               could be shared, which is the one thing a UART must not be."
 )]
-pub fn run_provisioning(serial: cc_hal_esp32::provisioning::Serial<'_>, handoff: Handoff) {
+pub fn run_provisioning(serial: cc_net_esp32::provisioning::Serial<'_>, handoff: Handoff) {
     let mut session = Session::new();
     // `wifi clear` is a two-step command — the session drops the staged
     // credential and answers "apply to persist" — and which of the two things
@@ -494,7 +494,7 @@ pub fn run_provisioning(serial: cc_hal_esp32::provisioning::Serial<'_>, handoff:
         let read = serial.read_available(&mut buf);
         if read > 0 {
             // `Session::push` already returns fully-formed reply lines —
-            // `cc_hal_esp32::provisioning::reply_text` puts the `CCWIFI `
+            // `cc_net_esp32::provisioning::reply_text` puts the `CCWIFI `
             // prefix on — so they are written as they are. Wrapping them in
             // `provisioning::line` again is what put two prefixes on every
             // session reply.
@@ -550,7 +550,7 @@ pub fn run_provisioning(serial: cc_hal_esp32::provisioning::Serial<'_>, handoff:
 /// reboot belongs to the control task, which owns the store and knows whether
 /// the write worked; see `ControlLoop::take_console_credential`.
 fn stage_and_stop(
-    serial: &cc_hal_esp32::provisioning::Serial<'_>,
+    serial: &cc_net_esp32::provisioning::Serial<'_>,
     handoff: &Handoff,
     staged: Staged,
     reply: &str,

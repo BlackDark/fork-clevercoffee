@@ -64,7 +64,7 @@ page.
   how a live skill note went on citing a deleted script with every gate green.
 - **The API spec is now checked against the routes.** `scripts/check-openapi.py`
   diffs `docs/api/openapi.yaml` against the `ROUTES` table in
-  `cc-hal-esp32/src/web.rs` in both directions and runs in `just check` and CI
+  `cc-net-esp32/src/web.rs` in both directions and runs in `just check` and CI
   (`AG-REPO-31`). The spec had drifted: it covered 24 of 28 routes and omitted
   `/api/sleep`, `/api/wake` and `/events`, which are exactly the three carrying
   deliberate behaviour differences. All 28 are now present.
@@ -102,7 +102,7 @@ page.
   against the real formatter rather than a copied byte count.
   **Verified by test and by reading the code; the line has not been seen on a
   board.**
-- **The web UI is served from flash and renders.** `cc-hal-esp32/build.rs` embeds
+- **The web UI is served from flash and renders.** `cc-net-esp32/build.rs` embeds
   the gzip bundle with `include_bytes!`, which is why a 199,270 B bundle costs
   0 B of RAM. A deep link to a client-side route (`/ui/config/behavior`) boots the
   configuration page with its live parameters, verified in Chrome on the device.
@@ -195,7 +195,7 @@ recorded below.
   harness that would have used it was removed with the rest of the C++ tooling.
   **An intentional difference means reviewed and reasoned, never measured.**
 - **`/api/ota/url` answers `501`.** The route is registered and says why:
-  `cc-hal-esp32/src/web.rs:1917-1934`. The two upload endpoints and
+  `cc-net-esp32/src/web.rs:1917-1934`. The two upload endpoints and
   `/api/ota/status` **are** implemented and stricter than the C++'s. The URL
   route needs an HTTP client and a second long-lived task, for something a
   browser upload already reaches.
@@ -313,8 +313,7 @@ be filed and they are not fixed by the next green gate.
    therefore does not fail anything today. Treat "intentional" as *reviewed and
    reasoned*, not *measured*.
 3. **`FrameSlot` is verified by review, not by test.** It lives in `cc-firmware`,
-   which `cc-hal-esp32` cannot depend on, so the device-test registry cannot
-   reach it. Its fix is verified by caller audit and review.
+   which the device-test registries cannot reach. Its fix is verified by caller audit and review.
 4. **`main.rs`'s weight wiring is verified by review, not by test**, for the same
    reason. The two behaviours it restores are pinned host-side.
 5. **Hardware timing has never been measured** — the contactor's minimum on/off
@@ -349,7 +348,7 @@ be filed and they are not fixed by the next green gate.
    `web.rs:3277` asserts that a control-task publish leaves the radio fields
    alone — but it asserts it about a **helper defined in the test module**, not
    about the call site in `main.rs`, which is where the bug lived. The invariant
-   is only observable at `/api/status` on real hardware, and `cc-hal-esp32` cannot
+   is only observable at `/api/status` on real hardware, and `cc-net-esp32` cannot
    depend on `cc-firmware` to reach it. Treat every device case that reconstructs
    the production call in a test helper as coverage of the *contract*, not of the
    *code*.

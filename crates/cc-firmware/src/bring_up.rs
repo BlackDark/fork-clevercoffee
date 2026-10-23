@@ -461,10 +461,10 @@ struct NetworkTier {
     commands: Arc<cc_hal_esp32::task::CommandQueue>,
     parameters: Arc<cc_hal_esp32::task::ParameterHandoff>,
     handoff: network::Handoff,
-    sta: Option<cc_hal_esp32::Sta>,
+    sta: Option<cc_net_esp32::Sta>,
     mqtt_configured: bool,
     /// Its `Drop` stops the httpd task.
-    _http: cc_hal_esp32::Web,
+    _http: cc_net_esp32::Web,
     /// Its `Drop` can delete the default event loop the netif depends on.
     _sys_loop: esp_idf_svc::eventloop::EspSystemEventLoop,
 }
@@ -487,7 +487,7 @@ fn start_network_tier(
     let net = Arc::new(network::Network::new());
     let commands = Arc::new(cc_hal_esp32::task::CommandQueue::new());
 
-    let sys_loop = cc_hal_esp32::wifi::init_stack()?;
+    let sys_loop = cc_net_esp32::wifi::init_stack()?;
     info!("netif: lwIP and the default event loop are up");
     // A failed bring-up is offline mode, not a failed boot: the HTTP server, telnet
     // and the provisioning console below are how the network gets fixed.
@@ -512,7 +512,7 @@ fn start_network_tier(
     )?;
 
     // The lowest-priority task: a stalled terminal costs a dropped line.
-    if let Err(err) = cc_hal_esp32::telnet::start() {
+    if let Err(err) = cc_net_esp32::telnet::start() {
         error!("telnet: the log stream task could not be spawned: {err}");
     }
 
@@ -528,7 +528,7 @@ fn start_network_tier(
     }
     start_provisioning(uart, tx, rx, handoff.clone());
 
-    let mqtt_configured = cc_hal_esp32::mqtt::is_configured(config);
+    let mqtt_configured = cc_net_esp32::mqtt::is_configured(config);
     if !mqtt_configured {
         info!("mqtt: not configured (mqtt.enabled is false or mqtt.broker is empty)");
     }
@@ -879,7 +879,7 @@ fn start_provisioning(
     rx: esp_idf_hal::gpio::Gpio3<'static>,
     handoff: network::Handoff,
 ) {
-    let serial = match cc_hal_esp32::provisioning::Serial::new(uart, tx, rx) {
+    let serial = match cc_net_esp32::provisioning::Serial::new(uart, tx, rx) {
         Ok(serial) => serial,
         Err(err) => {
             warn!("serial: the UART driver did not install: {err:?} -- provisioning is off");
@@ -908,11 +908,11 @@ fn bring_up_wifi(
     modem: esp_idf_hal::modem::Modem<'static>,
     config: &cc_config::Config,
     sys_loop: &esp_idf_svc::eventloop::EspSystemEventLoop,
-) -> Result<cc_hal_esp32::Sta, EspError> {
+) -> Result<cc_net_esp32::Sta, EspError> {
     // The hostname goes in with the netif, before `wifi.start()`, so the DHCP
     // client identifier is fixed before the first association. See
-    // `cc_hal_esp32::wifi`'s module documentation.
-    let mut sta = cc_hal_esp32::Sta::new(modem, &config.system.hostname, sys_loop)?;
+    // `cc_net_esp32::wifi`'s module documentation.
+    let mut sta = cc_net_esp32::Sta::new(modem, &config.system.hostname, sys_loop)?;
     // **Lengths only, never the values.** A machine that will not associate is
     // almost always holding a credential that is not the one it thinks it has, and
     // "the stored SSID is 12 bytes" settles a class of problem that reading

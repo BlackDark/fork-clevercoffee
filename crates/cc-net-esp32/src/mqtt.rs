@@ -28,14 +28,10 @@ use esp_idf_svc::sys::EspError;
 use heapless::{Deque, String as Bounded};
 use log::{debug, info, warn};
 
-use crate::time::now_ms;
+use cc_hal_esp32::time::now_ms;
 
-// The topic layout, the registry, the plan view, the value buffers, the
-// intervals and the two predicates live in `cc_net::mqtt`, which is `#![no_std]` and
-// host-testable. They are re-exported rather than reached through a new path so
-// that `cc_firmware::mqtt_link` and every `cc_hal_esp32::mqtt::` reference in
-// prose are unaffected by the move; the direction is still HAL -> cc-net, never
-// the reverse. See `cc_net::mqtt`'s crate root for the boundary.
+// Re-exported so the firmware names one module for MQTT; the definitions are
+// portable and host-tested in `cc_net::mqtt`.
 pub use cc_net::mqtt::{
     interval_for, is_configured, ParamTopic, Payload, PlanView, Registry, SetCommand, Topics,
     BACKFLUSH_ON, BUFFER_BYTES, CALIBRATION_ON, DISCOVERY_INTERVAL_MS, INBOUND_DEPTH,

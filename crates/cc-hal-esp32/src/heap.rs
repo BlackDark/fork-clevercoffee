@@ -4,24 +4,16 @@
 //! without intermediate strings, and shed telnet writes under pressure while
 //! keeping the connection open. Active close would look like a network failure.
 
-/// The free-heap floor below which the Wi-Fi log stream stops writing.
-///
-/// [ADR-0002](../../../docs/adr/0002-wifi-logging-ota-memory-architecture.md)
-/// decision 5: 30 KB. The same number guards the large-HTTP-response path
-/// ([`crate::web::HEAP_FLOOR_BYTES`]) — one threshold, several subscribers,
-/// because several constants for "the machine is tight" is how they drift.
-///
-/// **Re-exported, not defined here.** The value moved to
-/// [`cc_net::web::telnet::SHED_FLOOR_BYTES`] when the log stream's policy moved
-/// there: the shed decision is host-testable and a heap
-/// gauge is not, so the *policy* is portable and this module is the one place
-/// that reads the gauge and hands it over.
+/// The free-heap floor below which the Wi-Fi log stream stops writing
+/// (ADR-0002 decision 5: 30 KB). The large-HTTP-response guard uses the same
+/// number, so there is one threshold. Defined in `cc-net`, where the shed policy
+/// is host-tested; this module only reads the gauge.
 pub use cc_net::web::telnet::SHED_FLOOR_BYTES as HEAP_SHED_BYTES;
 
 /// Free bytes on the heap right now.
 ///
-/// The ADR-0002 number. `/api/nvs-debug` reports it, and
-/// [`crate::telnet::HeapShed`] compares it against [`HEAP_SHED_BYTES`].
+/// The ADR-0002 number. `/api/nvs-debug` reports it, and the telnet log stream
+/// compares it against [`HEAP_SHED_BYTES`].
 #[allow(
     unsafe_code,
     reason = "esp_get_free_heap_size() is a documented, precondition-free read \

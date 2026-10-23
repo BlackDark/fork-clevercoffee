@@ -8,7 +8,7 @@
 //! tick, and never as a direct call from a network task into control state.
 //!
 //! [`hal::task::queue::Queue`] is bounded by `T: Copy`
-//! (`esp-idf-hal` 0.47 `task.rs:980`), so [`crate::web::Command`] is `Copy` and
+//! (`esp-idf-hal` 0.47 `task.rs:980`), so [`Command`] is `Copy` and
 //! carries no `String`, no `Vec` and no `Box`. The wrapper exists to give the
 //! two policies that matter names: **drop-newest** on a full queue, and a
 //! `no_std`-compatible error that is not an ESP-IDF code.
@@ -133,8 +133,7 @@ pub const COMMAND_ACK_TIMEOUT_MS: u32 = 400;
 /// period, so the ack is noticed within one tick of happening.
 pub const COMMAND_ACK_POLL_MS: u32 = 5;
 
-/// Sleep, for the ack wait. Named so [`crate::web::Shared::wait_applied`] does
-/// not reach for the HAL directly.
+/// Sleep, for the ack wait.
 pub fn delay_ms(ms: u32) {
     esp_idf_hal::delay::FreeRtos::delay_ms(ms);
 }
@@ -319,7 +318,7 @@ pub const PARAMETER_ACK_POLL_MS: u32 = 5;
 
 /// One `POST /api/parameters`, already validated by the handler.
 ///
-/// `pairs` is what survived [`crate::web::classify_parameters`], so the control
+/// `pairs` is what survived [`cc_net::web::classify_parameters`], so the control
 /// task re-applies rather than re-decides: the two go through the same
 /// [`cc_config::assign::parse`] and the second is idempotent.
 pub type ParameterRequest = Vec<(String, String)>;

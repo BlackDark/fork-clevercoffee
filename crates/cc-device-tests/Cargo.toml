@@ -7,16 +7,11 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# WHY A SEPARATE CRATE AND NOT A SECOND `[[bin]]` OF cc-firmware:
-# `cc-hal-esp32`'s test modules are reachable only through its `device-tests`
-# feature. Enabling that feature is a package-wide setting, so putting the runner
-# in `cc-firmware` would enable it for the shipped `firmware` binary too. One
-# crate owns "the thing that talks to the chips" and nothing else does, and the
-# production image must not depend on a test-only feature being off.
-#
-# Same reasoning as the esp-rs template's `[[bin]] harness = false`: there is no
-# libtest on the ESP32, so `main` is the runner and the `#[test]` functions come
-# in through `cc_hal_esp32::device_tests::CASES`.
+# A separate crate, not a second `[[bin]]` of cc-firmware: the device crates'
+# test modules are reachable only through their `device-tests` features, and a
+# feature is package-wide, so a runner inside cc-firmware would enable it for the
+# shipped binary too. There is no libtest on the ESP32: `main` is the runner and
+# the cases come in through each crate's `device_tests::CASES`.
 [[bin]]
 name = "firmware-tests"
 path = "src/main.rs"
@@ -26,8 +21,8 @@ harness = false
 
 [dependencies]
 # `device-tests` turns `#[test] fn` into `pub fn` behind `device_tests::CASES`.
-# See `crates/cc-hal-esp32/src/device_tests.rs`.
 cc-hal-esp32 = { workspace = true, features = ["device-tests"] }
+cc-net-esp32 = { workspace = true, features = ["device-tests"] }
 esp-idf-hal.workspace = true
 esp-idf-svc.workspace = true
 log.workspace = true
