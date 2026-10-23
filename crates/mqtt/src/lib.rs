@@ -12,6 +12,10 @@
 
 #![no_std]
 
+mod keepalive;
+
+pub use keepalive::KeepAlive;
+
 use core::fmt::{self, Write};
 
 use cc_api::json::Writer;

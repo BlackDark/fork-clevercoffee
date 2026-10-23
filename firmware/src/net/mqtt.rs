@@ -129,27 +129,29 @@ async fn session(socket: TcpSocket<'_>, cfg: &Config) -> Result<(), End> {
     let mut changes = ChangeFilter::default();
     let mut next_publish = Instant::now();
     let mut next_discovery = Instant::now();
-    let mut last_packet = Instant::now();
+    let mut keep_alive = cc_mqtt::KeepAlive::new(KEEP_ALIVE_S, Instant::now().as_millis());
     loop {
         let now = Instant::now();
         if now >= next_publish {
-            let interval = publish_changed(&mut client, &mut changes).await?;
+            let (interval, sent) = publish_changed(&mut client, &mut changes).await?;
             next_publish = now + Duration::from_millis(interval);
-            last_packet = now;
+            if sent {
+                keep_alive.sent(now.as_millis());
+            }
         }
         if now >= next_discovery {
             let hassio = shared::with(|s| s.cfg.mqtt_hassio_enabled);
-            if hassio {
-                discovery(&mut client).await?;
+            if hassio && discovery(&mut client).await? {
+                keep_alive.sent(now.as_millis());
             }
             next_discovery = now + Duration::from_millis(cc_mqtt::DISCOVERY_INTERVAL_MS);
-            last_packet = now;
         }
-        if now.duration_since(last_packet) > Duration::from_secs(u64::from(KEEP_ALIVE_S) / 2) {
+        if keep_alive.ping_due(now.as_millis()) {
             client.ping().await.map_err(|_| End::Io)?;
-            last_packet = now;
+            keep_alive.sent(now.as_millis());
         }
-        let wait = Timer::at(next_publish.min(next_discovery));
+        let ping_at = Instant::from_millis(keep_alive.ping_at_ms());
+        let wait = Timer::at(next_publish.min(next_discovery).min(ping_at));
         match select(client.poll_header(), wait).await {
             Either::First(header) => {
                 let header = header.map_err(|_| End::Io)?;
@@ -181,9 +183,11 @@ async fn publish(client: &mut Mqtt<'_>, topic: &str, payload: &str, retain: bool
         .map_err(|_| End::Io)
 }
 
-/// Publishes entities whose payload changed; returns the next interval.
-async fn publish_changed(client: &mut Mqtt<'_>, changes: &mut ChangeFilter) -> Result<u64, End> {
+/// Publishes entities whose payload changed; returns the next interval and whether
+/// anything was sent.
+async fn publish_changed(client: &mut Mqtt<'_>, changes: &mut ChangeFilter) -> Result<(u64, bool), End> {
     let mut interval = cc_mqtt::INTERVAL_MS;
+    let mut sent = false;
     for (i, e) in ENTITIES.iter().enumerate() {
         let mut topic: String<128> = String::new();
         let mut payload: String<64> = String::new();
@@ -199,12 +203,15 @@ async fn publish_changed(client: &mut Mqtt<'_>, changes: &mut ChangeFilter) -> R
         });
         if due && changes.changed(i, &payload) {
             publish(client, &topic, &payload, false).await?;
+            sent = true;
         }
     }
-    Ok(interval)
+    Ok((interval, sent))
 }
 
-async fn discovery(client: &mut Mqtt<'_>) -> Result<(), End> {
+/// Publishes the Home Assistant discovery; `true` if anything was sent.
+async fn discovery(client: &mut Mqtt<'_>) -> Result<bool, End> {
+    let mut sent = false;
     let mut body = alloc::string::String::new();
     for e in ENTITIES {
         let mut topic: String<160> = String::new();
@@ -221,9 +228,10 @@ async fn discovery(client: &mut Mqtt<'_>) -> Result<(), End> {
         });
         if ok {
             publish(client, &topic, &body, true).await?;
+            sent = true;
         }
     }
-    Ok(())
+    Ok(sent)
 }
 
 fn handle_incoming(topic: &str, payload: &str) {
