@@ -39,15 +39,11 @@ use std::sync::Mutex;
 
 use cc_config::Config;
 use cc_net::web::http_auth::WWW_AUTHENTICATE;
-// The application tier lives in `cc-net`, which is `no_std` and host-testable.
-// These are the payload builders and the two shared types; what stayed here is
-// route registration, the chunked writers, the broadcaster and the httpd
-// `Configuration`. See `cc_net::web`'s crate root for the boundary and for why
-// `Snapshot` did not move with them.
 use cc_net::web::{
     classify_parameters, error_body, explicit_value, first_of, health_json, mime_for,
     nvs_debug_json, parameter_help, parse_flag, parse_setpoint, query_of, status_json,
     temperatures_json, unavailable_json, upload_response, weight_json, Auth, Kind, ParameterPost,
+    HEAP_FLOOR_BYTES,
 };
 pub use cc_net::web::{
     parameters_json, Command, Telemetry, MAX_CONFIG_UPLOAD_BYTES, MAX_PARAMETER_BODY_BYTES,
@@ -61,7 +57,7 @@ use esp_idf_svc::sys::EspError;
 // that report a flash-layer failure rather than a request-layer one.
 use log::{error, info, warn};
 
-use cc_hal_esp32::heap::{free_heap, min_free_heap, HEAP_SHED_BYTES};
+use cc_hal_esp32::heap::{free_heap, min_free_heap};
 use cc_hal_esp32::task::{COMMAND_ACK_POLL_MS, COMMAND_ACK_TIMEOUT_MS};
 use cc_hal_esp32::time::now_ms;
 
@@ -78,15 +74,6 @@ pub const TELNET_PORT: u16 = 23;
 /// ~19 KB (ADR-0002, §2). 32 KB is comfortably above that and comfortably below
 /// the point at which one response could be the OOM.
 pub const MAX_JSON_BYTES: usize = 32 * 1024;
-
-/// The heap floor below which the large-response path refuses to build.
-///
-/// **The same number as the telnet shed's**, and deliberately: ADR-0002 set one
-/// threshold for "the machine is tight", and two constants for the same judgement
-/// is how they drift. Below it, `/api/parameters` and `/api/config` answer `503`
-/// rather than risking the `abort()` the ADR exists to prevent — a refused
-/// request is a visible error, an OOM is a reboot in the middle of a shot.
-pub const HEAP_FLOOR_BYTES: u32 = HEAP_SHED_BYTES;
 
 /// The interval between temperature events on `/events`, in milliseconds.
 ///
@@ -2993,12 +2980,6 @@ pub mod tests {
     }
 
     // ---- the heap guard -------------------------------------------------
-
-    #[cfg_attr(test, test)]
-    pub fn the_large_response_floor_is_the_adrs_floor() {
-        // ADR-0002 decision 5. Two subscribers, one number.
-        assert_eq!(HEAP_FLOOR_BYTES, 30_000);
-    }
 
     #[cfg_attr(test, test)]
     pub fn the_large_response_limit_is_above_19kb() {

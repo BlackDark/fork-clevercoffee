@@ -1,10 +1,11 @@
 //! Portable HTTP payloads and request validation over [`Telemetry`] and configuration.
 //!
-//! Sockets, route registration, streaming, and the shared snapshot remain in the HAL.
-//! Heap gauges are passed into renderers rather than read through ESP-IDF.
+//! Sockets, route registration, streaming, and the shared snapshot are in
+//! `cc-net-esp32`. Heap gauges are passed into renderers rather than read through
+//! ESP-IDF.
 //!
-//! [`Telemetry`] must stay fixed-size and allocation-free to clone inside the HAL's
-//! critical section. Snapshot reads must copy and restore the value atomically;
+//! [`Telemetry`] must stay fixed-size and allocation-free to clone inside the
+//! snapshot's critical section. Snapshot reads must copy and restore the value atomically;
 //! a destructive read would make a second poll in one control period report defaults.
 
 pub mod auth;
@@ -17,6 +18,12 @@ pub mod payload;
 pub mod request;
 pub mod telemetry;
 pub mod telnet;
+
+/// The free-heap floor, in bytes, below which the device is "tight" (ADR-0002
+/// decision 5): the telnet log stream stops writing and the large HTTP responses
+/// (`/api/parameters`, `/api/config`) answer `503` instead of risking an OOM
+/// abort. One number for both, so they cannot drift.
+pub const HEAP_FLOOR_BYTES: u32 = 30_000;
 
 pub use auth::Auth;
 pub use help::{not_found_json, parameter_help, wants_json_not_found};

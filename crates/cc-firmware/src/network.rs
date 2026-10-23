@@ -265,7 +265,7 @@ pub fn start_http(
     info!(
         "http: {} routes registered; the large-response floor is {} B",
         cc_net_esp32::web::routes().len(),
-        cc_net_esp32::web::HEAP_FLOOR_BYTES
+        cc_net::web::HEAP_FLOOR_BYTES
     );
     Ok(web)
 }
@@ -333,7 +333,7 @@ pub fn log_heap_once_a_minute(network: &Network) {
          ({} served, {} refused)",
         free_heap(),
         min_free_heap(),
-        cc_net_esp32::web::HEAP_FLOOR_BYTES,
+        cc_net::web::HEAP_FLOOR_BYTES,
         network.shared.large_responses(),
         network.shared.large_refused(),
     );

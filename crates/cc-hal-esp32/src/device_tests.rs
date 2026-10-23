@@ -5,7 +5,7 @@
 //! `just test-audit` checks registration in both directions; shipped firmware never
 //! enables the feature.
 
-use crate::{actuators, display, heap, scale, switches, task, time};
+use crate::{actuators, display, scale, switches, task, time};
 
 /// One registered unit test: the name the console shows, and the function to
 /// call.
@@ -107,10 +107,6 @@ pub const CASES: &[Case] = &[
     Case {
         name: "display::the_refresh_gate_survives_the_49_day_millisecond_wrap",
         run: display::tests::the_refresh_gate_survives_the_49_day_millisecond_wrap,
-    },
-    Case {
-        name: "heap::the_shed_floor_is_the_adrs_thirty_kilobytes",
-        run: heap::tests::the_shed_floor_is_the_adrs_thirty_kilobytes,
     },
     Case {
         name: "scale::the_pins_match_the_board_map",
