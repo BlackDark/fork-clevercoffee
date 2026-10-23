@@ -186,8 +186,79 @@ fn pow10(e: u8) -> f32 {
     v
 }
 
+/// A GATT UUID from the strings in [`Gatt`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Uuid {
+    Short(u16),
+    /// Little-endian, as BLE carries it.
+    Long([u8; 16]),
+}
+
+impl Uuid {
+    pub fn parse(s: &str) -> Option<Self> {
+        let hex = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
+        if s.len() == 4 {
+            return u16::from_str_radix(s, 16).ok().map(Uuid::Short);
+        }
+        let mut out = [0u8; 16];
+        let mut n = 0;
+        let mut digits = s.bytes().filter(|&b| b != b'-');
+        while let (Some(h), Some(l)) = (digits.next(), digits.next()) {
+            if n == 16 {
+                return None;
+            }
+            out[15 - n] = (hex(h)? << 4) | hex(l)?;
+            n += 1;
+        }
+        (n == 16 && s.len() == 36).then_some(Uuid::Long(out))
+    }
+}
+
+/// The local name in advertising data (complete or shortened).
+pub fn adv_name(mut data: &[u8]) -> Option<&str> {
+    while let [len, rest @ ..] = data {
+        let len = usize::from(*len);
+        if len == 0 || rest.len() < len {
+            return None;
+        }
+        let (field, next) = rest.split_at(len);
+        if let [0x08 | 0x09, name @ ..] = field {
+            return core::str::from_utf8(name).ok();
+        }
+        data = next;
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn parses_uuids() {
+        assert_eq!(Uuid::parse("ff12"), Some(Uuid::Short(0xff12)));
+        let Some(Uuid::Long(b)) = Uuid::parse("6e400001-b5a3-f393-e0a9-e50e24dcca9e") else {
+            panic!()
+        };
+        assert_eq!(b[15], 0x6e);
+        assert_eq!(b[0], 0x9e);
+        assert_eq!(Uuid::parse("6e400001"), None);
+        assert_eq!(Uuid::parse("zzzz"), None);
+        for k in Kind::PROBE_ORDER {
+            let g = k.gatt();
+            assert!(Uuid::parse(g.write).is_some() && Uuid::parse(g.notify).is_some());
+            assert!(g.service.is_none_or(|s| Uuid::parse(s).is_some()));
+        }
+    }
+
+    #[test]
+    fn finds_the_advertised_name() {
+        let adv = [
+            2, 0x01, 0x06, 6, 0x09, b'L', b'U', b'N', b'A', b'R', 3, 0x03, 0x10, 0xff,
+        ];
+        assert_eq!(adv_name(&adv), Some("LUNAR"));
+        assert_eq!(adv_name(&[2, 0x01, 0x06]), None);
+        assert_eq!(adv_name(&[9, 0x09, b'x']), None);
+    }
     use super::*;
 
     #[test]

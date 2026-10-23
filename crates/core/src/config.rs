@@ -688,6 +688,23 @@ mod tests {
     }
 
     #[test]
+    fn stored_values_round_trip() {
+        let c = Config {
+            pid_ema_factor: 0.012_345,
+            system_hostname: "bench-1".try_into().unwrap(),
+            ..Config::default()
+        };
+        let mut buf = [0u8; 128];
+        for (i, p) in PARAMS.iter().enumerate() {
+            let v = c.get(i);
+            let n = stored::encode(&v, &mut buf).unwrap();
+            assert_eq!(stored::decode(p.kind, &buf[..n]), Some(v), "{}", p.key);
+        }
+        assert_eq!(stored::decode(Kind::Bool, &[1, 0]), None);
+        assert_eq!(stored::decode(Kind::Double { min: 0.0, max: 1.0 }, &[0; 4]), None);
+    }
+
+    #[test]
     fn every_default_is_valid() {
         let mut c = Config::default();
         let defaults = Config::default();
@@ -764,5 +781,39 @@ mod tests {
         let bytes = postcard::to_slice(&c, &mut buf).unwrap();
         let back: Config = postcard::from_bytes(bytes).unwrap();
         assert_eq!(back, c);
+    }
+}
+
+/// Binary form of a parameter value for flash storage: exact (unlike
+/// [`Config::format_value`], which rounds doubles) and independent of the
+/// parameter's position, so adding or removing parameters keeps stored values.
+pub mod stored {
+    use super::{Kind, Value};
+
+    /// Writes `v` into `out`, returning the used length.
+    pub fn encode(v: &Value<'_>, out: &mut [u8]) -> Option<usize> {
+        let bytes: &[u8] = match v {
+            Value::Bool(b) => &[u8::from(*b)],
+            Value::Int(i) | Value::Choice(i) => &i.to_le_bytes(),
+            Value::Double(d) => &d.to_le_bytes(),
+            Value::Text(t) => t.as_bytes(),
+        };
+        out.get_mut(..bytes.len())?.copy_from_slice(bytes);
+        Some(bytes.len())
+    }
+
+    /// Reads a value of `kind`; `None` when the bytes do not fit the kind (the
+    /// parameter changed type since it was stored).
+    pub fn decode(kind: Kind, b: &[u8]) -> Option<Value<'_>> {
+        Some(match kind {
+            Kind::Bool => match b {
+                [x] => Value::Bool(*x != 0),
+                _ => return None,
+            },
+            Kind::Int { .. } => Value::Int(i32::from_le_bytes(b.try_into().ok()?)),
+            Kind::Choice { .. } => Value::Choice(i32::from_le_bytes(b.try_into().ok()?)),
+            Kind::Double { .. } => Value::Double(f64::from_le_bytes(b.try_into().ok()?)),
+            Kind::Text { .. } => Value::Text(core::str::from_utf8(b).ok()?),
+        })
     }
 }

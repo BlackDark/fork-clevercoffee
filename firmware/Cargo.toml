@@ -1,7 +1,9 @@
 [package]
 name = "clevercoffee-firmware"
-version = "0.1.0"
+description = "CleverCoffee firmware for the ESP32 (Xtensa, no_std, Embassy)"
+version = "2.0.0"
 edition = "2024"
+license = "GPL-2.0-only"
 publish = false
 
 [[bin]]
@@ -10,33 +12,79 @@ path = "src/main.rs"
 test = false
 bench = false
 
+[features]
+default = ["esp32", "standard"]
+# Build profiles (see docs/firmware.md). "standard" is the default image.
+standard = ["mqtt", "display"]
+full = ["standard", "hx711-scale", "ble-scale", "pressure"]
+# Optional parts.
+mqtt = ["dep:rust-mqtt", "dep:cc-mqtt"]
+display = ["dep:cc-display", "dep:cc-oled"]
+hx711-scale = ["dep:cc-hx711"]
+ble-scale = ["esp-radio/ble", "esp-radio/coex", "dep:trouble-host", "dep:bt-hci", "dep:cc-blescale"]
+pressure = ["dep:cc-abp2"]
+# Bench builds: a debug route that hangs the control loop to prove the watchdog.
+bench = ["cc-web/bench"]
+# Chips. Only the ESP32 (DevKitC v4) is built and tested today.
+esp32 = [
+    "esp-hal/esp32",
+    "esp-rtos/esp32",
+    "esp-radio/esp32",
+    "esp-bootloader-esp-idf/esp32",
+    "esp-alloc/esp32",
+    "esp-println/esp32",
+    "esp-backtrace/esp32",
+    "esp-storage/esp32",
+]
+
 [dependencies]
-esp-hal = { version = "=1.2.2", features = ["esp32", "log-04", "unstable"] }
-esp-rtos = { version = "=0.4.0", features = ["esp32", "esp-radio", "esp-alloc", "embassy", "log-04"] }
-esp-radio = { version = "=1.0.0-beta.1", features = ["esp32", "wifi", "ble", "coex", "esp-alloc", "unstable", "log-04"] }
-esp-bootloader-esp-idf = { version = "=0.6.0", features = ["esp32", "log-04"] }
-esp-alloc = { version = "=0.11.0", features = ["esp32"] }
-esp-println = { version = "=0.18.0", features = ["esp32", "log-04"] }
-esp-backtrace = { version = "=0.20.0", features = ["esp32", "panic-handler", "println"] }
-esp-storage = { version = "=0.10.0", features = ["esp32"] }
-log = "0.4.28"
+cc-core = { path = "../crates/core" }
+cc-api = { path = "../crates/api" }
+cc-web = { path = "../crates/web" }
+cc-tsic = { path = "../crates/tsic" }
+cc-onewire = { path = "../crates/onewire" }
+cc-display = { path = "../crates/display", optional = true }
+cc-oled = { path = "../crates/oled", optional = true }
+cc-mqtt = { path = "../crates/mqtt", optional = true }
+cc-hx711 = { path = "../crates/hx711", optional = true }
+cc-abp2 = { path = "../crates/abp2", optional = true }
+cc-blescale = { path = "../crates/blescale", optional = true }
+
+esp-hal = { version = "=1.2.2", features = ["log-04", "unstable"] }
+esp-rtos = { version = "=0.4.0", features = ["esp-radio", "esp-alloc", "embassy", "log-04"] }
+esp-radio = { version = "=1.0.0-beta.1", features = ["wifi", "esp-alloc", "unstable", "log-04"] }
+esp-bootloader-esp-idf = { version = "=0.6.0", features = ["log-04"] }
+esp-alloc = "=0.11.0"
+esp-println = { version = "=0.18.0", features = ["log-04"] }
+esp-backtrace = { version = "=0.20.0", features = ["panic-handler", "println", "custom-pre-backtrace"] }
+esp-storage = { version = "=0.10.0", features = ["embedded-storage"] }
+
 embassy-executor = { version = "0.10.0", features = ["log"] }
 embassy-time = { version = "0.5.1", features = ["log"] }
 embassy-sync = "0.8.0"
 embassy-futures = "0.1.2"
-embassy-net = { version = "0.9.1", features = ["tcp", "udp", "dhcpv4", "dns", "medium-ethernet", "log"] }
+embassy-net = { version = "0.9.1", features = ["tcp", "udp", "dhcpv4", "dhcpv4-hostname", "dns", "medium-ethernet", "multicast", "log"] }
+embassy-embedded-hal = "0.6.0"
 embedded-io-async = "0.7.0"
+embedded-storage = "0.3.1"
+embedded-storage-async = "0.4.2"
+sequential-storage = { version = "8.0.2", features = ["heapless-09"] }
+critical-section = "1.2.0"
 static_cell = "2.1.1"
-picoserve = { version = "0.20.1", features = ["embassy", "json"] }
-rust-mqtt = { version = "0.6.0", default-features = false, features = ["v5", "alloc"] }
-trouble-host = { version = "0.7.0", features = ["central", "scan", "gatt"] }
-bt-hci = "0.9.0"
+heapless = "0.9.3"
+log = "0.4.28"
+postcard = { version = "1.1.3", default-features = false, features = ["heapless"] }
+serde = { version = "1.0.229", default-features = false, features = ["derive"] }
+picoserve = { version = "0.20.1", features = ["embassy"] }
 edge-captive = "0.8.0"
 edge-dhcp = "0.8.0"
 edge-mdns = "0.8.0"
 edge-nal = "0.7.0"
 edge-nal-embassy = "0.9.0"
-heapless = "0.9.3"
+rand_core = "0.10.1"
+rust-mqtt = { version = "0.6.0", default-features = false, features = ["v5", "alloc"], optional = true }
+trouble-host = { version = "0.7.0", features = ["central", "gatt", "scan"], optional = true }
+bt-hci = { version = "0.9.0", optional = true }
 
 [profile.dev]
 opt-level = "s"

@@ -93,6 +93,10 @@ pub trait Backend {
     /// Validates and activates the image; the device restarts afterwards.
     async fn ota_finish(&self) -> Result<(), OtaError>;
     fn ota_abort(&self, err: OtaError);
+
+    /// Bench builds: stop feeding the watchdog.
+    #[cfg(feature = "bench")]
+    fn debug_hang(&self);
 }
 
 /// The router: everything under one service.
@@ -160,7 +164,7 @@ impl<F: Fn(&mut dyn core::fmt::Write) -> core::fmt::Result> Content for Json<F> 
 
     async fn write_content<W: Write>(self, mut writer: W) -> Result<(), W::Error> {
         let total = self.content_length();
-        let mut buf = [0u8; WINDOW];
+        let mut buf = alloc::vec![0u8; WINDOW];
         let mut sent = 0;
         while sent < total {
             let mut w = Window {
@@ -401,8 +405,12 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                 )));
             }
             ("GET", "/api/history") => {
-                reply!(json(StatusCode::OK, move |w| b
-                    .history(|h| cc_api::write_history(h, &mut Writer::new(w)))));
+                // A copy, so the body is rendered without holding the device's lock.
+                let h = alloc::boxed::Box::new(b.history(Clone::clone));
+                reply!(json(StatusCode::OK, move |w| cc_api::write_history(
+                    &h,
+                    &mut Writer::new(w)
+                )));
             }
             ("GET", "/api/parameters") => {
                 let cfg = b.read(|c, _, _| c.clone());
@@ -616,6 +624,15 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                 b.factory_reset();
                 sent
             }
+            #[cfg(feature = "bench")]
+            ("POST", "/api/debug/hang") => {
+                let resp = message(StatusCode::OK, true, "Hanging the control loop");
+                let sent = resp
+                    .write_to(request.body_connection.finalize().await?, response_writer)
+                    .await;
+                b.debug_hang();
+                sent
+            }
             ("POST", "/api/wifi-reset") => {
                 let resp = message(
                     StatusCode::OK,
@@ -696,6 +713,11 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                     reply!(resp);
                 }
                 reply!(Response::new(StatusCode::NOT_FOUND, "Not found"));
+            }
+            // Anything else goes to the UI: phones probing for a captive portal
+            // (`/generate_204`, `/hotspot-detect.html`) then open the setup page.
+            ("GET", _) => {
+                reply!(Response::new(StatusCode::FOUND, "").with_headers([("Location", "/ui/")]));
             }
             _ => reply!(Response::new(StatusCode::NOT_FOUND, "Not found")),
         }
@@ -787,12 +809,13 @@ fn text(s: &str) -> heapless::String<128> {
 }
 
 /// Reads a small (≤ 2 KB) body as text, for form posts.
-async fn read_small_body<R: Read>(request: &mut Request<'_, R>) -> Option<heapless::String<2048>> {
+/// Buffers live on the heap: an HTTP worker's future stays small (they are static).
+async fn read_small_body<R: Read>(request: &mut Request<'_, R>) -> Option<alloc::string::String> {
     let len = request.body_connection.content_length();
     if len == 0 || len > 2048 {
         return None;
     }
-    let mut buf = [0u8; 2048];
+    let mut buf = alloc::vec![0u8; len];
     let mut reader = request.body_connection.body().reader();
     let mut got = 0;
     while got < len {
@@ -801,8 +824,8 @@ async fn read_small_body<R: Read>(request: &mut Request<'_, R>) -> Option<heaple
             Ok(n) => got += n,
         }
     }
-    let s = core::str::from_utf8(&buf[..got]).ok()?;
-    heapless::String::try_from(s).ok()
+    buf.truncate(got);
+    alloc::string::String::from_utf8(buf).ok()
 }
 
 async fn ota_upload<B: Backend, R: Read>(b: &B, request: &mut Request<'_, R>) -> Result<(), OtaError> {
@@ -816,12 +839,12 @@ async fn ota_upload<B: Backend, R: Read>(b: &B, request: &mut Request<'_, R>) ->
     let mut parser = multipart::Parser::new(boundary).map_err(|_| OtaError::Invalid)?;
     b.ota_begin()?;
     let mut reader = request.body_connection.body().reader();
-    let mut buf = [0u8; 1024];
+    let mut buf = alloc::vec![0u8; 1024];
     let mut in_file = false;
     let mut saw_file = false;
     // Data is copied out of the parser callback and written after it returns, because
     // the backend write is async.
-    let mut pending = [0u8; 1024 + 128];
+    let mut pending = alloc::vec![0u8; 1024 + 128];
     loop {
         let n = match reader.read(&mut buf).await {
             Ok(0) => break,

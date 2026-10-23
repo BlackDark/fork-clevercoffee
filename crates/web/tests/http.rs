@@ -112,6 +112,11 @@ impl Backend for Fake {
         Ok(())
     }
     fn ota_abort(&self, _: OtaError) {}
+
+    #[cfg(feature = "bench")]
+    fn debug_hang(&self) {
+        *self.restarted.borrow_mut() = true;
+    }
 }
 
 struct Resp {
@@ -417,6 +422,9 @@ async fn ui_is_served_from_the_firmware() {
         let r = get(port, "/ui/assets/app.js").await;
         assert!(r.header("Cache-Control").unwrap().contains("immutable"));
         assert_eq!(get(port, "/ui/missing.png").await.status, 404);
+        let probe = get(port, "/generate_204").await;
+        assert_eq!(probe.status, 302);
+        assert_eq!(probe.header("Location"), Some("/ui/"));
     })
     .await;
 }
@@ -444,4 +452,14 @@ async fn server_sent_events() {
         assert!(seen.contains("\"targetTemp\":95"));
     })
     .await;
+}
+
+#[cfg(feature = "bench")]
+#[tokio::test(flavor = "current_thread")]
+async fn bench_hang_route() {
+    let fake = with_server(ready(), |port| async move {
+        assert_eq!(post(port, "/api/debug/hang", "text/plain", b"").await.status, 200);
+    })
+    .await;
+    assert!(*fake.restarted.borrow());
 }

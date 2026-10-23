@@ -7,6 +7,11 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# `POST /api/debug/hang`: stalls the control loop so the bench can prove the
+# watchdog resets the device. Never in release images.
+bench = []
+
 [dependencies]
 cc-api.workspace = true
 cc-core.workspace = true

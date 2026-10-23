@@ -3,8 +3,12 @@
 
 #![no_std]
 
+#[cfg(feature = "std")]
+extern crate std;
+
 pub mod json;
 pub mod multipart;
+pub mod provision;
 
 use core::fmt::{self, Write};
 

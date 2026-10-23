@@ -15,7 +15,7 @@ pub struct Point {
     pub heater_power: f32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct History {
     points: HistoryBuf<Point, HISTORY_LEN>,
     skip: u32,

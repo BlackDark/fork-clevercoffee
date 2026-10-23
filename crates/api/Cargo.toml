@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# `provision::build`, for the host-side provisioning tool.
+std = []
+
 [dependencies]
 cc-core.workspace = true
 heapless.workspace = true
