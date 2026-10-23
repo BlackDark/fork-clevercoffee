@@ -119,6 +119,28 @@ async fn main(spawner: Spawner) -> ! {
         s.save(&cfg, shots).await;
     }
     log::set_max_level(level_filter(cfg.system_log_level));
+
+    // Without a Bluetooth scale the controller never starts, and the 64 KB of main RAM
+    // esp-hal keeps free for it (fixed at 0x3FFB_0000) join the heap, as ESP-IDF's
+    // `esp_bt_mem_release` does. Scale settings take effect after a restart.
+    #[cfg(feature = "ble-scale")]
+    let ble_scale = cfg.hardware_sensors_scale_enabled
+        && cfg.hardware_sensors_scale_type == cc_core::config::ScaleType::Bluetooth;
+    #[cfg(feature = "ble-scale")]
+    if !ble_scale {
+        const BT_DRAM: usize = 0x3FFB_0000;
+        // SAFETY: the linker leaves this range out of every section in `ble-scale`
+        // builds (esp-hal's RESERVE_DRAM), and nothing else uses it while the
+        // Bluetooth controller is off.
+        unsafe {
+            esp_alloc::HEAP.add_region(esp_alloc::HeapRegion::new(
+                BT_DRAM as *mut u8,
+                64 * 1024,
+                esp_alloc::MemoryCapability::Internal.into(),
+            ));
+        }
+        info!("heap: no Bluetooth scale, its 64 KB join the heap");
+    }
     ota::init().await;
 
     // Relays off before anything else can switch them.
@@ -268,7 +290,15 @@ async fn main(spawner: Spawner) -> ! {
     let (stacks, sta_runner, ap_runner) = net::stacks(&wifi.hostname, seed);
     let controller = esp_radio::wifi::WifiController::new(
         p.WIFI,
+        // The driver's buffers come from the same heap. Its defaults (10 static RX
+        // buffers of 1.6 KB, up to 32 dynamic RX and 32 TX) leave too little for the HTTP
+        // workers in the `full` image, and three parallel downloads ran it dry; a coffee
+        // machine needs no throughput. The block-ack window (6) must stay below twice the
+        // static and below the dynamic RX buffers.
         esp_radio::wifi::ControllerConfig::default()
+            .with_static_rx_buf_num(4)
+            .with_dynamic_rx_buf_num(8)
+            .with_dynamic_tx_buf_num(8)
             .with_initial_config(net::initial_config(&wifi, &ap_name)),
     );
     match controller {
@@ -292,7 +322,7 @@ async fn main(spawner: Spawner) -> ! {
     }
 
     #[cfg(feature = "ble-scale")]
-    if scale_enabled && scale_type == cc_core::config::ScaleType::Bluetooth {
+    if ble_scale {
         ble_scale::start(&spawner, p.BT);
     }
 

@@ -49,6 +49,16 @@ impl History {
         self.points.oldest_ordered()
     }
 
+    /// Copies `other` into `self` point by point. Unlike `clone` it needs no 7 KB
+    /// temporary on the stack, so a heap copy fits the ESP32's small main stack.
+    pub fn copy_from(&mut self, other: &History) {
+        self.points.clear();
+        for p in other.points.oldest_ordered() {
+            self.points.write(*p);
+        }
+        self.skip = other.skip;
+    }
+
     pub fn len(&self) -> usize {
         self.points.len()
     }
@@ -76,5 +86,26 @@ mod tests {
         let first = h.iter().next().unwrap().temperature;
         let last = h.iter().last().unwrap().temperature;
         assert_eq!(last - first, (HISTORY_LEN as f32 - 1.0) * 3.0);
+    }
+
+    #[test]
+    fn copy_from_keeps_order_and_phase() {
+        let mut src = History::new();
+        for i in 0..(HISTORY_LEN as u32 * 3 + 31) {
+            src.offer(Point {
+                temperature: i as f32,
+                setpoint: 1.0,
+                heater_power: 2.0,
+            });
+        }
+        let mut dst = History::new();
+        dst.offer(Point {
+            temperature: -1.0,
+            setpoint: 0.0,
+            heater_power: 0.0,
+        });
+        dst.copy_from(&src);
+        assert!(dst.iter().eq(src.iter()));
+        assert_eq!(dst.skip, src.skip);
     }
 }

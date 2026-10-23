@@ -18,11 +18,12 @@ use log::{info, warn};
 
 #[embassy_executor::task]
 pub async fn task(stack: Stack<'static>, hostname: String<32>) -> ! {
-    // Buffers on the heap, see `web::task`.
-    let buffers = alloc::boxed::Box::new(UdpBuffers::<1, 1500, 1500, 2>::new());
+    // Buffers on the heap, see `web::task`. Answers (one A record) are small; queries
+    // larger than 1 KB are dropped, which costs an answer only if ours was among them.
+    let buffers = alloc::boxed::Box::new(UdpBuffers::<1, 512, 1024, 2>::new());
     let udp = Udp::new(stack, &*buffers);
-    let recv_buf = alloc::boxed::Box::new(VecBufAccess::<NoopRawMutex, 1500>::new());
-    let send_buf = alloc::boxed::Box::new(VecBufAccess::<NoopRawMutex, 1500>::new());
+    let recv_buf = alloc::boxed::Box::new(VecBufAccess::<NoopRawMutex, 1024>::new());
+    let send_buf = alloc::boxed::Box::new(VecBufAccess::<NoopRawMutex, 512>::new());
     let signal = Signal::<NoopRawMutex, ()>::new();
     loop {
         stack.wait_config_up().await;

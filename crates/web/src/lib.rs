@@ -207,7 +207,7 @@ fn message(
     success: bool,
     msg: &str,
 ) -> Response<impl picoserve::response::HeadersIter + use<>, impl picoserve::response::Body + use<>> {
-    let mut s: heapless::String<256> = heapless::String::new();
+    let mut s = alloc::string::String::new();
     {
         let mut w = Writer::new(&mut s);
         let _ = w.begin_object();
@@ -226,13 +226,15 @@ fn flag(
     key: &'static str,
     v: bool,
 ) -> Response<impl picoserve::response::HeadersIter + use<>, impl picoserve::response::Body + use<>> {
-    let mut s: heapless::String<96> = heapless::String::new();
+    let mut s = alloc::string::String::new();
     let _ = write!(s, "{{\"success\":true,\"{key}\":{v}}}");
     Response::new(StatusCode::OK, Owned(s)).with_headers(CORS)
 }
 
-struct Owned<const N: usize>(heapless::String<N>);
-impl<const N: usize> Content for Owned<N> {
+/// A short body on the heap: held by value, a fixed-size string was copied through
+/// every layer of the response future and set the size of each worker's static future.
+struct Owned(alloc::string::String);
+impl Content for Owned {
     fn content_type(&self) -> &'static str {
         "application/json"
     }
@@ -352,14 +354,8 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
         let method = request.parts.method();
         let mut path_buf = [0u8; 128];
         let path = cc_api::percent_decode(path.encoded(), &mut path_buf).unwrap_or("");
-        let mut query_buf = [0u8; 256];
-        let query = request
-            .parts
-            .query()
-            .map_or("", |q| cc_api::percent_decode(q.0, &mut query_buf).unwrap_or(""));
-        // Keep the raw query for form decoding (percent_decode above is only for logs).
+        // Form decoding works on the raw query.
         let raw_query = request.parts.query().map_or("", |q| q.0);
-        let _ = query;
 
         let auth = request
             .parts
@@ -374,12 +370,20 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                 .await;
         }
 
+        // Each response is written through a type-erased future: its poll then runs in its
+        // own stack frame. Inlined, the ~30 response types made this function's frame
+        // 22 KB, and a request overflowed the ESP32's 27 KB main stack. Pinned in place,
+        // not boxed: the future (up to 5.6 KB) stays in the worker's static task storage
+        // instead of the heap.
         macro_rules! reply {
-            ($resp:expr) => {
-                return $resp
-                    .write_to(request.body_connection.finalize().await?, response_writer)
-                    .await
-            };
+            ($resp:expr) => {{
+                let connection = request.body_connection.finalize().await?;
+                let write = core::pin::pin!($resp.write_to(connection, response_writer));
+                let write: core::pin::Pin<
+                    &mut dyn core::future::Future<Output = Result<ResponseSent, W::Error>>,
+                > = write;
+                return write.await;
+            }};
         }
 
         if method == "OPTIONS" {
@@ -388,11 +392,13 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
 
         match (method, path) {
             ("GET", "/api/status") => {
-                let (cfg, st, live) = b.read(|c, s, l| (c.clone(), *s, *l));
+                // Copies go to the heap: captured by value they were copied into every
+                // future layer, and the worker futures are static (one per worker).
+                let snap = alloc::boxed::Box::new(b.read(|c, s, l| (c.clone(), *s, *l)));
                 reply!(json(StatusCode::OK, move |w| cc_api::write_status(
-                    &st,
-                    &cfg,
-                    &live,
+                    &snap.1,
+                    &snap.0,
+                    &snap.2,
                     &mut Writer::new(w)
                 )));
             }
@@ -405,15 +411,16 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                 )));
             }
             ("GET", "/api/history") => {
-                // A copy, so the body is rendered without holding the device's lock.
-                let h = alloc::boxed::Box::new(b.history(Clone::clone));
+                let Some(h) = history_copy(b) else {
+                    reply!(message(StatusCode::new(503), false, "Busy, try again"));
+                };
                 reply!(json(StatusCode::OK, move |w| cc_api::write_history(
-                    &h,
+                    &h[0],
                     &mut Writer::new(w)
                 )));
             }
             ("GET", "/api/parameters") => {
-                let cfg = b.read(|c, _, _| c.clone());
+                let cfg = alloc::boxed::Box::new(b.read(|c, _, _| c.clone()));
                 reply!(json(StatusCode::OK, move |w| cc_api::write_parameters(
                     &cfg,
                     &mut Writer::new(w)
@@ -436,7 +443,7 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                 .unwrap_or(Ok(()))));
             }
             ("GET", "/api/config" | "/api/config/download") => {
-                let cfg = b.read(|c, _, _| c.clone());
+                let cfg = alloc::boxed::Box::new(b.read(|c, _, _| c.clone()));
                 let download = path.ends_with("download");
                 let body = Json(move |w: &mut dyn core::fmt::Write| {
                     let mut wr = if download {
@@ -520,7 +527,7 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
             ("POST", "/api/maintenance/reset-backflush-counter") => {
                 b.command(Command::ResetShotCounter);
                 let st = b.read(|c, s, _| (s.shots_since_backflush, s.backflush_reminder_due(c)));
-                let mut s: heapless::String<128> = heapless::String::new();
+                let mut s = alloc::string::String::new();
                 let _ = write!(
                     s,
                     "{{\"success\":true,\"shotsSinceBackflush\":{},\"backflushReminderDue\":{}}}",
@@ -577,7 +584,11 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                         "Configuration file too large"
                     ));
                 }
-                let mut buf = alloc::vec![0u8; len];
+                let mut buf = alloc::vec::Vec::new();
+                if buf.try_reserve_exact(len).is_err() {
+                    reply!(upload_reply(StatusCode::new(503), false, "Busy, try again"));
+                }
+                buf.resize(len, 0);
                 let mut reader = request.body_connection.body().reader();
                 let mut got = 0;
                 while got < len {
@@ -757,7 +768,7 @@ fn upload_reply(
     ok: bool,
     msg: &str,
 ) -> Response<impl picoserve::response::HeadersIter + use<>, impl picoserve::response::Body + use<>> {
-    let mut s: heapless::String<256> = heapless::String::new();
+    let mut s = alloc::string::String::new();
     let mut w = Writer::new(&mut s);
     let _ = w.begin_object();
     let _ = w.kv_bool("success", ok);
@@ -806,6 +817,17 @@ fn text(s: &str) -> heapless::String<128> {
     let mut o = heapless::String::new();
     let _ = o.push_str(s);
     o
+}
+
+/// A heap copy of the history, so its body is rendered without holding the device's
+/// lock; `None` when the heap cannot spare 7 KB right now (a failed allocation would
+/// be a panic, which restarts the machine).
+fn history_copy<B: Backend>(b: &B) -> Option<alloc::vec::Vec<History>> {
+    let mut h = alloc::vec::Vec::new();
+    h.try_reserve_exact(1).ok()?;
+    h.push(History::new());
+    b.history(|src| h[0].copy_from(src));
+    Some(h)
 }
 
 /// Reads a small (≤ 2 KB) body as text, for form posts.

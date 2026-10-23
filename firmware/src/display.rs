@@ -29,6 +29,9 @@ pub async fn task(i2c: I2cDev) -> ! {
     }
     let mut frame = Box::new(Frame::default());
     let mut shown = Box::new(Frame::default());
+    // Allocated once: under network load the heap can be empty for a moment, and a
+    // failed allocation is a panic.
+    let mut cfg = Box::new(cc_core::Config::default());
     let mut panel_on = true;
     let start = Instant::now();
     let mut ticker = Ticker::every(Duration::from_millis(100));
@@ -37,7 +40,7 @@ pub async fn task(i2c: I2cDev) -> ! {
         ticker.next().await;
         let ota = ota::status();
         // Copy under the lock, render outside it: the lock is a critical section.
-        let (st, cfg, net) = shared::with(|s| {
+        let (st, net) = shared::with(|s| {
             let net = Net {
                 offline: s.cfg.system_offline_mode,
                 wifi_connected: s.net.wifi_connected,
@@ -46,7 +49,8 @@ pub async fn task(i2c: I2cDev) -> ! {
                 mqtt_connected: s.net.mqtt_connected,
                 ble_scale_connected: s.net.ble_scale_connected,
             };
-            (s.machine.status(&s.cfg), Box::new(s.cfg.clone()), net)
+            (*cfg).clone_from(&s.cfg);
+            (s.machine.status(&s.cfg), net)
         });
         let ota_view = if ota.in_progress {
             Some(Ota::Running {
