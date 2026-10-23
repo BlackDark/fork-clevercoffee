@@ -140,13 +140,36 @@ static CONFIG: picoserve::Config = picoserve::Config::new(picoserve::Timeouts {
 })
 .keep_connection_alive();
 
-/// HTTP workers: two on the home network (one may hold the event stream), one on
-/// the access point.
-pub const STA_WORKERS: usize = 2;
+/// HTTP workers on the home network. Each UI tab holds one for its event stream; a
+/// connection that finds every worker busy waits for its SYN retry (ADR 0008).
+pub const STA_WORKERS: usize = 4;
+/// With a Bluetooth scale the controller keeps its 64 KB and the heap is that much
+/// smaller: two workers (ADR 0008).
+const STA_WORKERS_WITH_BLE: usize = 2;
+/// HTTP workers on the access point: one made a phone's page load take tens of
+/// seconds (eight requests, one at a time, each waiting a growing SYN retry).
+pub const AP_WORKERS: usize = 3;
+/// Event streams (one per open UI tab) may hold at most half the workers; the rest
+/// stay free for page loads and API calls.
+static STA_STREAMS: cc_web::StreamSlots = cc_web::StreamSlots::new(STA_WORKERS / 2);
+static STA_STREAMS_WITH_BLE: cc_web::StreamSlots = cc_web::StreamSlots::new(STA_WORKERS_WITH_BLE / 2);
+pub static AP_STREAMS: cc_web::StreamSlots = cc_web::StreamSlots::new(1);
 
-#[embassy_executor::task(pool_size = 3)]
-pub async fn task(id: usize, stack: Stack<'static>) -> ! {
-    let app = cc_web::Api::new(&DEVICE).router();
+/// Workers on the home network and the stream cap they share.
+pub fn home_network(ble_scale: bool) -> (usize, &'static cc_web::StreamSlots) {
+    if ble_scale {
+        (STA_WORKERS_WITH_BLE, &STA_STREAMS_WITH_BLE)
+    } else {
+        (STA_WORKERS, &STA_STREAMS)
+    }
+}
+
+#[embassy_executor::task(pool_size = 7)]
+pub async fn task(id: usize, stack: Stack<'static>, streams: &'static cc_web::StreamSlots) -> ! {
+    // Buffers only once the interface is up: the access point's workers then cost no
+    // heap while the machine is on the home network.
+    stack.wait_link_up().await;
+    let app = cc_web::Api::new(&DEVICE, streams).router();
     // Socket and request buffers on the heap (reclaimed RAM), not in the static
     // task pool: main RAM is short once Bluetooth reserves its 64 KB.
     let mut rx = alloc::vec![0; 1024];

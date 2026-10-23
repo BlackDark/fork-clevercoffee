@@ -17,9 +17,9 @@ use core::net::Ipv4Addr;
 
 use embassy_futures::select::{Either, select};
 use embassy_net::{Ipv4Cidr, Runner, Stack, StackResources, StaticConfigV4};
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use esp_radio::wifi::{
-    AuthenticationMethodConfig, Config as WifiConfig, Interface, WifiController, ap::AccessPointConfig,
+    AuthenticationMethodConfig, Config as WifiConfig, Interface, WifiController, ap, ap::AccessPointConfig,
     sta::StationConfig,
 };
 use heapless::String;
@@ -30,6 +30,10 @@ use crate::shared;
 pub const AP_IP: Ipv4Addr = Ipv4Addr::new(192, 168, 4, 1);
 pub const AP_PASSWORD: &str = "CleverCoffee";
 pub const AP_FALLBACK_AFTER: Duration = Duration::from_secs(120);
+/// Station retries while the access point is open, and none while a client is on it.
+/// Each attempt scans every channel and takes the radio off the access point's: at the
+/// normal 5 s the portal barely answered (macOS showed a blank portal window).
+pub const STATION_RETRY_WITH_AP: Duration = Duration::from_secs(60);
 
 pub struct Stacks {
     pub sta: Stack<'static>,
@@ -91,7 +95,7 @@ pub fn stacks(hostname: &str, seed: u64) -> (Stacks, Runner<'static, Interface>,
     let (sta, sta_runner) = embassy_net::new(
         Interface::station(),
         embassy_net::Config::dhcpv4(dhcp),
-        mk_static!(StackResources<8>, StackResources::new()),
+        mk_static!(StackResources<10>, StackResources::new()),
         seed,
     );
     let (ap, ap_runner) = embassy_net::new(
@@ -101,7 +105,7 @@ pub fn stacks(hostname: &str, seed: u64) -> (Stacks, Runner<'static, Interface>,
             gateway: Some(AP_IP),
             dns_servers: heapless::Vec::new(),
         }),
-        mk_static!(StackResources<6>, StackResources::new()),
+        mk_static!(StackResources<8>, StackResources::new()),
         seed.rotate_left(17),
     );
     (Stacks { sta, ap }, sta_runner, ap_runner)
@@ -126,6 +130,7 @@ pub async fn wifi_task(
         return;
     }
     let mut ap_open = false;
+    let mut ap_clients = 0u8;
     let mut failing_since = embassy_time::Instant::now();
     loop {
         match controller.connect_async().await {
@@ -175,8 +180,32 @@ pub async fn wifi_task(
                         shared::with(|s| s.net.ap_active = true);
                     }
                 }
-                Timer::after(Duration::from_secs(5)).await;
+                if ap_open {
+                    wait_for_station_retry(&controller, &mut ap_clients).await;
+                } else {
+                    Timer::after(Duration::from_secs(5)).await;
+                }
             }
+        }
+    }
+}
+
+/// Waits [`STATION_RETRY_WITH_AP`], and on while a client is on the access point.
+/// Clients that join during a connect attempt are missed; they get the 60 s retries.
+async fn wait_for_station_retry(controller: &WifiController<'static>, clients: &mut u8) {
+    let mut until = Instant::now() + STATION_RETRY_WITH_AP;
+    loop {
+        match select(
+            Timer::at(until),
+            controller.wait_for_access_point_connected_event_async(),
+        )
+        .await
+        {
+            Either::First(()) if *clients == 0 => return,
+            Either::First(()) => until = Instant::now() + STATION_RETRY_WITH_AP,
+            Either::Second(Ok(ap::EventInfo::Connected(_))) => *clients = clients.saturating_add(1),
+            Either::Second(Ok(ap::EventInfo::Disconnected(_))) => *clients = clients.saturating_sub(1),
+            Either::Second(Err(_)) => {}
         }
     }
 }

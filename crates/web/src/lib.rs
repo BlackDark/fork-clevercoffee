@@ -13,6 +13,7 @@
 extern crate alloc;
 
 use core::fmt::Write as _;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use cc_api::json::Writer;
 use cc_api::{FormPairs, Live, multipart};
@@ -104,15 +105,53 @@ pub trait Backend {
     fn debug_hang(&self);
 }
 
+/// Caps the event streams open on one network. A stream holds an HTTP worker for as
+/// long as a UI tab is open; without a cap, two tabs on three workers left one for
+/// every other request, and a phone's page load gave up on its stylesheet.
+#[derive(Debug)]
+pub struct StreamSlots {
+    open: AtomicUsize,
+    max: usize,
+}
+
+impl StreamSlots {
+    pub const fn new(max: usize) -> Self {
+        Self {
+            open: AtomicUsize::new(0),
+            max,
+        }
+    }
+
+    fn take(&self) -> Option<StreamSlot<'_>> {
+        if self.open.fetch_add(1, Ordering::AcqRel) < self.max {
+            Some(StreamSlot(self))
+        } else {
+            self.open.fetch_sub(1, Ordering::AcqRel);
+            None
+        }
+    }
+}
+
+/// An open stream; the slot frees itself when the stream ends.
+struct StreamSlot<'a>(&'a StreamSlots);
+
+impl Drop for StreamSlot<'_> {
+    fn drop(&mut self) {
+        self.0.open.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// The router: everything under one service.
 #[derive(Debug)]
 pub struct Api<'b, B> {
     backend: &'b B,
+    streams: &'b StreamSlots,
 }
 
 impl<'b, B: Backend> Api<'b, B> {
-    pub fn new(backend: &'b B) -> Self {
-        Self { backend }
+    /// `streams` is shared by all workers on one network.
+    pub fn new(backend: &'b B, streams: &'b StreamSlots) -> Self {
+        Self { backend, streams }
     }
 
     pub fn router(self) -> picoserve::Router<impl picoserve::routing::PathRouter> {
@@ -692,7 +731,27 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                 ));
             }
             ("GET", "/events") => {
-                reply!(EventStream(Events { backend: b }));
+                let Some(slot) = self.streams.take() else {
+                    // The UI retries and polls the status meanwhile.
+                    reply!(message(
+                        StatusCode::new(503),
+                        false,
+                        "Too many open event streams"
+                    ));
+                };
+                // Boxed: the stream's future (3 KB) is the largest response and would
+                // set the size of every worker's static future. It lives as long as a
+                // UI tab is open.
+                let connection = request.body_connection.finalize().await?;
+                let write: core::pin::Pin<
+                    alloc::boxed::Box<dyn core::future::Future<Output = Result<ResponseSent, W::Error>> + '_>,
+                > = alloc::boxed::Box::pin(async move {
+                    let _slot = slot;
+                    EventStream(Events { backend: b })
+                        .write_to(connection, response_writer)
+                        .await
+                });
+                write.await
             }
             ("GET", "/") => {
                 reply!(Response::new(StatusCode::FOUND, "").with_headers([("Location", "/ui/")]));

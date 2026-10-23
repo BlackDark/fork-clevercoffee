@@ -100,3 +100,7 @@ opt-level = "s"
 # copy merges them into one block. Remove when upstream ships a fix (docs/todo.md).
 [patch.crates-io]
 xtensa-lx-rt = { path = "vendor/xtensa-lx-rt" }
+# smoltcp answers a SYN with RST when no socket listens; the web UI opens more
+# connections than there are HTTP workers. The vendored copy drops such a SYN so the
+# client retries (ADR 0008). Remove when smoltcp gets a listen backlog.
+smoltcp = { path = "vendor/smoltcp" }

@@ -9,7 +9,7 @@ use std::time::Duration;
 use cc_api::Live;
 use cc_core::history::History;
 use cc_core::{Command, Config, Inputs, Machine, Reply, Status};
-use cc_web::{Api, Asset, Backend, OtaError, OtaStatus};
+use cc_web::{Api, Asset, Backend, OtaError, OtaStatus, StreamSlots};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -154,7 +154,8 @@ where
     local
         .run_until(async move {
             tokio::task::spawn_local(async move {
-                let app: &'static _ = Box::leak(Box::new(Api::new(fake).router()));
+                let streams: &'static _ = Box::leak(Box::new(StreamSlots::new(1)));
+                let app: &'static _ = Box::leak(Box::new(Api::new(fake, streams).router()));
                 static CONFIG: picoserve::Config = picoserve::Config::const_default();
                 loop {
                     let (stream, _) = listener.accept().await.unwrap();
@@ -496,6 +497,24 @@ async fn server_sent_events() {
         assert!(seen.contains("event:new_temps"));
         assert!(seen.contains("\"targetTemp\":95"));
 
+        // The test server allows one stream: a second is turned away, not queued.
+        assert_eq!(get(port, "/events").await.status, 503);
+        // Closing the first frees its slot once the server notices (next event).
+        drop(s);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        loop {
+            let mut again = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            again
+                .write_all(b"GET /events HTTP/1.1\r\nHost: x\r\n\r\n")
+                .await
+                .unwrap();
+            let n = again.read(&mut buf).await.unwrap();
+            if String::from_utf8_lossy(&buf[..n]).starts_with("HTTP/1.1 200") {
+                break;
+            }
+            assert!(tokio::time::Instant::now() < deadline, "slot not freed");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     })
     .await;
 }

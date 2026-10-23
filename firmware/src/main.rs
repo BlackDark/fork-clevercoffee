@@ -123,6 +123,8 @@ async fn main(spawner: Spawner) -> ! {
     // Without a Bluetooth scale the controller never starts, and the 64 KB of main RAM
     // esp-hal keeps free for it (fixed at 0x3FFB_0000) join the heap, as ESP-IDF's
     // `esp_bt_mem_release` does. Scale settings take effect after a restart.
+    #[cfg(not(feature = "ble-scale"))]
+    let ble_scale = false;
     #[cfg(feature = "ble-scale")]
     let ble_scale = cfg.hardware_sensors_scale_enabled
         && cfg.hardware_sensors_scale_type == cc_core::config::ScaleType::Bluetooth;
@@ -305,10 +307,15 @@ async fn main(spawner: Spawner) -> ! {
         Ok(controller) => {
             spawner.spawn(net::net_task(sta_runner).unwrap());
             spawner.spawn(net::net_task(ap_runner).unwrap());
-            for id in 0..net::web::STA_WORKERS {
-                spawner.spawn(net::web::task(id, stacks.sta).unwrap());
+            let (workers, streams) = net::web::home_network(ble_scale);
+            for id in 0..workers {
+                spawner.spawn(net::web::task(id, stacks.sta, streams).unwrap());
             }
-            spawner.spawn(net::web::task(net::web::STA_WORKERS, stacks.ap).unwrap());
+            for id in 0..net::web::AP_WORKERS {
+                spawner.spawn(
+                    net::web::task(net::web::STA_WORKERS + id, stacks.ap, &net::web::AP_STREAMS).unwrap(),
+                );
+            }
             spawner.spawn(net::portal::dns_task(stacks.ap).unwrap());
             spawner.spawn(net::portal::dhcp_task(stacks.ap).unwrap());
             spawner.spawn(net::mdns::task(stacks.sta, wifi.hostname.clone()).unwrap());
