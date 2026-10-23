@@ -1,0 +1,16 @@
+[package]
+name = "screens"
+description = "Renders every OLED screen to PNG contact sheets for layout review"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cc-core.workspace = true
+cc-display = { workspace = true, features = ["samples"] }
+png = "0.18.1"
+
+[lints]
+workspace = true

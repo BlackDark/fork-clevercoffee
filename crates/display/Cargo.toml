@@ -1,0 +1,27 @@
+[package]
+name = "cc-display"
+description = "CleverCoffee OLED screens rendered with embedded-graphics into a 128x64 frame"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cc-core.workspace = true
+embedded-graphics.workspace = true
+u8g2-fonts.workspace = true
+heapless.workspace = true
+libm.workspace = true
+cc-pid = { workspace = true, optional = true }
+
+[features]
+# Sample screens for tests and the contact-sheet tool (needs std).
+samples = ["dep:cc-pid"]
+
+[dev-dependencies]
+cc-pid.workspace = true
+
+[lints]
+workspace = true
+
