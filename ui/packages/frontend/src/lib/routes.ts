@@ -31,8 +31,6 @@ export const API_ROUTES = {
   // OTA
   OTA_STATUS: "/ota/status",
   OTA_FIRMWARE: "/ota/firmware",
-  OTA_FILESYSTEM: "/ota/filesystem",
-  OTA_URL: "/ota/url",
 
   // System
   RESTART: "/restart",

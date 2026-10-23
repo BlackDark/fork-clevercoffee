@@ -35,7 +35,7 @@ fn key(s: &str) -> Key {
 
 impl Store {
     pub async fn open() -> Option<Self> {
-        let part = flash::find_data(flash::SUBTYPE_SETTINGS).await?;
+        let part = flash::find_data(flash::SETTINGS).await?;
         let config = MapConfig::try_new(0..part.len).ok()?;
         Some(Self {
             map: MapStorage::new(Region(part), config, Cache::new_uncached()),
@@ -131,7 +131,7 @@ impl Store {
 
 /// Applies the provisioning blob written by `just provision`, then erases it.
 pub async fn apply_provisioning(cfg: &mut Config) -> bool {
-    let Some(part) = flash::find_data(flash::SUBTYPE_PROVISION).await else {
+    let Some(part) = flash::find_data(flash::PROVISION).await else {
         return false;
     };
     let mut blob = alloc::vec![0u8; part.len as usize];

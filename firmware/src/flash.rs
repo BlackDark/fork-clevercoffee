@@ -11,9 +11,9 @@ pub static FLASH: Mutex<CriticalSectionRawMutex, Option<FlashStorage<'static>>> 
 
 pub const SECTOR: u32 = FlashStorage::SECTOR_SIZE;
 
-/// Data partition subtypes of `partitions.csv`.
-pub const SUBTYPE_SETTINGS: u8 = 0x40;
-pub const SUBTYPE_PROVISION: u8 = 0x41;
+/// Data partition labels of `partitions.csv`.
+pub const SETTINGS: &str = "cc_cfg";
+pub const PROVISION: &str = "cc_prov";
 
 pub async fn init(flash: FlashStorage<'static>) {
     *FLASH.lock().await = Some(flash);
@@ -39,14 +39,14 @@ pub async fn find(kind: PartitionType) -> Option<Part> {
     })
 }
 
-pub async fn find_data(subtype: u8) -> Option<Part> {
+pub async fn find_data(label: &str) -> Option<Part> {
     let mut guard = FLASH.lock().await;
     let flash = guard.as_mut()?;
     let mut buf = [0u8; PARTITION_TABLE_MAX_LEN];
     let table = partitions::read_partition_table(flash, &mut buf).ok()?;
     table
         .iter()
-        .find(|e| e.raw_type() == 1 && e.raw_subtype() == subtype)
+        .find(|e| e.raw_type() == 1 && e.label_as_str() == label)
         .map(|e| Part {
             offset: e.offset(),
             len: e.len(),

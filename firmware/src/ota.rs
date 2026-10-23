@@ -198,7 +198,7 @@ pub async fn finish() -> Result<(), OtaError> {
         return Err(OtaError::Write);
     }
     progress(|p| {
-        p.status = "success";
+        p.status = "complete";
         p.in_progress = false;
     });
     info!("ota: image written ({} KB)", s.written / 1024);

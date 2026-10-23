@@ -52,7 +52,7 @@ pub async fn task(i2c: I2cDev) -> ! {
             Some(Ota::Running {
                 percent: ota.progress,
             })
-        } else if ota.status == "success" {
+        } else if ota.status == "complete" {
             Some(Ota::Done)
         } else {
             None
