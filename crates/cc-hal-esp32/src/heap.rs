@@ -4,16 +4,10 @@
 //! without intermediate strings, and shed telnet writes under pressure while
 //! keeping the connection open. Active close would look like a network failure.
 
-/// The free-heap floor below which the Wi-Fi log stream stops writing
-/// (ADR-0002 decision 5: 30 KB). The large-HTTP-response guard uses the same
-/// number, so there is one threshold. Defined in `cc-net`, where the shed policy
-/// is host-tested; this module only reads the gauge.
-pub use cc_net::web::telnet::SHED_FLOOR_BYTES as HEAP_SHED_BYTES;
-
 /// Free bytes on the heap right now.
 ///
-/// The ADR-0002 number. `/api/nvs-debug` reports it, and the telnet log stream
-/// compares it against [`HEAP_SHED_BYTES`].
+/// `/api/nvs-debug` reports it; the telnet log stream and the large HTTP
+/// responses compare it against [`cc_net::web::HEAP_FLOOR_BYTES`].
 #[allow(
     unsafe_code,
     reason = "esp_get_free_heap_size() is a documented, precondition-free read \
@@ -39,33 +33,4 @@ pub fn free_heap() -> u32 {
 pub fn min_free_heap() -> u32 {
     // Safety: `uint32_t esp_get_minimum_free_heap_size(void)`.
     unsafe { esp_idf_svc::sys::esp_get_minimum_free_heap_size() }
-}
-
-/// Whether the heap is above [`HEAP_SHED_BYTES`].
-#[must_use]
-pub fn has_room() -> bool {
-    free_heap() >= HEAP_SHED_BYTES
-}
-
-#[cfg(any(test, feature = "device-tests"))]
-#[cfg_attr(feature = "device-tests", doc(hidden))]
-pub mod tests {
-    #![allow(
-        clippy::wildcard_imports,
-        reason = "the tests exercise the parent's private items, and the `cfg(test)` \
-                  exception does not cover the device-tests build"
-    )]
-
-    use super::*;
-
-    #[cfg_attr(test, test)]
-    pub fn the_shed_floor_is_the_adrs_thirty_kilobytes() {
-        // ADR-0002 decision 5. A test because it is a
-        // judgement call someone will otherwise "tidy" to 32768, or to
-        // HEAP_SHED_BYTES / 2, without reading the ADR that explains it.
-        // The literal is now in cc-net, which is where the policy lives; this
-        // pins the re-export rather than the definition.
-        assert_eq!(HEAP_SHED_BYTES, 30_000);
-        assert_eq!(HEAP_SHED_BYTES, cc_net::web::telnet::SHED_FLOOR_BYTES);
-    }
 }

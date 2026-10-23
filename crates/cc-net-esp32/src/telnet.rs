@@ -43,6 +43,7 @@ use cc_net::web::telnet::{Decision, Ring, Shed, MAX_CLIENTS, MAX_FLUSH_PER_PASS,
 
 use cc_hal_esp32::heap::free_heap;
 use cc_hal_esp32::time::now_ms;
+use cc_net::web::HEAP_FLOOR_BYTES;
 
 /// The port the log stream listens on.
 pub const TELNET_PORT: u16 = 23;
@@ -63,10 +64,6 @@ pub const HEARTBEAT_INTERVAL_MS: u32 = 30_000;
 /// A longer line is truncated at the buffer's end rather than split across two
 /// entries, which is the ADR's own "messages are dropped" acceptance.
 pub use cc_net::web::telnet::ENTRY_BYTES as LINE_BUFFER_BYTES;
-
-/// The free-heap floor, re-exported so the paths that guard "the machine is
-/// tight" cannot drift. ADR-0002 decision 5.
-pub use cc_net::web::telnet::SHED_FLOOR_BYTES as HEAP_SHED_BYTES;
 
 /// How long the listener task sleeps between passes, in milliseconds.
 ///
@@ -273,7 +270,7 @@ impl Stats {
     pub fn summary(&self) -> String {
         alloc::format!(
             "telnet: written={} shed={} ring_drops={} heartbeats={} \
-             client_errors={} min_free_heap_while_shed={} floor={HEAP_SHED_BYTES}",
+             client_errors={} min_free_heap_while_shed={} floor={HEAP_FLOOR_BYTES}",
             self.written.load(Ordering::Relaxed),
             self.shed.load(Ordering::Relaxed),
             self.ring_drops.load(Ordering::Relaxed),
@@ -586,7 +583,7 @@ pub fn start() -> std::io::Result<std::thread::JoinHandle<()>> {
             };
             info!(
                 "telnet: listening on port {TELNET_PORT}; the heap floor is \
-                 {HEAP_SHED_BYTES} B and the ring holds {RING_ENTRIES} lines"
+                 {HEAP_FLOOR_BYTES} B and the ring holds {RING_ENTRIES} lines"
             );
             let mut shed = Shed::new();
             let mut last_written_ms = now_ms();
@@ -615,7 +612,7 @@ fn account(decision: Decision, free: u32) -> bool {
         }
         Decision::ShedEngaged => {
             warn!(
-                "telnet: {free} B free, below the {HEAP_SHED_BYTES} B floor — the \
+                "telnet: {free} B free, below the {HEAP_FLOOR_BYTES} B floor — the \
                  log stream is shed, the connection stays open"
             );
             STATS.shed.fetch_add(1, Ordering::Relaxed);
@@ -679,15 +676,6 @@ pub mod tests {
         // The ADR's "Telnet stays connected indefinitely (heartbeat + no
         // aggressive disconnect)".
         assert_eq!(HEARTBEAT_INTERVAL_MS, 30_000);
-    }
-
-    #[cfg_attr(test, test)]
-    pub fn the_hal_reexports_the_same_floor_the_portable_shed_uses() {
-        // The heap module documents this as one number with two subscribers.
-        // If `cc-hal-esp32` grew its own copy, ADR-0002's "two constants for one
-        // judgement is how they drift" would already have happened.
-        assert_eq!(HEAP_SHED_BYTES, cc_net::web::telnet::SHED_FLOOR_BYTES);
-        assert_eq!(crate::web::HEAP_FLOOR_BYTES, HEAP_SHED_BYTES);
     }
 
     #[cfg_attr(test, test)]

@@ -96,10 +96,6 @@ pub const CASES: &[Case] = &[
         run: telnet::tests::the_stats_summary_names_the_floor,
     },
     Case {
-        name: "telnet::the_hal_reexports_the_same_floor_the_portable_shed_uses",
-        run: telnet::tests::the_hal_reexports_the_same_floor_the_portable_shed_uses,
-    },
-    Case {
         name: "telnet::a_fresh_server_has_no_client",
         run: telnet::tests::a_fresh_server_has_no_client,
     },
@@ -186,10 +182,6 @@ pub const CASES: &[Case] = &[
     Case {
         name: "web::the_keepalive_interval_is_under_the_nat_floor",
         run: web::tests::the_keepalive_interval_is_under_the_nat_floor,
-    },
-    Case {
-        name: "web::the_large_response_floor_is_the_adrs_floor",
-        run: web::tests::the_large_response_floor_is_the_adrs_floor,
     },
     Case {
         name: "web::the_large_response_limit_is_above_19kb",

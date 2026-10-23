@@ -50,16 +50,16 @@ fn the_shed_engages_below_the_floor_and_reports_each_edge_once() {
     assert!(!shed.is_shedding());
 
     // One below the floor: shed, and say so.
-    assert_eq!(shed.decide(SHED_FLOOR_BYTES - 1), Decision::ShedEngaged);
+    assert_eq!(shed.decide(HEAP_FLOOR_BYTES - 1), Decision::ShedEngaged);
     assert!(shed.is_shedding());
 
     // Still below: shed, and say nothing, or an oscillating machine prints a
     // line per transition.
     assert_eq!(shed.decide(0), Decision::Shed);
-    assert_eq!(shed.decide(SHED_FLOOR_BYTES - 1), Decision::Shed);
+    assert_eq!(shed.decide(HEAP_FLOOR_BYTES - 1), Decision::Shed);
 
     // Exactly at the floor is above it: the comparison is `>=`.
-    assert_eq!(shed.decide(SHED_FLOOR_BYTES), Decision::AllowRecovered);
+    assert_eq!(shed.decide(HEAP_FLOOR_BYTES), Decision::AllowRecovered);
     assert!(!shed.is_shedding());
 
     // And once recovered it is quiet again.
@@ -70,8 +70,8 @@ fn the_shed_engages_below_the_floor_and_reports_each_edge_once() {
 #[test]
 fn the_shed_boundary_is_inclusive() {
     let mut shed = Shed::new();
-    assert_eq!(shed.decide(SHED_FLOOR_BYTES), Decision::Allow);
-    assert_eq!(shed.decide(SHED_FLOOR_BYTES - 1), Decision::ShedEngaged);
+    assert_eq!(shed.decide(HEAP_FLOOR_BYTES), Decision::Allow);
+    assert_eq!(shed.decide(HEAP_FLOOR_BYTES - 1), Decision::ShedEngaged);
 }
 
 #[test]
@@ -227,4 +227,10 @@ fn the_predecessor_boot_lines_are_not_truncated_on_the_wire() {
             text.len(),
         );
     }
+}
+
+/// ADR-0002 decision 5 sets 30 KB; pinned so it is not "tidied" to 32 768.
+#[test]
+fn the_heap_floor_is_the_adrs_thirty_kilobytes() {
+    assert_eq!(HEAP_FLOOR_BYTES, 30_000);
 }

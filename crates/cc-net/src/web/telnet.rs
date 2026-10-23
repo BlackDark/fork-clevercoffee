@@ -7,13 +7,7 @@ use core::fmt::Write;
 
 use heapless::String;
 
-/// The free-heap floor below which the Wi-Fi log stream stops writing.
-///
-/// `cc_hal_esp32::heap` re-exports this as `HEAP_SHED_BYTES` and
-/// `cc_net_esp32::web` re-exports *that* as `HEAP_FLOOR_BYTES`, because three paths
-/// guard "the machine is tight" and three constants for one judgement is how they
-/// drift.
-pub const SHED_FLOOR_BYTES: u32 = 30_000;
+use super::HEAP_FLOOR_BYTES;
 
 /// How many lines the ring holds before it starts dropping the newest.
 ///
@@ -113,14 +107,14 @@ impl Shed {
     /// Decide whether one line goes to the Wi-Fi client, given `free` bytes.
     ///
     /// **The floor and the edge, and nothing more.** Below
-    /// [`SHED_FLOOR_BYTES`] the line is not written; the connection stays open,
+    /// [`HEAP_FLOOR_BYTES`] the line is not written; the connection stays open,
     /// the serial stream is untouched, and the stream resumes when the heap
     /// recovers. There is deliberately no "disconnect the client" arm: an
     /// active close appears in the operator's terminal as "Connection reset by
     /// peer", which is indistinguishable from a network fault and sends the
     /// investigation the wrong way.
     pub fn decide(&mut self, free: u32) -> Decision {
-        if free >= SHED_FLOOR_BYTES {
+        if free >= HEAP_FLOOR_BYTES {
             return if core::mem::replace(&mut self.engaged, false) {
                 Decision::AllowRecovered
             } else {
