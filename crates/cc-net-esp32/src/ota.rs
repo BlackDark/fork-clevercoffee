@@ -406,7 +406,7 @@ pub enum Admission {
 
 /// The one update in flight, shared between the httpd task and the firmware.
 ///
-/// Behind a [`Mutex`] because a [`Status`] is four fields and this is written
+/// Behind a [`Mutex`] because a [`Status`](cc_net::web::ota::Status) is four fields and this is written
 /// once per 4 KiB chunk — roughly 400 times over a firmware upload, i.e. a
 /// handful of `memcpy`s. The alternative, an `AtomicU64` packing progress and
 /// size, would save microseconds and cost the ability to report a truncation

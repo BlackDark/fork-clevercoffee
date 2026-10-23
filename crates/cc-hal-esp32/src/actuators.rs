@@ -167,7 +167,7 @@ impl ValveState {
 /// rules can be tested on the device by `just test-esp32` without a
 /// `PinDriver`, a relay, or a machine that could be damaged by getting an answer
 /// wrong. The tests are `actuators::tests::*` and they are registered in
-/// [`crate::device_tests::CASES`].
+/// `crate::device_tests::CASES`.
 ///
 /// It is a value rather than three fields on [`Actuators`] for the same reason
 /// `cc_safety::Telemetry` is: the thing being decided is "may this actuator be
@@ -772,7 +772,7 @@ impl FirmwareSide {
 
     /// A side channel that starts from a counter read out of NVS.
     ///
-    /// The stored value seeds [`Self::last_persisted_shots`] so that the first
+    /// The stored value seeds `Self::last_persisted_shots` so that the first
     /// tick does not write a count that is already stored, and so that a reset of
     /// an already-zero counter is recognised as a no-op.
     ///
@@ -832,7 +832,7 @@ impl MachineChannels for FirmwareSide {
     /// Qualifying and incrementing are the reducer's —
     /// `Machine::shots_since_backflush` has already moved if `counted` — so this
     /// is the write, and it is a flag rather than a write for the reason on
-    /// [`FirmwareSide::shots_to_persist`].
+    /// `FirmwareSide::shots_to_persist`.
     fn on_record_brew(&mut self, counted: bool, shots_since_backflush: i32) {
         if counted {
             info!("maintenance: counted brew, shots since backflush = {shots_since_backflush}");

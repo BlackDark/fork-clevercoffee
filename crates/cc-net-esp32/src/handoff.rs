@@ -376,7 +376,7 @@ impl ParameterHandoff {
     /// this file would have to answer), and `note_applied` — the read-after-write
     /// ack four `stage_and_wait` callers are blocked on — has to be called four
     /// times for one apply. One request per tick keeps the ack 1:1 with the
-    /// request it answers, which is the property [`stage_and_wait`] is built on.
+    /// request it answers, which is the property [`Self::stage_and_wait`] is built on.
     ///
     /// # Why no request starves
     ///

@@ -115,7 +115,7 @@ impl I2cBus for Abp2I2c<'_> {
 /// Generic over the bus because there are now two ways to reach it: an owned
 /// [`Abp2I2c`] for a machine with nothing else on the wires, and a borrow of
 /// the shared bus for a machine that also has a panel. The domain driver is
-/// already generic over [`I2cBus`](cc_protocol::abp2::I2cBus), so this costs a
+/// already generic over [`I2cBus`], so this costs a
 /// type parameter and nothing else.
 pub struct Abp2Pressure<B = Abp2I2c<'static>> {
     bus: B,

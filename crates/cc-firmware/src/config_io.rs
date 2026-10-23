@@ -63,7 +63,7 @@ fn validate_for_repair(config: &cc_config::Config) -> Option<&'static [&'static 
 }
 
 /// Revert the keys an unsafe configuration implicates. See
-/// [`cc_config::repair_unsafe`].
+/// [`cc_config::config::repair_unsafe`].
 pub fn repair_unsafe(config: &mut cc_config::Config) -> cc_config::config::Repair {
     cc_config::config::repair_unsafe(config, validate_for_repair)
 }

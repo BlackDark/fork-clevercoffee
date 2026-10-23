@@ -203,7 +203,7 @@ pub struct Network {
     /// The state every handler reads.
     pub shared: Arc<Shared>,
     /// The one OTA update in flight. Owned here so the control task can read it
-    /// without reaching through [`crate::web::Web`], and so it outlives the
+    /// without reaching through [`cc_net_esp32::web::Web`], and so it outlives the
     /// server handle: a restart request raised by the last upload must still be
     /// seen by the tick that acts on it.
     pub ota: Arc<cc_net_esp32::ota::Session>,

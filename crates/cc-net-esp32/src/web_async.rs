@@ -16,7 +16,7 @@
 //!
 //! `httpd_valid_req` checks thread identity only with `CONFIG_HTTPD_VALIDATE_REQ`.
 //! That option is disabled here. Enabling it requires revisiting this transport
-//! and writing through the raw [`sockfd`] instead. [`AsyncReq`] documents its
+//! and writing through the raw `sockfd` instead. [`AsyncReq`] documents its
 //! exclusive ownership and `Send` safety argument.
 
 // `unsafe_code` is denied workspace-wide; this module is a scoped exception.
@@ -48,7 +48,7 @@ const HTTPD_500: esp_idf_sys::httpd_err_code_t =
 
 /// A request detached from the httpd task, ours to write until completed.
 ///
-/// Obtained from [`begin_detached`]. Valid until [`AsyncReq::complete`], and
+/// Obtained from `begin_detached`. Valid until `AsyncReq::complete`, and
 /// **must** be completed on every path — see the module docs for what an
 /// uncompleted request costs.
 pub struct AsyncReq {

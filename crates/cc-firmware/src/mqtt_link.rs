@@ -2,7 +2,7 @@
 //!
 //! The publish cursor shares one time budget; a full outbox can block despite
 //! socket writes running on the MQTT task. Reuse [`Payload`] buffers and read the
-//! existing [`control::Control`] rather than allocating per topic or copying state.
+//! existing [`crate::control::Control`] rather than allocating per topic or copying state.
 
 use cc_config::blob_store::BlobConfigStore;
 use cc_config::Config;
