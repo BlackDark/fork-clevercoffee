@@ -1,0 +1,19 @@
+[package]
+name = "cc-api"
+description = "CleverCoffee HTTP API formats: JSON bodies, config files, forms, multipart uploads"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cc-core.workspace = true
+heapless.workspace = true
+libm.workspace = true
+
+[dev-dependencies]
+serde_json = "1.0.145"
+
+[lints]
+workspace = true
