@@ -87,7 +87,8 @@ fn relay(pin: impl esp_hal::gpio::OutputPin + 'static, active_high: bool) -> Out
 
 #[esp_hal::main]
 async fn main(spawner: Spawner) -> ! {
-    esp_println::logger::init_logger(LevelFilter::Trace);
+    // Info until the settings are loaded; then `system.log_level` applies.
+    esp_println::logger::init_logger(LevelFilter::Info);
     let p = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
 
     // ADR 0001: the reclaimed bootloader RAM plus a small main-RAM region.
@@ -261,8 +262,10 @@ async fn main(spawner: Spawner) -> ! {
     // Network.
     let rng = Rng::new();
     let seed = (u64::from(rng.random()) << 32) | u64::from(rng.random());
-    let (stacks, sta_runner, ap_runner) = net::stacks(&wifi.hostname, seed);
+    // The station interface is a singleton: borrow it for the MAC and drop it before the
+    // stack takes it, or `net::stacks` panics ("station interface already taken").
     let ap_name = net::ap_ssid(esp_radio::wifi::Interface::station().mac_address());
+    let (stacks, sta_runner, ap_runner) = net::stacks(&wifi.hostname, seed);
     let controller = esp_radio::wifi::WifiController::new(
         p.WIFI,
         esp_radio::wifi::ControllerConfig::default()

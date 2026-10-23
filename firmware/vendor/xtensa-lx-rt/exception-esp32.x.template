@@ -1,0 +1,107 @@
+/* exception vector for the ESP32, requiring high priority interrupts and register window support */
+
+/* high level exception/interrupt routines, which can be override with Rust functions */
+PROVIDE(__exception = __default_exception);
+PROVIDE(__user_exception = __default_user_exception);
+PROVIDE(__double_exception = __default_double_exception);
+PROVIDE(__level_1_interrupt = __default_interrupt);
+PROVIDE(__level_2_interrupt = __default_interrupt);
+PROVIDE(__level_3_interrupt = __default_interrupt);
+PROVIDE(__level_4_interrupt = __default_interrupt);
+PROVIDE(__level_5_interrupt = __default_interrupt);
+PROVIDE(__level_6_interrupt = __default_interrupt);
+PROVIDE(__level_7_interrupt = __default_interrupt);
+
+/* high level CPU interrupts */
+PROVIDE(Timer0 = __default_user_exception);
+PROVIDE(Timer1 = __default_user_exception);
+PROVIDE(Timer2 = __default_user_exception);
+PROVIDE(Timer3 = __default_user_exception);
+PROVIDE(Profiling = __default_user_exception);
+PROVIDE(NMI = __default_user_exception);
+PROVIDE(Software0 = __default_user_exception);
+PROVIDE(Software1 = __default_user_exception);
+
+/* low level exception/interrupt, which must be overridden using naked functions */
+PROVIDE(__naked_user_exception = __default_naked_exception);
+PROVIDE(__naked_kernel_exception = __default_naked_exception);
+PROVIDE(__naked_double_exception = __default_naked_double_exception);
+PROVIDE(__naked_level_2_interrupt = __default_naked_level_2_interrupt);
+PROVIDE(__naked_level_3_interrupt = __default_naked_level_3_interrupt);
+PROVIDE(__naked_level_4_interrupt = __default_naked_level_4_interrupt);
+PROVIDE(__naked_level_5_interrupt = __default_naked_level_5_interrupt);
+PROVIDE(__naked_level_6_interrupt = __default_naked_level_6_interrupt);
+PROVIDE(__naked_level_7_interrupt = __default_naked_level_7_interrupt);
+
+
+/* needed to force inclusion of the vectors */
+EXTERN(__default_exception);
+EXTERN(__default_double_exception);
+EXTERN(__default_interrupt);
+
+EXTERN(__default_naked_exception);
+EXTERN(__default_naked_double_exception);
+EXTERN(__default_naked_level_2_interrupt);
+EXTERN(__default_naked_level_3_interrupt);
+EXTERN(__default_naked_level_4_interrupt);
+EXTERN(__default_naked_level_5_interrupt);
+EXTERN(__default_naked_level_6_interrupt);
+EXTERN(__default_naked_level_7_interrupt);
+
+
+/* Define output sections */
+SECTIONS {
+
+  .vectors : SUBALIGN(0x40)
+  {
+    /*
+      Each Xtensa vector has 64 bytes that it must fit inside. We use
+      SUBALIGN(0x40) so each input section is padded out to 64 bytes,
+      placing successive vectors at the architecturally fixed offsets.
+
+      GNU ld and LLD disagree on the semantics of `. = <const>` inside an
+      output section — GNU ld treats it as section-relative while LLD treats
+      it as absolute — so this script avoids any bare-constant location
+      counter assignments. The gap before DoubleExceptionVector uses
+      `. = . + N` and the trailing pad uses `. = ALIGN(0x400)`; both forms
+      behave identically in GNU ld and LLD.
+    */
+    _init_start = ABSOLUTE(.);
+    KEEP(*(.WindowOverflow4.text));
+    KEEP(*(.WindowUnderflow4.text));
+    KEEP(*(.WindowOverflow8.text));
+    KEEP(*(.WindowUnderflow8.text));
+    KEEP(*(.WindowOverflow12.text));
+    KEEP(*(.WindowUnderflow12.text));
+    KEEP(*(.Level2InterruptVector.text));
+    KEEP(*(.Level3InterruptVector.text));
+    KEEP(*(.Level4InterruptVector.text));
+    KEEP(*(.Level5InterruptVector.text));
+    KEEP(*(.DebugExceptionVector.text));
+    KEEP(*(.NMIExceptionVector.text));
+    KEEP(*(.KernelExceptionVector.text));
+    KEEP(*(.UserExceptionVector.text));
+    /* mind the gap: 0x40 of padding between the UserExceptionVector slot
+       (ends at 0x380) and the DoubleExceptionVector slot at 0x3C0. */
+    . = . + 0x40;
+    KEEP(*(.DoubleExceptionVector.text));
+    /* Pad .vectors out to the full 0x400 vectors_seg slot. The ESP32-S3 link
+       script reserves DRAM equal to SIZEOF(.vectors) (`.rwdata_dummy`) to stop
+       IRAM code from overlapping its DRAM mirror; the IRAM side always consumes
+       the whole vectors_seg, so .vectors must measure exactly 0x400 or .data
+       lands too low and corrupts memory. ALIGN is used rather than `. = 0x400`
+       because a bare constant is absolute in LLD but section-relative in GNU ld;
+       vectors_seg origin is 0x400-aligned on every Xtensa chip, so ALIGN(0x400)
+       yields 0x400 in both linkers. */
+    . = ALIGN(0x400);
+    _init_end = ABSOLUTE(.);
+  } > vectors_seg
+}
+
+/* Safety net for the SUBALIGN(0x40) layout. The fixed `. = 0x40/0x80/...`
+   assignments this replaced failed the link if any vector overflowed its
+   64-byte slot. With SUBALIGN an overflow instead shifts the following
+   vectors and grows the section past 0x400, where the ALIGN(0x400) pad
+   rounds up to 0x800. Asserting the exact size restores that guarantee and
+   pins the 0x400 value the ESP32-S3 `.rwdata_dummy` reservation depends on. */
+ASSERT(SIZEOF(.vectors) == 0x400, ".vectors must be exactly 0x400 bytes - a vector overflowed its 64-byte slot");

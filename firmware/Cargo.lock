@@ -2819,8 +2819,6 @@ dependencies = [
 [[package]]
 name = "xtensa-lx-rt"
 version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07933551193a68b5b0a94a7c428e9626adb559661e0f4b048ac5ec1fa4bed334"
 dependencies = [
  "document-features",
  "xtensa-lx",

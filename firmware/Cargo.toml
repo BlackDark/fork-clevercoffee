@@ -94,3 +94,9 @@ codegen-units = 1
 debug = 2
 lto = "fat"
 opt-level = "s"
+
+# xtensa-lx-rt 0.23.0 splits `Reset` over several `global_asm!` blocks that rustc 1.99 with
+# fat LTO emits out of order: the chip never reaches `main` (RTCWDT reset loop). The vendored
+# copy merges them into one block. Remove when upstream ships a fix (docs/todo.md).
+[patch.crates-io]
+xtensa-lx-rt = { path = "vendor/xtensa-lx-rt" }
