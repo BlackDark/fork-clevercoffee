@@ -1,6 +1,6 @@
 [package]
 name = "cc-hal-esp32"
-description = "The only crate that talks to ESP-IDF: board, drivers, actuators, watchdog."
+description = "ESP-IDF board support: drivers, actuators, interlocks, tasks."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -31,7 +31,7 @@ display-interface.workspace = true
 esp-idf-hal.workspace = true
 esp-idf-svc.workspace = true
 esp-idf-sys.workspace = true
-# The `embedded-svc` Wi-Fi configuration structs use `heapless::String`.
+# `switches::Edges`, a fixed-capacity edge list.
 heapless.workspace = true
 log.workspace = true
 

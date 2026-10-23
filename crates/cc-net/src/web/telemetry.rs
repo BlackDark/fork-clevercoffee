@@ -78,7 +78,7 @@ pub struct Telemetry {
     /// the snapshot that carries this type is safe. A `String` here would make the
     /// snapshot payload own heap memory, and the snapshot's access is not atomic,
     /// so a reader's `clone()` would be a use-after-free (see
-    /// `cc_hal_esp32::web::Snapshot`). Fixed-size means the reader's copy is a
+    /// `cc_net_esp32::web::Snapshot`). Fixed-size means the reader's copy is a
     /// memcpy of at most 16 bytes: no allocation, no `free`, and no allocator
     /// traffic on the httpd task.
     pub ip: Option<heapless::String<15>>,

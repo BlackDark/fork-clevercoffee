@@ -17,7 +17,7 @@ against the routes the firmware actually registers by
 
 ## Routing
 
-The `ROUTES` table in `crates/cc-hal-esp32/src/web.rs` is the authority. It is a
+The `ROUTES` table in `crates/cc-net-esp32/src/web.rs` is the authority. It is a
 flat list of `(path, method)` pairs, and the handlers are pure functions behind
 it.
 
@@ -101,7 +101,7 @@ discovery surface are a different matter; see
 
 The web UI is served from **flash**, and that is a deliberate consequence of the
 ESP32's 320 KB. A 199 KB gzipped bundle costs **0 B of RAM** because
-`cc-hal-esp32/build.rs` embeds it with `include_bytes!`. Static RAM is identical
+`cc-net-esp32/build.rs` embeds it with `include_bytes!`. Static RAM is identical
 before and after the UI is included.
 
 Do not "improve" this by buffering the bundle, and do not build large JSON

@@ -69,7 +69,7 @@ const _: () = assert!(
 /// The task's own frame is a `Scale` — two `Cell`s, each holding a 34-entry
 /// `u32` dataset — plus the read path's locals, so the deepest chain is a few
 /// hundred bytes. 4 KiB is the smallest stack in this firmware that is not
-/// obviously wrong, matching [`crate::web`]'s SSE broadcaster.
+/// obviously wrong, matching the web server's SSE broadcaster.
 pub const SAMPLER_STACK_BYTES: usize = 4096;
 
 /// How long the sampler sleeps when a read found nothing ready.

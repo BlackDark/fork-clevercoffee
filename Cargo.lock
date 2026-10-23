@@ -189,6 +189,7 @@ name = "cc-device-tests"
 version = "0.1.0"
 dependencies = [
  "cc-hal-esp32",
+ "cc-net-esp32",
  "embuild",
  "esp-idf-hal",
  "esp-idf-svc",
@@ -220,6 +221,7 @@ dependencies = [
  "cc-hal-esp32",
  "cc-machine",
  "cc-net",
+ "cc-net-esp32",
  "cc-protocol",
  "cc-safety",
  "embuild",
@@ -269,6 +271,22 @@ dependencies = [
  "heapless",
  "log",
  "serde_json",
+]
+
+[[package]]
+name = "cc-net-esp32"
+version = "0.1.0"
+dependencies = [
+ "cc-config",
+ "cc-domain",
+ "cc-hal-esp32",
+ "cc-machine",
+ "cc-net",
+ "esp-idf-hal",
+ "esp-idf-svc",
+ "esp-idf-sys",
+ "heapless",
+ "log",
 ]
 
 [[package]]

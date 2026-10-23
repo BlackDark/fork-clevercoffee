@@ -105,7 +105,7 @@ are committed and integrity-pinned.
 
 None. Verified clean: no secrets in the tree or in history (`git log --all -- .env`
 and `-S WIFI_PASS` both empty). Every data route funnels through
-`crates/cc-hal-esp32/src/web.rs:795` (`web::register`), `/events` included
+`crates/cc-net-esp32/src/web.rs:795` (`web::register`), `/events` included
 (`web_async.rs:449-468`). `/ui*` cannot traverse: `resolve_ui` (`web.rs:1087`)
 matches a compile-time `UI_ASSETS` table by exact split-on-`?` path. OTA is bounded
 (`MAX_FIRMWARE_BYTES`, `MAX_PART_HEADER_BYTES = 256`, 4 KiB streaming chunks) and

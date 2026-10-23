@@ -19,14 +19,10 @@
 //! and writing through the raw [`sockfd`] instead. [`AsyncReq`] documents its
 //! exclusive ownership and `Send` safety argument.
 
-// The second `unsafe` in the workspace. `crate::zacwire::now_us` is the first,
-// and the workspace lint is `unsafe_code = "deny"`, so the allowance is here,
-// scoped to this one module, rather than turned off crate-wide. The reasoning
-// for every call is in this module's documentation above; in short: ESP-IDF's
-// httpd is a single task, so an SSE handler that holds its connection open stops
-// the whole web API, and `httpd_req_async_handler_begin` is ESP-IDF's own
-// documented answer — the only one that exists,
-// and not expressible through `esp-idf-svc` 0.53.0.
+// `unsafe_code` is denied workspace-wide; this module is a scoped exception.
+// httpd is a single task, so an SSE handler holding its connection open stops
+// the whole web API. `httpd_req_async_handler_begin` is ESP-IDF's answer, and
+// `esp-idf-svc` 0.53.0 does not wrap it.
 #![allow(
     unsafe_code,
     reason = "three `httpd_*` calls that let the `/events` handler return while \
@@ -393,7 +389,7 @@ extern "C" fn sse_handler(req: *mut httpd_req_t) -> esp_idf_sys::esp_err_t {
         // **Authentication, before anything else.**
         //
         // `/events` is protected like every other route — see
-        // `cc_hal_esp32::web::register`. A browser's `EventSource` cannot *set*
+        // `crate::web::register`. A browser's `EventSource` cannot *set*
         // an `Authorization` header, but HTTP Basic credentials are cached per
         // origin and realm once a browser has answered a challenge, and it
         // replays them on every subsequent same-origin request including this

@@ -61,9 +61,9 @@ use esp_idf_svc::sys::EspError;
 // that report a flash-layer failure rather than a request-layer one.
 use log::{error, info, warn};
 
-use crate::heap::{free_heap, min_free_heap, HEAP_SHED_BYTES};
-use crate::task::{COMMAND_ACK_POLL_MS, COMMAND_ACK_TIMEOUT_MS};
-use crate::time::now_ms;
+use cc_hal_esp32::heap::{free_heap, min_free_heap, HEAP_SHED_BYTES};
+use cc_hal_esp32::task::{COMMAND_ACK_POLL_MS, COMMAND_ACK_TIMEOUT_MS};
+use cc_hal_esp32::time::now_ms;
 
 /// The HTTP port.
 pub const HTTP_PORT: u16 = 80;
@@ -350,7 +350,7 @@ impl Shared {
             if now_ms().wrapping_sub(deadline) < COMMAND_ACK_POLL_MS {
                 return false;
             }
-            crate::task::delay_ms(COMMAND_ACK_POLL_MS);
+            cc_hal_esp32::task::delay_ms(COMMAND_ACK_POLL_MS);
         }
         true
     }
@@ -1106,7 +1106,7 @@ impl Web {
     /// pairs to. It is a parameter and not a field of [`Shared`] because it is
     /// not telemetry: it is a request, it is drained by the control task rather
     /// than read by a handler, and [`Shared`] is documented as "the telemetry
-    /// every handler reads". See [`crate::task::ParameterHandoff`] for why the
+    /// every handler reads". See [`cc_hal_esp32::task::ParameterHandoff`] for why the
     /// pairs do not travel as a [`Command`].
     #[allow(
         clippy::too_many_lines,
@@ -1126,7 +1126,7 @@ impl Web {
         config: &Arc<Config>,
         nvs_description: &str,
         send: &Arc<dyn Fn(Command) + Send + Sync + 'static>,
-        parameters: &Arc<crate::task::ParameterHandoff>,
+        parameters: &Arc<cc_hal_esp32::task::ParameterHandoff>,
     ) -> Result<Self, EspError> {
         // Every handler is `Send + 'static` (`server.rs:530-538`), so each one
         // captures its own `Arc::clone`. Taking these three by reference and

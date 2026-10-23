@@ -1,0 +1,29 @@
+[package]
+name = "cc-net-esp32"
+description = "ESP-IDF network services: HTTP API and UI, SSE, OTA, MQTT, telnet, Wi-Fi, provisioning."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Compiles this crate's `#[test]` functions as `pub fn`s listed in
+# `device_tests::CASES`, for the on-target runner. Never enabled by `firmware`.
+device-tests = ["cc-hal-esp32/device-tests"]
+
+[dependencies]
+cc-domain.workspace = true
+cc-config.workspace = true
+cc-machine.workspace = true
+cc-net.workspace = true
+cc-hal-esp32.workspace = true
+esp-idf-hal.workspace = true
+esp-idf-svc.workspace = true
+esp-idf-sys.workspace = true
+# The `embedded-svc` Wi-Fi configuration structs use `heapless::String`.
+heapless.workspace = true
+log.workspace = true
+
+[lints]
+workspace = true

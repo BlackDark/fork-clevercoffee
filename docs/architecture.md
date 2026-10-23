@@ -33,7 +33,8 @@ TB
     end
 
     subgraph dev["Device — the only place that may name esp_idf"]
-        HAL["cc-hal-esp32<br/>actuators, pins, I2C, wifi, NVS"]
+        HAL["cc-hal-esp32<br/>actuators, pins, I2C, NVS, tasks"]
+        NETDEV["cc-net-esp32<br/>httpd, SSE, OTA, MQTT, Wi-Fi"]
         FW["cc-firmware<br/>10 ms control task, boot"]
     end
 
@@ -52,6 +53,9 @@ TB
     MACH --> PID
     MACH --> SAFE
     HAL -.->|"applies"| MACH
+    FW --> NETDEV
+    NETDEV --> HAL
+    NETDEV --> NET
     NET --> DOM
     NET --> CONF
     PARITY -.->|"in-process"| MACH
@@ -97,7 +101,7 @@ control loop that eventually fails to be scheduled.
 The ESP32 has about 320 KB of RAM, which is the constraint that shapes more of
 this design than anything else.
 
-- **The web UI is served from flash**, 0 B of RAM. `cc-hal-esp32/build.rs`
+- **The web UI is served from flash**, 0 B of RAM. `cc-net-esp32/build.rs`
   embeds the gzipped bundle with `include_bytes!`. Do not "improve" this by
   buffering it.
 - **A display frame allocates nothing.** `cc-display` has no `alloc` in the
@@ -119,7 +123,8 @@ this design than anything else.
 | `cc-display` | layout, framebuffer, glyph atlases | the panel |
 | `cc-config` | the 98-parameter schema and the store | the flash |
 | `cc-net` | HTTP and MQTT payloads, topic registry, Wi-Fi and retry policy, provisioning protocol | sockets, the radio, the broker |
-| `cc-hal-esp32` | pins, actuators, I²C, SPI, wifi, NVS, the web server | any decision |
+| `cc-hal-esp32` | pins, actuators, I²C, SPI, NVS, tasks, heap and clock | any decision |
+| `cc-net-esp32` | the ESP-IDF side of `cc-net`: httpd and the UI bundle, SSE, OTA, MQTT client, telnet log, Wi-Fi station, UART provisioning | any decision; hardware |
 | `cc-firmware` | boot order and the 10 ms task | logic of its own |
 
 `cc-net` is pure functions of a telemetry snapshot, which is why
@@ -132,8 +137,8 @@ recording stand-in for the GPIO. It runs the scenarios in
 [`crates/cc-parity/scenarios/`](../crates/cc-parity/scenarios) and asserts the
 observed behaviour. See [`scenarios.md`](scenarios.md) for the file format.
 
-**`cc-device-tests`** runs `cc-hal-esp32`'s unit tests *on the chip*, because
-that crate cannot be tested by `cargo test` at all. It is never flashed as the
+**`cc-device-tests`** runs the unit tests of `cc-hal-esp32` and `cc-net-esp32`
+*on the chip*, because those crates cannot be tested by `cargo test` at all. It is never flashed as the
 firmware.
 
 ## What this does not yet do

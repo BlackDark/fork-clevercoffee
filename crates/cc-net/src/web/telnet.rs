@@ -10,7 +10,7 @@ use heapless::String;
 /// The free-heap floor below which the Wi-Fi log stream stops writing.
 ///
 /// `cc_hal_esp32::heap` re-exports this as `HEAP_SHED_BYTES` and
-/// `cc_hal_esp32::web` re-exports *that* as `HEAP_FLOOR_BYTES`, because three paths
+/// `cc_net_esp32::web` re-exports *that* as `HEAP_FLOOR_BYTES`, because three paths
 /// guard "the machine is tight" and three constants for one judgement is how they
 /// drift.
 pub const SHED_FLOOR_BYTES: u32 = 30_000;

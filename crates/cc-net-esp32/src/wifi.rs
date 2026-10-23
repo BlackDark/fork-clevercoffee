@@ -20,7 +20,7 @@ use esp_idf_svc::wifi::{
 };
 use log::{info, warn};
 
-use crate::time::now_ms;
+use cc_hal_esp32::time::now_ms;
 
 /// The STA connect timeout, in milliseconds.
 ///

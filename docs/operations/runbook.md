@@ -311,7 +311,7 @@ and obvious to a browser. It must be done at the socket level.
 - [ ] Bytes keep arriving for **minutes** (a 200 s capture is enough) — the connection must
       not close and must not go quiet
 - [ ] The first frame is `event: hello` / `data: {"connected":true}`
-      (`Sse::frame("hello", ...)` in `cc-hal-esp32/src/web.rs`)
+      (`Sse::frame("hello", ...)` in `cc-net-esp32/src/web.rs`)
 - [ ] A browser opens the UI and the console shows **no** "cannot connect" / "connection
       lost while the page was loading"
 - [ ] With one `/events` client open, `GET /api/parameters?filter=all` still answers in
@@ -1074,7 +1074,7 @@ Wiring: LED + 330 Ω (220 Ω on the valve LED, which is blue and visibly dim at
 - [ ] All three go **dark** for the duration. The route waits for the control task
       to apply `cc_machine::ota::begin_session`'s shutdown before it touches the
       flash, and re-checks admission against the **live** machine state on the way
-      — see the safety-irreducible note at `cc-hal-esp32/src/ota.rs`.
+      — see the safety-irreducible note at `cc-net-esp32/src/ota.rs`.
 - [ ] `GET /api/ota/status` reports `idle` afterwards and the device reboots on its
       own within ~20 s (§2b).
 

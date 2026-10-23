@@ -41,8 +41,8 @@ use log::{debug, info, warn};
 
 use cc_net::web::telnet::{Decision, Ring, Shed, MAX_CLIENTS, MAX_FLUSH_PER_PASS, RING_ENTRIES};
 
-use crate::heap::free_heap;
-use crate::time::now_ms;
+use cc_hal_esp32::heap::free_heap;
+use cc_hal_esp32::time::now_ms;
 
 /// The port the log stream listens on.
 pub const TELNET_PORT: u16 = 23;
@@ -563,7 +563,7 @@ impl Drop for Server {
     }
 }
 
-/// Start the listener task, at [`TELNET_PRIO`](crate::task::TELNET_PRIO).
+/// Start the listener task, at [`TELNET_PRIO`](cc_hal_esp32::task::TELNET_PRIO).
 ///
 /// # Errors
 ///
@@ -572,10 +572,10 @@ impl Drop for Server {
 /// working machine, and the alternative — refusing to boot — turns a debug
 /// channel into an availability requirement.
 pub fn start() -> std::io::Result<std::thread::JoinHandle<()>> {
-    crate::task::spawn_with_prio(
+    cc_hal_esp32::task::spawn_with_prio(
         c"telnet",
         TASK_STACK_BYTES,
-        crate::task::TELNET_PRIO,
+        cc_hal_esp32::task::TELNET_PRIO,
         || {
             let mut server = match Server::bind() {
                 Ok(server) => server,
@@ -593,7 +593,7 @@ pub fn start() -> std::io::Result<std::thread::JoinHandle<()>> {
             loop {
                 server.run(&mut shed);
                 server.heartbeat(&mut last_written_ms);
-                crate::task::delay_ms(POLL_INTERVAL_MS);
+                cc_hal_esp32::task::delay_ms(POLL_INTERVAL_MS);
             }
         },
     )
@@ -738,7 +738,7 @@ pub mod tests {
     #[cfg_attr(test, test)]
     pub fn the_task_priority_is_below_control_and_the_stack_is_four_k() {
         // The relationship the tick depends on, asserted where the number is.
-        const { assert!(crate::task::CONTROL_PRIO > crate::task::TELNET_PRIO) };
+        const { assert!(cc_hal_esp32::task::CONTROL_PRIO > cc_hal_esp32::task::TELNET_PRIO) };
         const { assert!(TASK_STACK_BYTES >= 4096) };
     }
 
@@ -757,7 +757,7 @@ pub mod tests {
         ] {
             let metadata = log::Metadata::builder()
                 .level(level)
-                .target("cc_hal_esp32::telnet")
+                .target("crate::telnet")
                 .build();
             assert_eq!(
                 log::Log::enabled(&FANOUT, &metadata),
@@ -781,7 +781,7 @@ pub mod tests {
         let record = log::Record::builder()
             .args(format_args!("the fan-out reached the ring"))
             .level(log::Level::Info)
-            .target("cc_hal_esp32::telnet")
+            .target("crate::telnet")
             .build();
         log::Log::log(&FANOUT, &record);
         let Ok(mut ring) = RING.lock() else {
@@ -794,6 +794,6 @@ pub mod tests {
             line.as_str().contains("the fan-out reached the ring"),
             "{line}"
         );
-        assert!(line.as_str().contains("cc_hal_esp32::telnet"), "{line}");
+        assert!(line.as_str().contains("crate::telnet"), "{line}");
     }
 }

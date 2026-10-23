@@ -56,16 +56,16 @@ just gate         # the above + device clippy, Xtensa release build, size budget
   touches no Xtensa pin — which is also what makes the workspace's
   `rust-version = "1.82"` claim verifiable. It needs no device toolchain and no
   hardware.
-- **`just gate` is the real gate.** `just check` does **not** compile
-  `cc-hal-esp32` or `cc-firmware`, so any change that can affect the firmware
-  image needs `just gate`: device clippy, the Xtensa release build, and the size
-  budget.
+- **`just gate` is the real gate.** `just check` does **not** compile the
+  device crates (`cc-hal-esp32`, `cc-net-esp32`, `cc-firmware`), so any change
+  that can affect the firmware image needs `just gate`: device clippy, the
+  Xtensa release build, and the size budget.
 - `channel = "esp"` in `rust-toolchain.toml` is an Espressif **nightly fork**,
   installed by `espup` — mise deliberately does not install Rust.
   `just doctor` checks the device toolchain; `just doctor-host` checks only what
   a host-only machine can assert.
 - **The web UI must be built before the firmware will link.**
-  `cc-hal-esp32/build.rs` deliberately panics without
+  `cc-net-esp32/build.rs` deliberately panics without
   `ui/packages/frontend/dist`; `just build-esp32` depends on the `ui:` recipe.
 
 Flashing needs a board, so it is never a default recipe:

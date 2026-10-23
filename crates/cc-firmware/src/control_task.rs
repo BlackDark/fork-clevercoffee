@@ -88,7 +88,7 @@ const SSE_INTERVAL_MS: u32 = 1_000;
 const HEAP_LOG_INTERVAL_MS: u32 = 60_000;
 
 /// The radio's maintenance cadence, owned by the Wi-Fi monitor.
-const WIFI_POLL_MS: u32 = cc_hal_esp32::wifi::MONITOR_PERIOD_MS;
+const WIFI_POLL_MS: u32 = cc_net_esp32::wifi::MONITOR_PERIOD_MS;
 
 /// The pause between the last console line and a reboot, so UART0 drains and the
 /// operator sees why. Measured: without it `just wifi-provision` missed the
@@ -143,7 +143,7 @@ pub(crate) struct ControlArgs {
     /// The UART provisioning handoff.
     pub(crate) handoff: network::Handoff,
     /// The radio, polled here because this task's stalls are already fatal.
-    pub(crate) sta: Option<cc_hal_esp32::Sta>,
+    pub(crate) sta: Option<cc_net_esp32::Sta>,
 }
 
 // The size is the whole argument for the `Box`; make growth a decision.
@@ -296,7 +296,7 @@ pub(crate) struct ControlLoop {
     store: cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
     sampler: Option<cc_hal_esp32::Sampler>,
     handoff: network::Handoff,
-    sta: Option<cc_hal_esp32::Sta>,
+    sta: Option<cc_net_esp32::Sta>,
     control: Control,
     side: cc_hal_esp32::FirmwareSide,
     mqtt: Option<mqtt_link::Link>,
@@ -551,11 +551,11 @@ impl ControlLoop {
     /// after this tick's effects are applied (see [`Self::admit_or_hold_ota`]).
     fn handle_command(
         &mut self,
-        command: cc_hal_esp32::web::Command,
+        command: cc_net_esp32::web::Command,
         effects: &mut Effects,
     ) -> bool {
-        use cc_hal_esp32::web::Command as Web;
         use cc_machine::Command as Machine;
+        use cc_net_esp32::web::Command as Web;
 
         match command {
             Web::Restart => self.net.shared.set_reboot_requested(),
@@ -821,14 +821,14 @@ impl ControlLoop {
                     );
                     self.net
                         .ota
-                        .note_verdict(cc_hal_esp32::ota::Admission::Admitted);
+                        .note_verdict(cc_net_esp32::ota::Admission::Admitted);
                     self.ota_admitted = true;
                 }
                 Err(refusal) => {
                     warn!("control: OTA refused — {}", refusal.message());
                     self.net
                         .ota
-                        .note_verdict(cc_hal_esp32::ota::Admission::Refused(refusal));
+                        .note_verdict(cc_net_esp32::ota::Admission::Refused(refusal));
                 }
             }
         } else if self.ota_admitted {

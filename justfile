@@ -68,7 +68,7 @@ host_tools := "-p cc-parity -p cc-alloc-count"
 # and CI passes against dependencies nobody committed.
 
 # `cc-device-tests` is the on-target runner, not the firmware; see `test-esp32`.
-dev_crates := "-p cc-hal-esp32 -p cc-firmware -p cc-device-tests"
+dev_crates := "-p cc-hal-esp32 -p cc-net-esp32 -p cc-firmware -p cc-device-tests"
 
 # The on-target test image. NEVER flashed as the firmware; `just flash` is
 # hard-wired to `{{bin_esp32}}` so there is no recipe that can confuse them.
@@ -240,7 +240,7 @@ env-file:
 
 # ---------------------------------------------------------------------- web UI
 
-# The React bundle the firmware embeds. `cc-hal-esp32/build.rs` panics without
+# The React bundle the firmware embeds. `cc-net-esp32/build.rs` panics without
 # it, so no build can ship a placeholder `/ui` (AG-RUST-6).
 #
 # Skipped when `dist/index.html.gz` (the one file `postbuild` always leaves) is
@@ -294,14 +294,14 @@ test:
 
 # Fails on a device-crate test the on-target runner cannot execute: a bare
 # `#[test]`, a `#[cfg_attr(test, test)]` missing from
-# `cc_hal_esp32::device_tests::CASES`, a registry entry with no test, or any
+# a crate's `device_tests::CASES`, a registry entry with no test, or any
 # `#[ignore]`. No hardware, under a second.
 test-audit:
     @python3 scripts/device-test-audit.py .
 
 # ------------------------------------------- on-target (device) unit tests
 #
-# The suite `just test` cannot reach: `cc-hal-esp32`'s tests run only by
+# The suite `just test` cannot reach: the device crates' tests run only by
 # flashing `firmware-tests` and reading the console. Exits non-zero when any case
 # fails. PORT is required; run `just identify <port>` first. The firmware is
 # flashed back at the end.
@@ -574,7 +574,7 @@ reflash port:
 #
 # **This is the correct location by construction.** The credential is not written
 # to NVS by hand: the script types `wifi set <ssid>`, `wifi pass <password>` and
-# `wifi apply` at `cc_hal_esp32::provisioning`, which parses them, hands a
+# `wifi apply` at `cc_net_esp32::provisioning`, which parses them, hands a
 # `Pending` to the control task, and persists it with `BlobConfigStore` — the same
 # path the web UI uses. Crafting the NVS blob would couple this recipe to the
 # blob's schema version and its JSON shape.
