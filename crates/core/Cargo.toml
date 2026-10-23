@@ -1,0 +1,20 @@
+[package]
+name = "cc-core"
+description = "CleverCoffee machine logic: configuration, state machine, temperature control. no_std, hardware-free."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cc-pid.workspace = true
+heapless = { workspace = true, features = ["serde"] }
+serde.workspace = true
+
+[dev-dependencies]
+postcard = { workspace = true, features = ["heapless"] }
+proptest.workspace = true
+
+[lints]
+workspace = true

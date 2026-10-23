@@ -1,0 +1,4 @@
+# Xtensa needs the Espressif fork of rustc, installed by `espup` (mise.toml); see AGENTS.md AG-TOOL-2.
+# Renovate cannot bump this one: bump it together with ESP_TOOLCHAIN in the justfile.
+[toolchain]
+channel = "esp"

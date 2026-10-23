@@ -1,0 +1,4 @@
+# Host crates. The firmware has its own (Xtensa) toolchain file: firmware/rust-toolchain.toml.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]

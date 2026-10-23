@@ -1,0 +1,56 @@
+# Host workspace: everything that builds and tests on a PC. The device binary lives in
+# firmware/ (own workspace, Xtensa toolchain) and depends on these crates by path.
+[workspace]
+resolver = "3"
+members = ["crates/*", "tools/*"]
+
+[workspace.package]
+version = "2.0.0"
+edition = "2024"
+rust-version = "1.99"
+license = "GPL-2.0-only"
+repository = "https://github.com/BlackDark/fork-clevercoffee"
+publish = false
+
+[workspace.dependencies]
+cc-pid = { path = "crates/pid" }
+cc-core = { path = "crates/core" }
+cc-api = { path = "crates/api" }
+cc-display = { path = "crates/display" }
+cc-mqtt = { path = "crates/mqtt" }
+cc-web = { path = "crates/web" }
+cc-tsic = { path = "crates/tsic" }
+cc-onewire = { path = "crates/onewire" }
+cc-hx711 = { path = "crates/hx711" }
+cc-abp2 = { path = "crates/abp2" }
+cc-oled = { path = "crates/oled" }
+cc-blescale = { path = "crates/blescale" }
+
+heapless = "0.9.3"
+libm = "0.2.16"
+embedded-hal = "1.0.0"
+embedded-graphics = "0.8.2"
+u8g2-fonts = "0.8.0"
+picoserve = { version = "0.20.1", default-features = false }
+serde = { version = "1.0.229", default-features = false, features = ["derive"] }
+postcard = { version = "1.1.3", default-features = false }
+
+# dev-only
+proptest = "1.12.0"
+tokio = { version = "1.54.1", features = ["rt", "macros", "net", "time", "io-util"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+float_cmp = "allow"

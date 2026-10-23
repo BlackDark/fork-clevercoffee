@@ -18,3 +18,8 @@ platformio_extra.ini
 CleverCoffee_Flash_Package
 
 .claude/
+
+# Rust
+/target/
+/firmware/target/
+mise.local.toml

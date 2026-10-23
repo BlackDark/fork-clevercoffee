@@ -1,0 +1,13 @@
+# Repo-local tools. Rust is not here: rust-toolchain.toml + rustup; the Xtensa
+# toolchain for firmware/ comes from espup (see AGENTS.md AG-TOOL-2).
+[tools]
+just = "1.59.0"
+node = "26.12.1"
+pnpm = "11.25.0"
+"github:esp-rs/espup" = "0.18.0"
+"github:esp-rs/espflash" = "4.6.0"
+
+# The one verify entry point for humans, agents and CI; recipes live in the justfile.
+[tasks.check]
+description = "Everything CI checks"
+run = "just check"

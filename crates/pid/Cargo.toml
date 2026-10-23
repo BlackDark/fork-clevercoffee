@@ -1,0 +1,14 @@
+[package]
+name = "cc-pid"
+description = "PID controller with CleverCoffee's PID_v1 semantics (P on error or on measurement)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
