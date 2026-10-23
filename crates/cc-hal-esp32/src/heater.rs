@@ -324,7 +324,7 @@ impl TimerIsrPwm {
     ///
     /// Never. There is no peripheral call here — the pin belongs to the ISR, and
     /// the pin is already inactive because the gate closed the duty to zero
-    /// before this was called. See [`HeaterOutput`](super::HeaterOutput)'s
+    /// before this was called. See [`HeaterOutput`]'s
     /// ordering note.
     pub fn disarm(&self) -> Result<(), EspError> {
         self.chopper.disarm();

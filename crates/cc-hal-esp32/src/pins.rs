@@ -1,6 +1,6 @@
 //! Pin map matching [pins.md](../../../docs/hardware/pins.md).
 //!
-//! [`assert_valid`] rejects illegal, flash-reserved, duplicate, or output-incompatible
+//! `assert_valid` rejects illegal, flash-reserved, duplicate, or output-incompatible
 //! pins at compile time. [`assert_wiring`] checks actual pins at boot because the
 //! HAL's pin-number accessor is not `const`. A single board needs no `Board` trait.
 

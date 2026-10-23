@@ -32,7 +32,7 @@ pub const BURST_POLL_US: u32 = 7;
 /// the burst rate and still catches an edge within 1 ms of it starting, which is
 /// 8 bit windows — so the burst begins with at most one bit of the transmission
 /// already gone, and one bit of loss at the *front* of a packet is harmless
-/// because [`decode_frame`](cc_protocol::sensor::tsic306::decode_frame) scans
+/// because [`decode_frame`](cc_protocol::sensor::tsic306::decode::decode_frame) scans
 /// forward for a start bit.
 ///
 /// A larger value would be cheaper and still work; a smaller one costs more and
@@ -158,7 +158,7 @@ impl<'d> ZacwireCapture<'d> {
     /// The loop is bounded three ways, all of them necessary:
     ///
     /// * by [`BURST_HOLD_US`] after the last edge, so a silent line cannot spin;
-    /// * by [`MAX_CAPTURE_US`] in total, so a *noisy* line — one that toggles
+    /// * by `MAX_CAPTURE_US` in total, so a *noisy* line — one that toggles
     ///   forever, which is what an unconnected pin with a floating input does —
     ///   cannot spin either. That case is exactly the one a `ZACwire` decoder must
     ///   survive, so it must not be the one that hangs the task.

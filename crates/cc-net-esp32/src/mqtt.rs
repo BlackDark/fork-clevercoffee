@@ -53,7 +53,7 @@ const MQTT_TASK_PRIO: u8 = 4;
 /// `EspMqttClient::new_cb` runs the closure **on the `esp-mqtt` task**, so this
 /// is a cross-task channel and is built from atomics and one short-held mutex.
 ///
-/// # Why `new_cb` and not `new` + [`EspMqttConnection`]
+/// # Why `new_cb` and not `new` + `EspMqttConnection`
 ///
 /// `EspMqttClient::new` returns an `EspMqttConnection` whose `next()`
 /// (`esp-idf-svc` `src/mqtt/client.rs:797-807`) calls
@@ -517,7 +517,7 @@ pub struct Feed {
     /// A `&'static` rather than an owned `PlanView` so that `plan()` yields a
     /// `Plan<'static>`: an owned view would hand back a plan whose lifetime is
     /// tied to `&self`, and the item topics would be unusable as the
-    /// `&'static str` keys of [`Self::last_sent`] without re-borrowing the very
+    /// `&'static str` keys of `Self::last_sent` without re-borrowing the very
     /// field the publish loop is iterating.
     view: &'static PlanView<'static>,
     /// Where the pass is: the cursor and the phase.
@@ -634,7 +634,7 @@ impl Feed {
     /// Exactly three things allocate, and none of them is per topic:
     ///
     /// * the first publish of each topic inserts one node into
-    ///   [`Self::last_sent`] — once per topic, ever, so at most
+    ///   `Self::last_sent` — once per topic, ever, so at most
     ///   `registry().len()` times in the life of the process;
     /// * `cc_config::discovery::all`, once per [`DISCOVERY_INTERVAL_MS`] at the
     ///   start of a cycle;

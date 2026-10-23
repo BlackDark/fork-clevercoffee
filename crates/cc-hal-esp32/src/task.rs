@@ -38,7 +38,7 @@ pub fn delay_ms(ms: u32) {
 ///
 /// # Errors
 ///
-/// [`std::io::Error`] from the thread spawn, and [`EspError`] if the global
+/// [`std::io::Error`] from the thread spawn, and [`EspError`](esp_idf_svc::sys::EspError) if the global
 /// configuration could not be installed or — the case that matters — restored.
 /// A failure to restore leaves every later task at this task's priority, so it
 /// is reported rather than dropped.

@@ -1,6 +1,6 @@
 //! UART-first logging with a bounded telnet backlog and heap-aware shedding.
 //!
-//! [`Fanout::log`] writes UART0 before copying into [`RING`]. A socket failure or
+//! `Fanout::log` writes UART0 before copying into [`RING`]. A socket failure or
 //! heap shed must never suppress the console. Calling the logger's `enabled`
 //! filter alone does not write a record.
 //!
@@ -131,11 +131,11 @@ pub static STATS: Stats = Stats::new_const();
 /// > block on a lock a higher-priority task holds.
 ///
 /// * **Bounded.** Both critical sections are a `push` or a `pop` of at most
-///   [`ENTRY_BYTES`] bytes into a `heapless` ring. No allocation, no syscall,
+///   [`LINE_BUFFER_BYTES`] bytes into a `heapless` ring. No allocation, no syscall,
 ///   microseconds. Nothing here is the `lwip_send` — the socket write happens
 ///   with the lock released, which is the whole point.
 /// * **No higher-priority holder.** The other holder is the telnet task at
-///   [`TELNET_PRIO`] = 2, against a producer that is the control task at 5. If
+///   [`TELNET_PRIO`](cc_hal_esp32::task::TELNET_PRIO) = 2, against a producer that is the control task at 5. If
 ///   the control task ever blocks here, `FreeRTOS` priority inheritance raises
 ///   the telnet task to 5 and it finishes a memcpy and returns.
 ///
@@ -218,7 +218,7 @@ const fn level_of(level: log::Level) -> cc_net::web::telnet::Level {
 /// Install the UART0/ring logger with `RUST_LOG` level mapping.
 ///
 /// Do not call `esp_idf_svc::log::init_from_env` first: it claims the one global
-/// logger. Reuse its level mapping while installing [`Fanout`] as the sink.
+/// logger. Reuse its level mapping while installing `Fanout` as the sink.
 ///
 /// # Errors
 ///

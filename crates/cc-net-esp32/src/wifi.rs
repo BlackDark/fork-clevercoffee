@@ -292,7 +292,7 @@ impl Sta {
     ///
     /// There is no hostname step between the disconnect and the connect, because
     /// the hostname is a netif field, set at construction, and it survives a
-    /// disconnect. That is [`Self::log_ordering`] restated at the point where a
+    /// disconnect. That is `Self::log_ordering` restated at the point where a
     /// re-apply would otherwise be added.
     ///
     /// # Errors
