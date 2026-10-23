@@ -5,7 +5,7 @@
 //! `just test-audit` checks registration in both directions; shipped firmware never
 //! enables the feature.
 
-use crate::{actuators, display, scale, switches, task, time};
+use crate::{actuators, display, scale, switches, time};
 
 /// One registered unit test: the name the console shows, and the function to
 /// call.
@@ -159,30 +159,6 @@ pub const CASES: &[Case] = &[
     Case {
         name: "scale::the_configured_sample_count_rounds_down_to_a_power_of_two",
         run: scale::tests::the_configured_sample_count_rounds_down_to_a_power_of_two,
-    },
-    Case {
-        name: "task::a_command_carries_no_pointer",
-        run: task::tests::a_command_carries_no_pointer,
-    },
-    Case {
-        name: "task::a_staged_parameter_request_reaches_the_control_task",
-        run: task::tests::a_staged_parameter_request_reaches_the_control_task,
-    },
-    Case {
-        name: "task::only_one_staged_request_is_taken_per_tick",
-        run: task::tests::only_one_staged_request_is_taken_per_tick,
-    },
-    Case {
-        name: "task::note_refused_then_note_applied_acks_the_refusal",
-        run: task::tests::note_refused_then_note_applied_acks_the_refusal,
-    },
-    Case {
-        name: "task::a_full_parameter_mailbox_refuses_rather_than_dropping",
-        run: task::tests::a_full_parameter_mailbox_refuses_rather_than_dropping,
-    },
-    Case {
-        name: "task::the_parameter_mailbox_prints_its_depth_and_never_its_contents",
-        run: task::tests::the_parameter_mailbox_prints_its_depth_and_never_its_contents,
     },
     Case {
         name: "actuators::high_trigger_energises_high",

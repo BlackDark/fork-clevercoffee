@@ -125,12 +125,12 @@ pub(crate) struct ControlArgs {
     /// The shared HTTP/MQTT telemetry slot.
     pub(crate) net: Arc<network::Network>,
     /// The bounded network-to-control command queue.
-    pub(crate) commands: Arc<cc_hal_esp32::task::CommandQueue>,
+    pub(crate) commands: Arc<cc_net_esp32::handoff::CommandQueue>,
     /// The frame hand-off to the display task.
     pub(crate) frame: Arc<slots::FrameSlot>,
     /// The parameter-write mailbox. Separate from `commands` because a write is a
     /// list of pairs, which a `Copy` command cannot carry.
-    pub(crate) parameters: Arc<cc_hal_esp32::task::ParameterHandoff>,
+    pub(crate) parameters: Arc<cc_net_esp32::handoff::ParameterHandoff>,
     /// The authoritative configuration. The HTTP server's boot copy can go stale;
     /// this one cannot.
     pub(crate) config: cc_config::Config,
@@ -288,9 +288,9 @@ pub(crate) struct ControlLoop {
     /// transaction.
     pressure: Option<cc_hal_esp32::Abp2Pressure<&'static SharedBus>>,
     net: Arc<network::Network>,
-    commands: Arc<cc_hal_esp32::task::CommandQueue>,
+    commands: Arc<cc_net_esp32::handoff::CommandQueue>,
     frame: Arc<slots::FrameSlot>,
-    parameters: Arc<cc_hal_esp32::task::ParameterHandoff>,
+    parameters: Arc<cc_net_esp32::handoff::ParameterHandoff>,
     config: cc_config::Config,
     mqtt_configured: bool,
     store: cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,

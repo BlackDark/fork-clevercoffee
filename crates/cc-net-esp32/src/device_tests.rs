@@ -3,10 +3,34 @@
 
 use cc_hal_esp32::device_tests::Case;
 
-use crate::{ota, provisioning, telnet, web, wifi};
+use crate::{handoff, ota, provisioning, telnet, web, wifi};
 
 /// Every unit test in `cc-net-esp32`, in source order.
 pub const CASES: &[Case] = &[
+    Case {
+        name: "handoff::a_command_carries_no_pointer",
+        run: handoff::tests::a_command_carries_no_pointer,
+    },
+    Case {
+        name: "handoff::a_staged_parameter_request_reaches_the_control_task",
+        run: handoff::tests::a_staged_parameter_request_reaches_the_control_task,
+    },
+    Case {
+        name: "handoff::only_one_staged_request_is_taken_per_tick",
+        run: handoff::tests::only_one_staged_request_is_taken_per_tick,
+    },
+    Case {
+        name: "handoff::note_refused_then_note_applied_acks_the_refusal",
+        run: handoff::tests::note_refused_then_note_applied_acks_the_refusal,
+    },
+    Case {
+        name: "handoff::a_full_parameter_mailbox_refuses_rather_than_dropping",
+        run: handoff::tests::a_full_parameter_mailbox_refuses_rather_than_dropping,
+    },
+    Case {
+        name: "handoff::the_parameter_mailbox_prints_its_depth_and_never_its_contents",
+        run: handoff::tests::the_parameter_mailbox_prints_its_depth_and_never_its_contents,
+    },
     Case {
         name: "provisioning::a_log_line_produces_no_reply_at_all",
         run: provisioning::tests::a_log_line_produces_no_reply_at_all,

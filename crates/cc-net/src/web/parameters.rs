@@ -136,7 +136,7 @@ fn needs_reboot(key: &str) -> bool {
 ///
 /// A client can send ten thousand fields, and the pairs are staged in a heap `Vec`
 /// on a 320 KB machine with each one a `String` pair — so an unbounded request is a
-/// denial-of-service with one `curl`. `cc_hal_esp32::task::STAGED_PARAMETER_DEPTH`
+/// denial-of-service with one `curl`. `cc_net_esp32::handoff::STAGED_PARAMETER_DEPTH`
 /// requests times this is 256 pairs — eight times the 98 the firmware registers, so
 /// no legitimate request is refused — and the body is bounded at 4 KB by
 /// `drain_body` long before the count is reached.

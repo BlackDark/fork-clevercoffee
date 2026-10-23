@@ -58,6 +58,5 @@ pub use restart::{drain_console, restart_now};
 pub use scale::{GpioHx711, Sampler, SamplerCommand, SamplerEvent};
 pub use sensors::{Abp2I2c, Abp2Pressure, GpioIn};
 pub use switches::{Levels, SwitchBank};
-pub use task::CommandQueue;
 pub use time::now_ms;
 pub use zacwire::ZacwireCapture;

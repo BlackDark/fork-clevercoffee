@@ -99,7 +99,7 @@ pub struct Telemetry {
 /// **`POST /api/parameters` is the one command endpoint that is not in here**, and
 /// the reason is that rule: a parameter write is a *list* of pairs, and a `Copy`
 /// enum cannot carry a list. It travels in
-/// `cc_hal_esp32::task::ParameterHandoff` instead, which is drained at the same
+/// `cc_net_esp32::handoff::ParameterHandoff` instead, which is drained at the same
 /// point in the tick. The write itself is not a second path —
 /// [`cc_config::assign::apply`] is the only writer of a parameter, and inbound MQTT
 /// calls it directly because MQTT already runs on the control task.

@@ -241,8 +241,8 @@ pub fn start_http(
     network: &Network,
     config: &Config,
     nvs_description: &str,
-    commands: Arc<cc_hal_esp32::task::CommandQueue>,
-    parameters: &Arc<cc_hal_esp32::task::ParameterHandoff>,
+    commands: Arc<cc_net_esp32::handoff::CommandQueue>,
+    parameters: &Arc<cc_net_esp32::handoff::ParameterHandoff>,
 ) -> Result<Web, EspError> {
     let shared = Arc::clone(&network.shared);
     let session = Arc::clone(&network.ota);
@@ -371,7 +371,7 @@ impl core::fmt::Debug for Staged {
 ///
 /// **One slot, and a refusal rather than an overwrite.** [`Handoff::stage`]
 /// returns `false` when something is already staged and the operator is told
-/// so. That is the opposite policy to [`cc_hal_esp32::task::CommandQueue`]'s
+/// so. That is the opposite policy to [`cc_net_esp32::handoff::CommandQueue`]'s
 /// drop-newest, and deliberately: losing a *set* because a *clear* arrived
 /// behind it, or the reverse, would leave the machine holding a credential
 /// nobody can account for.
