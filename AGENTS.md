@@ -45,7 +45,7 @@ Same PR, only what the change touches:
 
 - Heater, pump and valve are driven only by `control.rs` from `Machine::outputs()`. Nothing else touches those pins (the panic hook excepted).
 - `shared::with` is a critical section: copy out, never render, format large JSON or do I/O inside it.
-- Big buffers go on the heap (reclaimed RAM), not in task futures: Bluetooth takes 64 KB of main RAM in `full` (ADR 0001).
+- Big buffers go on the heap (reclaimed RAM), not in task futures: a configured Bluetooth scale takes 64 KB of main RAM in `full` (ADR 0001, 0008). Allocations a request can trigger are fallible: a failed allocation is a panic and a reboot.
 - A task that can block must not run on the control executor.
 
 ## Git
@@ -69,3 +69,5 @@ Same PR, only what the change touches:
 - `firmware/build.rs` embeds `ui/packages/frontend/dist`; without `just ui` a placeholder page is served (build warning).
 - GPIO1 (steam LED) is UART TX: enabling that LED silences the serial log.
 - GPIO34–39 have no pulls: switches need external resistors, floating inputs read as pressed.
+- `just flash` erases `otadata`: after an OTA update a plain `espflash flash` writes ota_0 and the board keeps booting ota_1.
+- `firmware/vendor/` holds patched `xtensa-lx-rt` (boot) and `smoltcp` (listen backlog); each patch is marked `CleverCoffee patch`. Remove when upstream fixes them (docs/todo.md).

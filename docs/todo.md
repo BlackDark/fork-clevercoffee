@@ -4,10 +4,20 @@ Ordered by value. Remove an item when it lands.
 
 ## Needs the bench
 
-- Measure the runtime heap low-water mark per profile (portal + station + MQTT + two UI tabs + BLE scale) and set a floor in `tools/bench`.
-- Measure the control-loop worst case with `system.timing_debug.enabled` during an OTA upload and a BLE connect.
-- TSIC: confirm edge timing under WiFi load (parity error rate in the log).
-- Confirm the access-point fallback and the return to station-only after reconnecting (today the portal stays open until restart).
+- Heap low-water mark with a Bluetooth scale connected (`full`, two home-network workers) and for `minimal`; `standard` and `full` without a scale are in docs/firmware.md.
+- Control-loop worst case with `system.timing_debug.enabled` during a BLE scale connect (a firmware upload: 50 ms, docs/firmware.md).
+- TSIC: confirm edge timing under WiFi load (parity error rate in the log). The bench has a DS18B20: no read errors under HTTP and MQTT load, a few CRC errors during firmware uploads.
+- Return to station-only after the home network comes back: the portal opens after 2 min (confirmed), the station retries every 60 s, but the access point stays open until restart.
+
+## Found on the bench, not fixed yet
+
+- Report the `xtensa-lx-rt` `global_asm!` ordering upstream; drop `firmware/vendor/xtensa-lx-rt` once fixed.
+- smoltcp has no listen backlog; propose the SYN-drop (ADR 0008) or a backlog upstream, then drop `firmware/vendor/smoltcp`.
+- Web UI on the portal: a "Connect to WiFi" card on the home page; today SSID and password hide under Configuration → System.
+- mDNS: answer AAAA queries negatively (NSEC); macOS waits 5 s for one before it uses the A record.
+- Firmware upload runs at 35–45 KB/s (1 KB TCP receive window per worker); a larger window for the upload would halve the time.
+- `/api/status` reports the PID's heater power during a firmware upload, while the relays are off.
+- The MQTT session drops during a firmware upload (flash stalls) and reconnects after it.
 
 ## Features
 

@@ -13,7 +13,7 @@ Bare metal: `esp-hal`, `esp-rtos` (Embassy executor), `esp-radio` (WiFi, BLE), `
 A test build with everything enabled linked with a 28 KB main stack and ~118 KB heap. The real firmware:
 
 - `standard`: heap 94 KB (reclaimed bootloader RAM) + 48 KB, main stack ~57 KB.
-- `full`: the Bluetooth controller reserves 64 KB of main RAM at a fixed address. Network buffers and the 7 KB history live on the heap, not in static task futures; no second heap region. Main stack ~27 KB.
+- `full`: the Bluetooth controller reserves 64 KB of main RAM at a fixed address; without a configured Bluetooth scale they join the heap (ADR 0008). Network buffers and the 7 KB history live on the heap, not in static task futures. Main stack ~27 KB.
 
 ## Consequences
 
@@ -21,4 +21,4 @@ A test build with everything enabled linked with a 28 KB main stack and ~118 KB 
 - No C build, no sdkconfig; image 1.15–1.54 MB.
 - Some crates are young (esp-radio 1.0 beta). Pinned exactly in `firmware/Cargo.toml`; `firmware/ld/rom-fixups.x` works around missing BT ROM symbols.
 - RAM is tight in `full`: new static buffers must go to the heap (AGENTS.md).
-- Runtime heap use is still to be measured on the bench (docs/todo.md).
+- Runtime heap use measured on the bench: docs/firmware.md.

@@ -25,11 +25,18 @@ just flash bench                                  # full + the watchdog test rou
 just bench-provision <ssid> <password>            # then reset the board
 ```
 
+For MQTT, a throwaway broker on the PC (`mqtt.enabled=1 mqtt.broker=<PC address>`):
+
+```bash
+docker run --rm -p 1883:1883 eclipse-mosquitto:2 sh -c 'printf "listener 1883\nallow_anonymous true\n" > /m.conf && mosquitto -c /m.conf'
+```
+
 `bench-provision` sets the WiFi, hostname `cc-bench`, and the profile below. Every value differs from the default on purpose:
 
 | Parameter | Value | Why |
 | --- | --- | --- |
 | `pid.enabled` | 1 | PID drives the heater LED |
+| `hardware.switches.{brew,steam,hot_water}.enabled` | 1 | the buttons are fitted; switches default to off |
 | `hardware.switches.brew.type` | 0 (momentary) | the bench's brew button springs back |
 | `hardware.switches.power.enabled` | 0 | nothing on GPIO39 |
 | `hardware.sensors.temperature.type` | 1 (DS18B20) | the probe fitted here |
@@ -44,19 +51,47 @@ just bench cc-bench.local --ota target/app-bench.bin   # + firmware upload and r
 just bench cc-bench.local --hang              # + watchdog reset (bench build only)
 ```
 
-`tools/bench` checks: status and heap, the largest response (all parameters) alone and three in parallel, a parameter write and restore, history, config download, JSON 404s, the gzipped UI, server-sent events.
+`tools/bench` checks: status and the heap low-water mark (≥ 12 KB), the largest response (all parameters) alone and three in parallel, a parameter write and restore, history, config download, JSON 404s, the gzipped UI, server-sent events, eight connections at once (more than there are HTTP workers).
+
+Open UI tabs hold the event-stream slots (two on the home network): the server-sent events check then fails with "slots busy". Close the tabs for a clean run.
+
+On macOS a rebuilt `bench` binary needs the Local Network permission again (System Settings → Privacy & Security → Local Network); until it is granted, `connect` hangs without an error.
 
 ## By hand
 
 | Case | Do | Expect |
 | --- | --- | --- |
 | Heating | boot cold | heater LED blinks at the PID duty, state 20 |
-| Brew | press brew | pump + valve LEDs on; stops at the target time or on release |
+| Brew | tap brew (momentary) | pump + valve LEDs on, heater off for `brew.pid_delay` (10 s); the next tap stops; the target time applies only with `brew.by_time.enabled` |
 | Tank interlock | open the tank switch during a brew | pump LED off at once, state 70 |
 | Steam | steam button on | setpoint switches to steam, state 51 |
 | Sensor loss | unplug the DS18B20 | state 100 after 2 s, all LEDs off |
 | OTA interlock | upload firmware during a brew | relays off while writing |
 | Panic | `--hang` | device resets within 2 s, LEDs off during the reset |
+| Portal | provision a wrong SSID, reset | after 2 min `CleverCoffee-XXXX` opens; joining it opens the UI (macOS: the portal window) within seconds |
+| MQTT | broker running, machine cold for 5 min | stays connected (no "exceeded timeout" in the broker log) |
 | Floating inputs | remove a pull resistor | the switch reads pressed; why the resistors matter |
 
 Not provable here: relay coils and contacts, relay polarity against your machine's wiring, anything with water.
+
+## Found on the bench
+
+What the first run on a chip (2026-10-23) found; each has a fix and, where the logic is in a crate, a test.
+
+| Symptom | Cause |
+| --- | --- |
+| RTC watchdog reset loop, `main` never reached | `xtensa-lx-rt`'s `Reset` split over several `global_asm!` blocks that fat LTO reordered (vendored fix) |
+| Panic "station interface already taken" | the WiFi station interface taken twice (MAC read) |
+| "write to the stack guard" on the first big request | the router's stack frame was 22 KB of the 27 KB main stack |
+| Panic "memory allocation failed" under parallel downloads | WiFi driver buffers and per-request copies on a 94 KB heap |
+| `ERR_CONNECTION_REFUSED` for the logo or `/events`; the portal loads forever | no listen backlog; one worker on the access point; station scans every 5 s while the portal is open |
+| Every request to `cc-bench.local` takes 5 s on macOS | no AAAA answer from the mDNS responder; use the IP address for timing |
+| `/api/health` takes 1 s | no `Content-Length`; the client waited for the connection to close |
+| Firmware upload fails after 3 s | picoserve's 3 s limit for a whole request body |
+| Now and then a download ends with "connection reset" under parallel load | picoserve's 1 s write timeout aborts with a RST; one lost packet takes about that long. 5 s now |
+| `--hang` gets no answer, then a read timeout | the hung loop starved the network stack before it sent the reply and the FIN: the route waits 200 ms, `bench` reads by `Content-Length` |
+| Flashing over USB has no effect | after an OTA update `otadata` points to the other slot; `just flash` erases it now |
+| MQTT reconnects every minute on a cold machine | a publish round without changes was counted as traffic; no ping was sent |
+| State passes WATER_TANK_EMPTY at every boot | the tank switch read empty until its first debounce period was over |
+| `ds18b20: Crc` now and then during a firmware upload | flash writes stall the 1-Wire bit timing; a reading is dropped, nothing else |
+| Opening the serial port resets the board | DTR/RTS auto-reset: release RTS before DTR, or use `just monitor` |
