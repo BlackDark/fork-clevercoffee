@@ -266,10 +266,7 @@ pub fn import_config(src: &[u8], cfg: &mut Config) -> Result<usize, ImportError>
     let mut wrapped = false; // inside a {"value": x} leaf wrapper
     let mut applied = 0usize;
     let mut buf = [0u8; 128];
-    loop {
-        let Some(tok) = r.next_token().map_err(|_| ImportError::Syntax)? else {
-            break;
-        };
+    while let Some(tok) = r.next_token().map_err(|_| ImportError::Syntax)? {
         match tok {
             Token::Key(k) => {
                 if lens.is_empty() && k.contains('.') {

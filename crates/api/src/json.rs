@@ -376,7 +376,7 @@ impl<'a> Reader<'a> {
 pub fn unescape<'b>(raw: &str, out: &'b mut [u8]) -> Option<&'b str> {
     let b = raw.as_bytes();
     let (mut i, mut n) = (0, 0);
-    let mut push = |out: &mut [u8], n: &mut usize, bytes: &[u8]| -> Option<()> {
+    let push = |out: &mut [u8], n: &mut usize, bytes: &[u8]| -> Option<()> {
         out.get_mut(*n..*n + bytes.len())?.copy_from_slice(bytes);
         *n += bytes.len();
         Some(())
