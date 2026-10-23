@@ -16,6 +16,8 @@ pub struct Switch {
     raw_since_ms: u64,
     pressed: bool,
     pressed_since_ms: u64,
+    /// The level has been stable for one debounce period since boot.
+    settled: bool,
 }
 
 impl Switch {
@@ -30,6 +32,7 @@ impl Switch {
             raw_since_ms: 0,
             pressed: false,
             pressed_since_ms: 0,
+            settled: false,
         }
     }
 
@@ -44,6 +47,7 @@ impl Switch {
             self.raw_since_ms = now_ms;
         }
         if now_ms.saturating_sub(self.raw_since_ms) > DEBOUNCE_MS {
+            self.settled = true;
             let active = raw_high ^ matches!(self.mode, SwitchMode::NormallyClosed);
             if active != self.pressed {
                 self.pressed = active;
@@ -53,6 +57,12 @@ impl Switch {
             }
         }
         self.pressed
+    }
+
+    /// `false` until the first reading has outlasted the debounce period: before that
+    /// [`Self::update`] reports "not pressed" whatever the pin says.
+    pub fn is_settled(&self) -> bool {
+        self.settled
     }
 
     pub fn is_pressed(&self) -> bool {

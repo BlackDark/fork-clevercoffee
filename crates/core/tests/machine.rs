@@ -5,7 +5,7 @@
 //! standby). Tests named `fix_*` pin a deliberate difference from the C++; see
 //! docs/decisions/0004-behaviour-changes.md.
 
-use cc_core::config::{BrewMode, SwitchType};
+use cc_core::config::{BrewMode, SwitchMode, SwitchType};
 use cc_core::machine::{
     Command, Event, FINISHED_DISPLAY_MS, Inputs, MAX_BREW_MS, MAX_HOT_WATER_MS, Machine, Outputs, Reply,
     TICK_MS,
@@ -365,6 +365,49 @@ fn empty_tank_stops_the_pump_and_heater() {
     s.inp.water_tank = false;
     s.run(200);
     assert_eq!(s.state(), State::PidNormal);
+}
+
+// The tank switch read "empty" until its first debounce period was over, so every
+// boot logged INIT -> WATER_TANK_EMPTY -> PID_NORMAL (seen on the bench).
+#[test]
+fn boot_with_a_full_tank_skips_water_tank_empty() {
+    let cfg = Config {
+        pid_enabled: true,
+        hardware_sensors_watertank_enabled: true,
+        hardware_sensors_watertank_mode: SwitchMode::NormallyOpen,
+        ..Config::default()
+    };
+    let mut s = Sim::new(cfg);
+    s.inp.water_tank = true; // normally open: high = full
+    s.temp(93.0);
+    s.run(200);
+    assert_eq!(s.state(), State::PidNormal);
+    assert!(
+        !s.events.iter().any(|e| matches!(
+            e,
+            Event::StateChanged {
+                to: State::WaterTankEmpty,
+                ..
+            }
+        )),
+        "{:?}",
+        s.events
+    );
+}
+
+#[test]
+fn boot_with_an_empty_tank_reports_it_after_debounce() {
+    let cfg = Config {
+        pid_enabled: true,
+        hardware_sensors_watertank_enabled: true,
+        hardware_sensors_watertank_mode: SwitchMode::NormallyOpen,
+        ..Config::default()
+    };
+    let mut s = Sim::new(cfg);
+    s.inp.water_tank = false;
+    s.temp(93.0);
+    s.run(200);
+    assert_eq!(s.state(), State::WaterTankEmpty);
 }
 
 #[test]

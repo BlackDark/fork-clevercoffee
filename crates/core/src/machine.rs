@@ -528,7 +528,16 @@ impl Machine {
         }
 
         self.water_tank_full = match &mut self.switches.tank {
-            Some(s) => s.update(inp.water_tank, now),
+            // Until the first reading settles the tank counts as full (as at boot):
+            // otherwise every start passed through WATER_TANK_EMPTY.
+            Some(s) => {
+                let full = s.update(inp.water_tank, now);
+                if s.is_settled() {
+                    full
+                } else {
+                    self.water_tank_full
+                }
+            }
             None => true,
         };
 
