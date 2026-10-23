@@ -48,6 +48,7 @@ impl Backend for Device {
                 let mut ev = cc_core::machine::Events::new();
                 s.machine.command(Command::ConfigUpdated, &mut s.cfg, &mut ev);
                 s.config_dirty = true;
+                log::set_max_level(crate::level_filter(s.cfg.system_log_level));
             }
             changed
         });

@@ -20,8 +20,11 @@ setup:
     espup install --targets esp32 --toolchain-version 1.99.0.0 --skip-version-parse
     cd ui && pnpm install --frozen-lockfile
 
-# Everything CI checks.
-check: fmt-check lint test firmware-lint ui-check
+# Everything CI checks (CI runs the parts as separate jobs).
+check: host-check firmware-lint ui-check
+
+# Host crates: format, clippy, tests.
+host-check: fmt-check lint test
 
 # --- host ---------------------------------------------------------------------------
 
@@ -30,10 +33,9 @@ fmt:
     cargo fmt --all
     cd firmware && {{esp_env}} && cargo fmt
 
-# Fails on unformatted code.
+# Fails on unformatted host code (firmware: `firmware-lint`).
 fmt-check:
     cargo fmt --all --check
-    cd firmware && {{esp_env}} && cargo fmt --check
 
 # Clippy on the host crates, warnings are errors.
 lint:
@@ -59,8 +61,9 @@ _features p=profile:
       *) echo "unknown profile {{p}} (minimal|standard|full|bench)" >&2; exit 1;; \
     esac
 
-# Clippy on the firmware, smallest and largest feature set.
+# Format check and clippy on the firmware, smallest and largest feature set.
 firmware-lint:
+    cd firmware && {{esp_env}} && cargo fmt --check
     cd firmware && {{esp_env}} && cargo clippy --release $(just _features minimal) -- -D warnings
     cd firmware && {{esp_env}} && cargo clippy --release $(just _features bench) -- -D warnings
 
@@ -76,8 +79,8 @@ image p=profile: (build p)
 
 # Fails when the app outgrows 90 % of its OTA slot (0x1E0000 bytes).
 size p=profile: (build p)
-    espflash save-image --chip esp32 --partition-table firmware/partitions.csv {{elf}} target/app.bin
-    @size=$(stat -c %s target/app.bin); limit=$((0x1E0000 * 9 / 10)); \
+    espflash save-image --chip esp32 --partition-table firmware/partitions.csv {{elf}} target/app-{{p}}.bin
+    @size=$(stat -c %s target/app-{{p}}.bin); limit=$((0x1E0000 * 9 / 10)); \
       echo "app: $size bytes, limit $limit"; [ "$size" -le "$limit" ]
 
 # Flashes over USB and opens the serial monitor.
@@ -114,6 +117,13 @@ ui-dev:
 
 # --- bench --------------------------------------------------------------------------
 
-# Smoke tests against a running device: `just bench 192.168.1.50`.
-bench host:
-    cargo run -q -p bench -- {{host}}
+# Bench profile (docs/bench.md) plus WiFi, applied at next boot.
+bench-provision ssid password:
+    just provision --ssid "{{ssid}}" --password "{{password}}" system.hostname=cc-bench \
+      pid.enabled=1 hardware.switches.brew.type=0 hardware.switches.power.enabled=0 \
+      hardware.sensors.temperature.type=1 hardware.sensors.watertank.enabled=1 \
+      hardware.sensors.watertank.mode=0
+
+# Smoke tests against a device: `just bench cc-bench.local [--hang] [--ota target/app-bench.bin]`.
+bench host *args:
+    cargo run -q -p bench -- {{host}} {{args}}
