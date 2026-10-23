@@ -1,5 +1,5 @@
 # Repo-local tools. Rust is not here: rust-toolchain.toml + rustup; the Xtensa
-# toolchain for firmware/ comes from espup (see AGENTS.md AG-TOOL-2).
+# toolchain for firmware/ comes from espup (`just setup`, ADR 0002).
 [tools]
 just = "1.59.0"
 node = "26.12.1"

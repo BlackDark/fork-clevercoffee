@@ -1,32 +1,80 @@
-# Forked CleverCoffee code
+<div align="center">
 
-This is fork from [CleverCoffee](https://github.com/rancilio-pid/clevercoffee) which includes some internal refactorings and new features for testing and ideas.
+# CleverCoffee (Rust)
 
-`esptool.py --chip esp32 merge_bin -o merged-flash.bin --flash_mode dio --flash_size 4MB 0x1000 bootloader.bin 0x8000 partitions.bin 0x10000 firmware.bin`
+**PID temperature control firmware for espresso machines (Rancilio Silvia, Gaggia and others) on the ESP32, written in Rust.**<br>
+Brew-by-time and by-weight, steam, hot water, backflush, OLED display, web UI, MQTT with Home Assistant discovery, HX711 and Bluetooth scales.
 
-## Changes made
+<img src=".github/images/frontend-home.webp" alt="CleverCoffee web UI: boiler temperature chart, setpoint and machine state" width="900">
 
-- Internal refactoring of the configuration and how data is stored
-- Internal refactoring to kind of centralize the global variables which are used across the code
-  - Easier to get used to the code to see what types of data are shared across files. Still not the best but maybe some starting point. Probably best this should be located in some kind of Singleton so we get some power to test things without having to actually always flash the whole device
-- Persistence of configurations across updates and flashes including new UI updates
-  - Data is stored in the so called `NVS` which for ESP32 are just dedicated flash block and not the default FileSystem range
-  - https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/storage/nvs_flash.html
-- Brand new UI based on react, precompiled and fast
-- Hostname configuration during setup of the ESP for direct access with new DNS name
-- OTA support in the web app: update by uploading a binary or providing a link to the binary
+</div>
 
-## New Frontend / UI
+## Why
 
-- Dark mode support
-- New HomePage
-![alt text](.github/images/frontend-home.webp)
-- Conditional parameter selection with change detection
-![alt text](.github/images/frontend-param.webp)
-- System Page
-![alt text](.github/images/frontend-system.webp)
+This is a fork of [CleverCoffee](https://github.com/rancilio-pid/clevercoffee), rewritten from C++/Arduino to Rust:
 
-## How to try out?
+- **Tested without hardware**: the machine logic, PID, API, MQTT, sensor protocols, every display screen and every HTTP route run as host tests (`just test`).
+- **One file to flash**: the web UI is built into the firmware; updates upload a single `.bin`.
+- **Safer by construction**: one control loop owns heater, pump and valve; a watchdog resets a hung loop and a panic switches every relay off.
+- **Choose what you need**: `minimal`, `standard` (MQTT + display) or `full` (+ scales, pressure sensor) images.
 
-Like before and described in the documentation you can just build the binaries and flash on your device.
-Easy going.
+## Install
+
+Flash a release image over USB (the first install erases the C++ firmware and its settings):
+
+```bash
+espflash write-bin --chip esp32 0x0 clevercoffee-standard.bin
+```
+
+Then join the WiFi `CleverCoffee-XXXX` (password `CleverCoffee`), open http://192.168.4.1 and enter your network under *System*. Or set it before the first boot: `just provision --ssid Home --password secret`. More: [docs/firmware.md](docs/firmware.md).
+
+## Features
+
+### Coffee
+
+- **PID** with separate brew-detection and steam tunings, PonM option, EMA filtering.
+- **Brew** by time or by weight, pre-infusion, shot timer, shot counter with backflush reminder.
+- **Steam, hot water, manual flush, backflush** cycles, each with a time cap.
+- **Standby** after inactivity; the display switches off later.
+
+### Hardware
+
+- **Sensors**: TSIC 306 or DS18B20 temperature, HX711 (1 or 2 load cells) or Bluetooth scales (Acaia, Felicita, Bookoo, Decent, WeighMyBru), ABP2 pressure, water tank switch.
+- **Display**: SSD1306/SH1106 128×64, six layouts, English/German/Spanish.
+
+### Connected
+
+- **Web UI** for every parameter, live chart, config backup and restore, firmware update.
+- **MQTT** with Home Assistant discovery; mDNS as `<hostname>.local`.
+
+## FAQ
+
+### Can I keep my settings from the C++ firmware?
+
+No. The settings format changed; export nothing, flash over USB, set up again (about 5 minutes).
+
+### Which boards are supported?
+
+The ESP32 DevKitC v4 (classic ESP32, 4 MB flash) with the CleverCoffee pin layout. The S3 and C6 are planned.
+
+## Development
+
+Requires [mise](https://mise.jdx.dev) and [rustup](https://rustup.rs).
+
+```bash
+git clone https://github.com/BlackDark/fork-clevercoffee && cd fork-clevercoffee
+just setup        # tools, Xtensa toolchain, UI dependencies
+just check        # what CI runs
+just ui && just flash
+```
+
+Layout, conventions and decisions: [AGENTS.md](AGENTS.md), [docs/decisions](docs/decisions).
+
+---
+
+<div align="center"><sub>
+
+[Report a bug](https://github.com/BlackDark/fork-clevercoffee/issues/new) · License: [GPL-2.0](LICENSE)<br>
+Based on [CleverCoffee](https://github.com/rancilio-pid/clevercoffee). Bluetooth scale protocols from [AcaiaArduinoBLE](https://github.com/tatemazer/AcaiaArduinoBLE) (MIT).
+
+</sub></div>
