@@ -100,6 +100,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-mqtt"
+version = "2.0.0"
+dependencies = [
+ "cc-api",
+ "cc-core",
+ "heapless 0.9.3",
+ "serde_json",
+]
+
+[[package]]
 name = "cc-pid"
 version = "2.0.0"
 dependencies = [

@@ -17,11 +17,20 @@ pub struct Writer<W> {
 
 impl<W: Write> Writer<W> {
     pub fn new(out: W) -> Self {
-        Self { out, need_comma: 0, depth: 0, pretty: false, after_key: false }
+        Self {
+            out,
+            need_comma: 0,
+            depth: 0,
+            pretty: false,
+            after_key: false,
+        }
     }
 
     pub fn pretty(out: W) -> Self {
-        Self { pretty: true, ..Self::new(out) }
+        Self {
+            pretty: true,
+            ..Self::new(out)
+        }
     }
 
     pub fn into_inner(self) -> W {
@@ -120,7 +129,11 @@ impl<W: Write> Writer<W> {
     /// Shortest representation; non-finite values become `null`.
     pub fn num(&mut self, v: f64) -> fmt::Result {
         self.value_sep()?;
-        if v.is_finite() { write!(self.out, "{v}") } else { self.out.write_str("null") }
+        if v.is_finite() {
+            write!(self.out, "{v}")
+        } else {
+            self.out.write_str("null")
+        }
     }
 
     /// Rounded to two decimals, like the C++ `round2`.
@@ -206,7 +219,14 @@ pub struct Reader<'a> {
 
 impl<'a> Reader<'a> {
     pub fn new(src: &'a [u8]) -> Self {
-        Self { src, pos: 0, in_object: 0, expect_key: 0, depth: 0, started: false }
+        Self {
+            src,
+            pos: 0,
+            in_object: 0,
+            expect_key: 0,
+            depth: 0,
+            started: false,
+        }
     }
 
     fn ws(&mut self) {
@@ -227,7 +247,11 @@ impl<'a> Reader<'a> {
     pub fn next_token(&mut self) -> Result<Option<Token<'a>>, SyntaxError> {
         self.ws();
         if self.pos >= self.src.len() {
-            return if self.depth == 0 && self.started { Ok(None) } else { Err(self.err()) };
+            return if self.depth == 0 && self.started {
+                Ok(None)
+            } else {
+                Err(self.err())
+            };
         }
         let in_obj = self.depth > 0 && self.in_object & self.bit() != 0;
         let c = self.src[self.pos];
@@ -235,7 +259,11 @@ impl<'a> Reader<'a> {
             self.pos += 1;
             self.depth -= 1;
             self.after_value();
-            return Ok(Some(if c == b'}' { Token::EndObject } else { Token::EndArray }));
+            return Ok(Some(if c == b'}' {
+                Token::EndObject
+            } else {
+                Token::EndArray
+            }));
         }
         if c == b',' {
             if self.depth == 0 {
@@ -406,7 +434,10 @@ mod tests {
         w.end_object().unwrap();
         w.kv_num("n", f64::NAN).unwrap();
         w.end_object().unwrap();
-        assert_eq!(w.into_inner(), r#"{"t":93.5,"a":[1,"x\"y"],"b":true,"o":{},"n":null}"#);
+        assert_eq!(
+            w.into_inner(),
+            r#"{"t":93.5,"a":[1,"x\"y"],"b":true,"o":{},"n":null}"#
+        );
     }
 
     #[test]

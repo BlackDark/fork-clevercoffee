@@ -1,0 +1,19 @@
+[package]
+name = "cc-mqtt"
+description = "CleverCoffee MQTT topics, payloads and Home Assistant discovery"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cc-api.workspace = true
+cc-core.workspace = true
+heapless.workspace = true
+
+[dev-dependencies]
+serde_json = "1.0.154"
+
+[lints]
+workspace = true

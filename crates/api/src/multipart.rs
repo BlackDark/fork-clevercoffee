@@ -17,7 +17,10 @@ pub enum Error {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Event<'a> {
     /// A part begins. `name` is the form field, `filename` set for file inputs.
-    Part { name: &'a str, filename: Option<&'a str> },
+    Part {
+        name: &'a str,
+        filename: Option<&'a str>,
+    },
     Data(&'a [u8]),
     PartEnd,
     /// The closing boundary was seen; anything after it is ignored.
@@ -29,7 +32,9 @@ enum Phase {
     /// Before the first boundary: data is discarded.
     Preamble,
     /// After a boundary: the next two bytes say `--` (end) or CRLF (headers).
-    AfterBoundary { first: Option<u8> },
+    AfterBoundary {
+        first: Option<u8>,
+    },
     Headers,
     Body,
     Done,
@@ -52,7 +57,9 @@ pub fn boundary_from_content_type(ct: &str) -> Option<&str> {
     }
     params.split(';').find_map(|p| {
         let (k, v) = p.trim().split_once('=')?;
-        k.trim().eq_ignore_ascii_case("boundary").then(|| v.trim().trim_matches('"'))
+        k.trim()
+            .eq_ignore_ascii_case("boundary")
+            .then(|| v.trim().trim_matches('"'))
     })
 }
 
@@ -65,7 +72,12 @@ impl Parser {
         let _ = delim.extend_from_slice(b"\r\n--");
         let _ = delim.extend_from_slice(boundary.as_bytes());
         // Pretend a CRLF preceded the body, so a boundary on the first line matches.
-        Ok(Self { delim, matched: 2, phase: Phase::Preamble, headers: Vec::new() })
+        Ok(Self {
+            delim,
+            matched: 2,
+            phase: Phase::Preamble,
+            headers: Vec::new(),
+        })
     }
 
     pub fn is_done(&self) -> bool {
@@ -123,7 +135,9 @@ impl Parser {
                     }
                 }
                 Phase::AfterBoundary { first: None } => {
-                    self.phase = Phase::AfterBoundary { first: Some(input[0]) };
+                    self.phase = Phase::AfterBoundary {
+                        first: Some(input[0]),
+                    };
                     input = &input[1..];
                 }
                 Phase::AfterBoundary { first: Some(a) } => {
@@ -148,7 +162,10 @@ impl Parser {
                     if self.headers.ends_with(b"\r\n\r\n") {
                         let text = core::str::from_utf8(&self.headers).map_err(|_| Error::Malformed)?;
                         let (name, filename) = parse_disposition(text).ok_or(Error::Malformed)?;
-                        sink(Event::Part { name: &name, filename: filename.as_deref() });
+                        sink(Event::Part {
+                            name: &name,
+                            filename: filename.as_deref(),
+                        });
                         self.phase = Phase::Body;
                         self.matched = 0;
                     }
@@ -216,7 +233,9 @@ mod tests {
         let mut b = StdVec::new();
         b.extend_from_slice(b"preamble\r\n--XyZ\r\nContent-Disposition: form-data; name=\"firmware\"; filename=\"fw.bin\"\r\nContent-Type: application/octet-stream\r\n\r\n");
         b.extend_from_slice(payload);
-        b.extend_from_slice(b"\r\n--XyZ\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\nhi\r\n--XyZ--\r\n");
+        b.extend_from_slice(
+            b"\r\n--XyZ\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\nhi\r\n--XyZ--\r\n",
+        );
         b
     }
 
@@ -249,7 +268,10 @@ mod tests {
             boundary_from_content_type("multipart/form-data; boundary=----WebKitFormBoundaryAbc"),
             Some("----WebKitFormBoundaryAbc")
         );
-        assert_eq!(boundary_from_content_type("multipart/form-data; boundary=\"q\""), Some("q"));
+        assert_eq!(
+            boundary_from_content_type("multipart/form-data; boundary=\"q\""),
+            Some("q")
+        );
         assert_eq!(boundary_from_content_type("application/json"), None);
     }
 

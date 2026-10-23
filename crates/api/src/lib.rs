@@ -8,10 +8,10 @@ pub mod multipart;
 
 use core::fmt::{self, Write};
 
+use cc_core::Status;
 use cc_core::config::{self, Config, Kind, PARAMS, Value};
 use cc_core::history::History;
 use cc_core::state::State;
-use cc_core::Status;
 use json::Writer;
 
 /// `GET /api/parameters`: every parameter with metadata, as the UI's
@@ -112,7 +112,10 @@ pub fn write_status(st: &Status, cfg: &Config, live: &Live, w: &mut Writer<impl 
     w.kv_bool("backflushOn", st.backflush_mode)?;
     w.kv_int("uptime", live.uptime_ms as i64)?;
     w.kv_int("shotsSinceBackflush", i64::from(st.shots_since_backflush))?;
-    w.kv_int("backflushReminderThreshold", i64::from(cfg.maintenance_backflush_reminder_threshold))?;
+    w.kv_int(
+        "backflushReminderThreshold",
+        i64::from(cfg.maintenance_backflush_reminder_threshold),
+    )?;
     w.kv_bool("backflushReminderDue", st.backflush_reminder_due(cfg))?;
     w.kv_bool("waterTankFull", st.water_tank_full)?;
     w.kv_bool("temperatureValid", st.temperature_valid)?;
@@ -162,7 +165,10 @@ pub fn write_weight(st: &Status, w: &mut Writer<impl Write>) -> fmt::Result {
 pub fn write_history(h: &History, w: &mut Writer<impl Write>) -> fmt::Result {
     w.begin_object()?;
     for (name, f) in [
-        ("currentTemps", (|p| p.temperature) as fn(&cc_core::history::Point) -> f32),
+        (
+            "currentTemps",
+            (|p| p.temperature) as fn(&cc_core::history::Point) -> f32,
+        ),
         ("targetTemps", |p| p.setpoint),
         ("heaterPowers", |p| p.heater_power),
     ] {
@@ -223,7 +229,10 @@ pub enum ImportError {
     NotAnObject,
     /// Top-level keys contain dots: the flat format older tools produced.
     FlatKeys,
-    Invalid { key_index: usize, err: config::SetError },
+    Invalid {
+        key_index: usize,
+        err: config::SetError,
+    },
     NothingToImport,
 }
 
@@ -232,9 +241,9 @@ impl core::fmt::Display for ImportError {
         match self {
             ImportError::Syntax => f.write_str("Invalid JSON"),
             ImportError::NotAnObject => f.write_str("JSON body must be a top-level object"),
-            ImportError::FlatKeys => {
-                f.write_str("Flat dotted-key JSON is not supported. Use nested objects (see Download Config).")
-            }
+            ImportError::FlatKeys => f.write_str(
+                "Flat dotted-key JSON is not supported. Use nested objects (see Download Config).",
+            ),
             ImportError::Invalid { key_index, err } => write!(f, "{}: {err}", PARAMS[*key_index].key),
             ImportError::NothingToImport => f.write_str("No known parameters in the file"),
         }
@@ -258,7 +267,9 @@ pub fn import_config(src: &[u8], cfg: &mut Config) -> Result<usize, ImportError>
     let mut applied = 0usize;
     let mut buf = [0u8; 128];
     loop {
-        let Some(tok) = r.next_token().map_err(|_| ImportError::Syntax)? else { break };
+        let Some(tok) = r.next_token().map_err(|_| ImportError::Syntax)? else {
+            break;
+        };
         match tok {
             Token::Key(k) => {
                 if lens.is_empty() && k.contains('.') {
@@ -267,7 +278,9 @@ pub fn import_config(src: &[u8], cfg: &mut Config) -> Result<usize, ImportError>
                 pending_key = Some(k);
             }
             Token::BeginObject => {
-                let Some(k) = pending_key.take() else { return Err(ImportError::Syntax) };
+                let Some(k) = pending_key.take() else {
+                    return Err(ImportError::Syntax);
+                };
                 let before = path.len();
                 if !path.is_empty() {
                     path.push('.').map_err(|_| ImportError::Syntax)?;
@@ -296,7 +309,9 @@ pub fn import_config(src: &[u8], cfg: &mut Config) -> Result<usize, ImportError>
                 } else if k != "value" {
                     continue;
                 }
-                let Some(index) = config::find(&full) else { continue };
+                let Some(index) = config::find(&full) else {
+                    continue;
+                };
                 let text = match tok {
                     Token::Str(raw) => json::unescape(raw, &mut buf).ok_or(ImportError::Syntax)?,
                     Token::Num(n) => n,
@@ -310,7 +325,10 @@ pub fn import_config(src: &[u8], cfg: &mut Config) -> Result<usize, ImportError>
                     _ => continue,
                 };
                 next.set_from_str(&full, text)
-                    .map_err(|err| ImportError::Invalid { key_index: index, err })?;
+                    .map_err(|err| ImportError::Invalid {
+                        key_index: index,
+                        err,
+                    })?;
                 applied += 1;
             }
         }
@@ -434,8 +452,10 @@ mod tests {
     fn mock_server_parameters_are_all_known() {
         // The UI's mock server mirrors what the C++ firmware returned; every key it
         // knows must exist here (or be retired).
-        let mock: serde_json::Value =
-            serde_json::from_str(include_str!("../../../ui/packages/mock-server/data/parameters.json")).unwrap();
+        let mock: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../ui/packages/mock-server/data/parameters.json"
+        ))
+        .unwrap();
         for p in mock.as_array().unwrap() {
             let name = p["name"].as_str().unwrap();
             if !name.contains('.') {
@@ -475,14 +495,20 @@ mod tests {
     fn import_is_all_or_nothing() {
         let mut cfg = Config::default();
         let src = br#"{"brew": {"setpoint": 92}, "pid": {"regular": {"kp": 9999}}}"#;
-        assert!(matches!(import_config(src, &mut cfg), Err(ImportError::Invalid { .. })));
+        assert!(matches!(
+            import_config(src, &mut cfg),
+            Err(ImportError::Invalid { .. })
+        ));
         assert_eq!(cfg, Config::default());
     }
 
     #[test]
     fn import_rejects_flat_keys_and_garbage() {
         let mut cfg = Config::default();
-        assert_eq!(import_config(br#"{"brew.setpoint": 92}"#, &mut cfg), Err(ImportError::FlatKeys));
+        assert_eq!(
+            import_config(br#"{"brew.setpoint": 92}"#, &mut cfg),
+            Err(ImportError::FlatKeys)
+        );
         assert_eq!(import_config(b"[1]", &mut cfg), Err(ImportError::NotAnObject));
         assert_eq!(import_config(b"{\"a\":", &mut cfg), Err(ImportError::Syntax));
         assert_eq!(import_config(b"{}", &mut cfg), Err(ImportError::NothingToImport));
@@ -503,14 +529,28 @@ mod tests {
 
     #[test]
     fn status_has_the_fields_the_ui_reads() {
-        let cfg = Config { pid_enabled: true, ..Config::default() };
+        let cfg = Config {
+            pid_enabled: true,
+            ..Config::default()
+        };
         let m = cc_core::Machine::new(&cfg, 3, 0);
         let st = m.status(&cfg);
         let s = render(|w| write_status(&st, &cfg, &Live::default(), w));
         let v: serde_json::Value = serde_json::from_str(&s).unwrap();
-        for k in ["temperature", "setpoint", "heaterPower", "machineState", "isStandby", "standbyTime",
-                  "pidEnabled", "steamMode", "uptime", "shotsSinceBackflush",
-                  "backflushReminderThreshold", "backflushReminderDue"] {
+        for k in [
+            "temperature",
+            "setpoint",
+            "heaterPower",
+            "machineState",
+            "isStandby",
+            "standbyTime",
+            "pidEnabled",
+            "steamMode",
+            "uptime",
+            "shotsSinceBackflush",
+            "backflushReminderThreshold",
+            "backflushReminderDue",
+        ] {
             assert!(v.get(k).is_some(), "{k}");
         }
         assert_eq!(v["shotsSinceBackflush"], 3);
