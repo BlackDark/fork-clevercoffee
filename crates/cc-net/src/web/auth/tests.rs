@@ -1,5 +1,3 @@
-//! Authentication tests use the `device-tests` feature's header encoder.
-
 use super::*;
 
 use alloc::format;

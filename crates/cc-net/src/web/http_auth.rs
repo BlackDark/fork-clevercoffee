@@ -195,17 +195,10 @@ impl StripPrefixIgnoreAsciiCase for str {
     }
 }
 
-/// Base64-encode, for a test that needs to *produce* a credential.
-///
-/// Not part of the firmware's surface: nothing here encodes, only decodes. It
-/// exists because `cc-hal-esp32`'s authentication tests need to build an
-/// `Authorization` header and **that crate's tests are executable only by
-/// flashing a device**, so a copy of the encoder here is what lets them state a
-/// credential rather than a transcribed base64 blob.
-#[cfg(any(test, feature = "device-tests"))]
-#[cfg_attr(feature = "device-tests", doc(hidden))]
-pub mod tests_support {
-    extern crate alloc;
+/// Base64-encode, for the tests that need to *produce* a credential. Nothing in
+/// the firmware encodes.
+#[cfg(test)]
+pub(crate) mod tests_support {
     use alloc::string::String;
 
     /// Standard base64: `A-Za-z0-9+/` (RFC 4648 §4).
@@ -238,34 +231,6 @@ mod tests {
     use alloc::string::String;
 
     use alloc::vec::Vec;
-
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-    /// Base64-encode, the way a client does.
-    ///
-    /// Deliberately a **second** implementation rather than a call into
-    /// [`tests_support::encode`]: the decoder is checked against an encoder
-    /// written separately from it, so the two cannot be wrong in the same way and
-    /// cancel out. `the_shared_encoder_agrees_with_this_reference_one` holds the
-    /// two together, because `cc-hal-esp32`'s authentication tests build their
-    /// headers with the shared one.
-    fn encode_reference(plain: &[u8]) -> String {
-        let mut out = String::new();
-        for chunk in plain.chunks(3) {
-            let b0 = u32::from(chunk[0]);
-            let b1 = u32::from(chunk.get(1).copied().unwrap_or(0));
-            let b2 = u32::from(chunk.get(2).copied().unwrap_or(0));
-            let n = (b0 << 16) | (b1 << 8) | b2;
-            // A chunk of n bytes carries n+1 data symbols and 4-(n+1) pads.
-            for i in 0..=chunk.len() {
-                out.push(char::from(ALPHABET[((n >> (18 - i * 6)) & 63) as usize]));
-            }
-            for _ in 0..3 - chunk.len() {
-                out.push('=');
-            }
-        }
-        out
-    }
 
     fn header(user: &str, pass: &str) -> String {
         let mut credential = String::from(user);
@@ -541,7 +506,7 @@ mod tests {
             let plain: Vec<u8> = (0..len)
                 .map(|i| u8::try_from(i % 256).unwrap_or(0))
                 .collect();
-            let encoded = encode_reference(&plain);
+            let encoded = encode(&plain);
             assert_eq!(encoded.len() % 4, 0, "len {len}");
             let mut decoded = [0u8; 256];
             assert_eq!(
@@ -567,21 +532,7 @@ mod tests {
             ("fooba", "Zm9vYmE="),
             ("foobar", "Zm9vYmFy"),
         ] {
-            assert_eq!(encode_reference(plain.as_bytes()), encoded, "{plain:?}");
-        }
-    }
-
-    #[test]
-    fn the_shared_encoder_agrees_with_this_reference_one() {
-        // `cc-hal-esp32`'s authentication tests build their `Authorization`
-        // headers with `tests_support::encode` and run them on a device, so the
-        // two encoders must produce identical bytes -- otherwise those tests
-        // would be asserting against something other than what a client sends.
-        for len in 0..=64usize {
-            let plain: Vec<u8> = (0..len)
-                .map(|i| u8::try_from(i * 3 % 256).unwrap_or(0))
-                .collect();
-            assert_eq!(encode(&plain), encode_reference(&plain), "len {len}");
+            assert_eq!(encode(plain.as_bytes()), encoded, "{plain:?}");
         }
     }
 
