@@ -194,8 +194,8 @@ recorded below.
   powered, wired machine, while it owns its own control loop. The comparison
   harness that would have used it was removed with the rest of the C++ tooling.
   **An intentional difference means reviewed and reasoned, never measured.**
-- **`/api/ota/url` answers `501`.** The route is registered and says why:
-  `cc-net-esp32/src/web.rs:1917-1934`. The two upload endpoints and
+- **`/api/ota/url` answers `501`.** The route is registered and says why, in
+  `Web::start` (`cc-net-esp32/src/web.rs`). The two upload endpoints and
   `/api/ota/status` **are** implemented and stricter than the C++'s. The URL
   route needs an HTTP client and a second long-lived task, for something a
   browser upload already reaches.
@@ -345,7 +345,7 @@ be filed and they are not fixed by the next green gate.
 8. **Two pump watchdogs are armed that the C++ leaves inert.** Correct call, and
    a behaviour change: a 5-minute brew the C++ ran indefinitely now stops.
 9. **The Wi-Fi telemetry defect was invisible to the test suite.** The device case
-   `web.rs:3277` asserts that a control-task publish leaves the radio fields
+   `web::the_radio_fields_survive_a_machine_publish` asserts that a control-task publish leaves the radio fields
    alone — but it asserts it about a **helper defined in the test module**, not
    about the call site in `main.rs`, which is where the bug lived. The invariant
    is only observable at `/api/status` on real hardware, and `cc-net-esp32` cannot

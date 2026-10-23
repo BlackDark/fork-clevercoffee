@@ -48,6 +48,11 @@ def walk_sources(crate: Path) -> list[Path]:
     return sorted(p for p in (crate / "src").rglob("*.rs"))
 
 
+def module_of(crate: Path, path: Path) -> str:
+    """The top-level module a source file belongs to: `src/web/tests.rs` is `web`."""
+    return path.relative_to(crate / "src").parts[0].removesuffix(".rs")
+
+
 def find_tests(crate: Path) -> tuple[list[str], list[str], list[str]]:
     """Return (callable, bare, ignored) test names for one crate."""
     callable_names: list[str] = []
@@ -69,11 +74,11 @@ def find_tests(crate: Path) -> tuple[list[str], list[str], list[str]]:
                 if name is None:
                     continue
                 if CALLABLE_TEST.match(line):
-                    callable_names.append(f"{path.stem}::{name}")
+                    callable_names.append(f"{module_of(crate, path)}::{name}")
                 else:
-                    bare_names.append(f"{path.stem}::{name}")
+                    bare_names.append(f"{module_of(crate, path)}::{name}")
             elif IGNORED.match(line):
-                ignored.append(f"{path.stem}:{number + 1}")
+                ignored.append(f"{path.relative_to(crate)}:{number + 1}")
     return callable_names, bare_names, ignored
 
 
@@ -98,7 +103,7 @@ def audit_registry(root: Path, crate_name: str) -> tuple[int, list[str]]:
         for name in re.split(r"[,\n]", group)
         if name.strip()
     }
-    present_modules = {p.stem for p in walk_sources(crate)}
+    present_modules = {module_of(crate, p) for p in walk_sources(crate)}
 
     for module in sorted(declared_modules - present_modules):
         failures.append(f"{registry} imports `{module}`, which has no source file")
