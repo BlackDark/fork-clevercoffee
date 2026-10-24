@@ -56,3 +56,15 @@ describe("API Schemas", () => {
     });
   });
 });
+
+describe("parameter wire format", () => {
+  it("accepts omitted or null bounds on string and enum parameters", async () => {
+    const { ServerParametersSchema } = await import("./schemas");
+    expect(
+      ServerParametersSchema.parse([
+        { name: "mqtt.password", type: 4, value: "secret" },
+        { name: "display.template", type: 5, value: 0, min: null, max: null },
+      ]),
+    ).toHaveLength(2);
+  });
+});
