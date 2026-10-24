@@ -97,7 +97,8 @@ opt-level = "s"
 
 # xtensa-lx-rt 0.23.0 splits `Reset` over several `global_asm!` blocks that rustc 1.99 with
 # fat LTO emits out of order: the chip never reaches `main` (RTCWDT reset loop). The vendored
-# copy merges them into one block. Remove when upstream ships a fix (docs/todo.md).
+# copy merges them into one block, as esp-hal PR #6497 does upstream (merged, unreleased).
+# Remove with the first xtensa-lx-rt release after 0.23.0 (docs/todo.md).
 [patch.crates-io]
 xtensa-lx-rt = { path = "vendor/xtensa-lx-rt" }
 # smoltcp answers a SYN with RST when no socket listens; the web UI opens more
