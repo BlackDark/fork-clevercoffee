@@ -265,6 +265,8 @@ impl Status {
 #[derive(Debug, Clone)]
 pub struct Machine {
     state: State,
+    /// An interlock holds every actuator off (emergency, firmware update).
+    halted: bool,
     state_since_ms: u64,
     now_ms: u64,
     boot_ms: u64,
@@ -377,6 +379,7 @@ impl Machine {
             brew_timer: BrewTimer::Idle,
             shots_since_backflush,
             outputs: Outputs::default(),
+            halted: false,
         }
     }
 
@@ -409,6 +412,7 @@ impl Machine {
         self.brew_timer.update(self.state.is_brew_active(), cfg, now);
         self.control_temperature(cfg);
         self.outputs = self.compute_outputs(cfg, inp);
+        self.halted = self.emergency.active || inp.ota_active || self.state == State::EmergencyStop;
         ev
     }
 
@@ -502,7 +506,13 @@ impl Machine {
             temperature: self.pid_input,
             temperature_valid: !self.temp_fault && self.raw_temp.is_some(),
             setpoint: self.setpoint,
-            heater_power: self.pid.output() / 10.0,
+            // The PID keeps computing while an interlock holds the heater off; report
+            // what the heater gets.
+            heater_power: if self.halted {
+                0.0
+            } else {
+                self.pid.output() / 10.0
+            },
             pid_runtime: self.pid_runtime,
             tunings: self.pid.tunings(),
             emergency: self.emergency.active,

@@ -16,7 +16,6 @@ Ordered by value. Remove an item when it lands.
 - WiFi setup in the web UI: a "Connect to WiFi" card on the portal's home page with a network scan, instead of SSID and password under Configuration → System. Needs a scan endpoint.
 - mDNS: answer AAAA queries negatively (NSEC); macOS waits 5 s for one before it uses the A record.
 - Firmware upload runs at 35–45 KB/s (1 KB TCP receive window per worker); a larger window for the upload would halve the time.
-- `/api/status` reports the PID's heater power during a firmware upload, while the relays are off.
 - The MQTT session drops during a firmware upload (flash stalls) and reconnects after it.
 
 ## Features

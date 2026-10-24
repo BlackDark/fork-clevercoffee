@@ -659,6 +659,12 @@ fn ota_turns_everything_off() {
     s.run(20);
     let o = s.out();
     assert!(!o.heater && !o.pump && !o.valve);
+    // The PID still wants to heat a cold boiler; the status reports what the heater gets.
+    assert_eq!(s.m.status(&s.cfg).heater_power, 0.0);
+    s.inp.ota_active = false;
+    s.brew(false);
+    s.run(FINISHED_DISPLAY_MS + 2_000);
+    assert!(s.m.status(&s.cfg).heater_power > 0.0);
 }
 
 #[test]
