@@ -17,7 +17,10 @@ use crate::event::Sensors;
 // Eleven booleans, because the two *group* operations that matter -- drain everything, drain
 // only the stops -- are about the group. Modelling eleven independent states instead would
 // invent structure the firmware does not have.
-#[allow(clippy::struct_excessive_bools)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "the drain operations act on the request flags as a group"
+)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Requests {
     /// Start a brew.
@@ -227,7 +230,10 @@ impl Requests {
 /// the PID state and the steam state read the water switch while they update.
 // Four switch levels plus two latched long-press flags. The levels are not a state machine:
 // any of the sixteen combinations is reachable.
-#[allow(clippy::struct_excessive_bools)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "every combination of switch levels is reachable"
+)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SwitchLevels {
     /// `hardware.switches.brew`. `true` is HIGH, i.e. "activated".
@@ -425,7 +431,10 @@ impl StandbyTimer {
 // Four booleans among twenty-two fields. Nesting them into sub-structs would obscure exactly
 // the cross-field invariants the guards read: the emergency check reads `safety`, and the
 // heater gate reads `state`, the configuration and `pid.brew_disabled` together.
-#[allow(clippy::struct_excessive_bools)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "sub-structs would obscure the cross-field invariants the guards read"
+)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Machine {
     /// The current state.

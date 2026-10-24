@@ -69,7 +69,7 @@ const _: () = assert!(
 /// The task's own frame is a `Scale` — two `Cell`s, each holding a 34-entry
 /// `u32` dataset — plus the read path's locals, so the deepest chain is a few
 /// hundred bytes. 4 KiB is the smallest stack in this firmware that is not
-/// obviously wrong, matching [`crate::web`]'s SSE broadcaster.
+/// obviously wrong, matching the web server's SSE broadcaster.
 pub const SAMPLER_STACK_BYTES: usize = 4096;
 
 /// How long the sampler sleeps when a read found nothing ready.
@@ -479,7 +479,7 @@ pub enum SamplerEvent {
 
 /// The control → sampler queue depth.
 ///
-/// 4, drop-newest, for the same reason [`crate::task::CommandQueue`] is: a full
+/// 4, drop-newest, for the same reason `cc_net_esp32::handoff::CommandQueue` is: a full
 /// queue means the sampler is behind, which is a condition to shed rather than
 /// to report. Every command is idempotent, so dropping one loses an operator
 /// action and nothing else.
@@ -553,7 +553,7 @@ impl Sampler {
         // every method takes `&self`, because the FreeRTOS queue is internally
         // synchronised. So the handle and the task share one through an `Arc`
         // rather than each holding a copy — the same shape as
-        // `crate::task::CommandQueue`, which is handed to the HTTP layer as an
+        // `cc_net_esp32::handoff::CommandQueue`, which is handed to the HTTP layer as an
         // `Arc` for exactly this reason.
         let commands = Arc::new(HalQueue::new(COMMAND_DEPTH));
         let events = Arc::new(HalQueue::new(EVENT_DEPTH));
@@ -931,14 +931,11 @@ fn take_test_pins() -> Option<(Gpio32<'static>, Gpio33<'static>)> {
 #[cfg(any(test, feature = "device-tests"))]
 #[cfg_attr(feature = "device-tests", doc(hidden))]
 pub mod tests {
-    // A unit-test module globs its parent on purpose: the cases are exercising
-    // the parent's private helpers, which is the point of keeping them in the
-    // same file. `clippy::wildcard_imports` normally makes an exception for
-    // `use super::*` inside a `#[cfg(test)]` module, and this module is
-    // `#[cfg(any(test, feature = "device-tests"))]` -- the on-target runner
-    // compiles it outside a test build -- so the exception no longer applies and
-    // the allowance is made explicitly here instead of in a list that would rot.
-    #![allow(clippy::wildcard_imports)]
+    #![allow(
+        clippy::wildcard_imports,
+        reason = "the tests exercise the parent's private items, and the `cfg(test)` \
+                  exception does not cover the device-tests build"
+    )]
 
     use super::*;
 

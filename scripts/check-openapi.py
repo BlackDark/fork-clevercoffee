@@ -15,7 +15,7 @@ and needs no toolchain: both sides are one regex away.
 
 WHAT IT COMPARES
 ----------------
-The `ROUTES` table in `crates/cc-hal-esp32/src/web.rs`, which is what the device
+The `ROUTES` table in `crates/cc-net-esp32/src/web.rs`, which is what the device
 actually registers, against the `paths:` keys in the spec. Wildcard entries
 (`/api*`, `/ui*`) are skipped on both sides: they are preflight and asset-serving
 catch-alls, not endpoints a client calls.
@@ -37,7 +37,7 @@ SPEC_PATH_RE = re.compile(r"^  (/[^\s:]*):", re.MULTILINE)
 
 
 def routes_in_firmware(root: Path) -> set[str]:
-    src = (root / "crates/cc-hal-esp32/src/web.rs").read_text(encoding="utf-8")
+    src = (root / "crates/cc-net-esp32/src/web.rs").read_text(encoding="utf-8")
     return {r for r in ROUTE_RE.findall(src) if not r.endswith("*")}
 
 

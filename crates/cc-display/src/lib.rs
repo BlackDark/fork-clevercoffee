@@ -3,8 +3,9 @@
 //! Host checks cover pixels and layout. Follow AG-DISPLAY-1 through AG-DISPLAY-6.
 
 #![no_std]
+#![forbid(unsafe_code)]
+#![deny(missing_docs)]
 
-/// The OLED bitmaps, as raw arrays.
 pub mod bitmaps_data;
 pub mod boot;
 pub mod display;
@@ -14,10 +15,6 @@ pub mod fullscreen;
 pub mod helpers;
 pub mod lang;
 pub mod layout;
-/// Which of the three status LEDs should be lit, as a pure function. It lives
-/// here, next to `helpers`, because the LED rules are part of what the display
-/// shows; the module's own doc records why `cc-web` and `cc-machine` would have
-/// been wrong.
 pub mod leds;
 pub mod model;
 pub mod ota;

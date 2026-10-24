@@ -17,7 +17,7 @@ use crate::model::{BrewTimerState, Config, DisplayInput};
 // Four independent opt-outs, one per shared stage. They are only ever set
 // together (`ALL`, `NONE` or `MODERN`), and grouping them into a `shared_stages`
 // sub-struct would add a layer with nothing in it.
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "one flag per shared stage; see the type's doc comment"
 )]
@@ -225,10 +225,6 @@ pub struct Rendered {
 /// splash beats both (an offline device showing its last normal layout is
 /// worse than saying so); and the OTA screen beats everything, because an
 /// in-progress update has to be able to report its own failure at any time.
-#[allow(
-    clippy::too_many_lines,
-    reason = "the stage order IS the function; splitting it would hide it"
-)]
 pub fn render(
     template: TemplateId,
     d: &mut Display,
@@ -323,7 +319,7 @@ pub fn step_brew_timer(input: &mut DisplayInput, config: &Config) -> BrewTimerSt
             // `display.post_brew_timer_duration` is bounded to [1, 60] by its
             // ParamDef, so the value is 1000..=60000 after the conversion to
             // milliseconds and the result is exact.
-            #[allow(
+            #[expect(
                 clippy::cast_sign_loss,
                 reason = "duration is in seconds and positive; the ParamDef bounds it to [1, 60]"
             )]

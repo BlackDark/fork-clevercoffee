@@ -429,7 +429,7 @@ const SP_HIGH_ALARM: usize = 2;
 /// Scratchpad index of the low alarm register.
 #[allow(
     dead_code,
-    reason = "read by `write_scratchpad`; named here for symmetry"
+    reason = "names the scratchpad layout; only the tests read it, so `expect` would fail one build"
 )]
 const SP_LOW_ALARM: usize = 3;
 /// Scratchpad index of the configuration register (resolution).
@@ -614,7 +614,6 @@ impl ScratchPad {
         // The DS18S20/DS1820 extended-resolution correction: below 0.5 °C the fraction comes from
         // the count registers rather than from the LSB register.
         if rom.family() == FAMILY_DS18S20 && self.0[SP_COUNT_PER_C] != 0 {
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let correction = (i32::from(self.0[SP_COUNT_PER_C] - self.0[SP_COUNT_REMAIN]) << 7)
                 / i32::from(self.0[SP_COUNT_PER_C]);
             raw = (((raw & 0xfff0) << 3) - 32 + correction) | neg;
@@ -633,7 +632,10 @@ impl ScratchPad {
 /// boundary is kept as it is, pinned by `minus_55_c_is_reported_as_disconnected`.
 #[must_use]
 pub fn raw_to_celsius(raw: i32) -> f32 {
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a sensor count is 16 bits, exact in f32"
+    )]
     {
         if raw <= DISCONNECTED_RAW {
             DISCONNECTED_C
@@ -753,14 +755,9 @@ impl core::fmt::Display for Ds18b20Fault {
 // and `assert_eq!(x.len(), 0)` would print a count instead of the contents.
 // Everywhere else in this crate a `String` emptiness assertion is written
 // `assert_ne!(x, "")` and is still linted.
-#[allow(
+#[expect(
     clippy::assert_is_empty,
     reason = "the assertions are on collections, so assert_eq!(x, \"\") does not typecheck"
-)]
-#[allow(
-    clippy::float_cmp,
-    reason = "the tests compare the -127 and -25x Celsius sentinels, which is the \
-              assertion; an approximate comparison would hide which sentinel fired"
 )]
 mod tests {
     use super::*;
@@ -797,9 +794,15 @@ mod tests {
     /// determine: high alarm, low alarm, byte 5, `COUNT REMAIN` and
     /// `COUNT PER °C`.
     fn scratchpad_from_raw(raw: i16, extra: [u8; 5]) -> ScratchPad {
-        #[allow(clippy::cast_sign_loss)]
+        #[expect(
+            clippy::cast_sign_loss,
+            reason = "reinterpreting the two's-complement bits is the point"
+        )]
         let lsb = ((raw as u16 >> 3) & 0xFF) as u8;
-        #[allow(clippy::cast_sign_loss)]
+        #[expect(
+            clippy::cast_sign_loss,
+            reason = "reinterpreting the two's-complement bits is the point"
+        )]
         let msb = ((raw >> 11) & 0xFF) as u8;
         let mut pad = ScratchPad([
             lsb, msb, extra[0], extra[1], RES_11_BIT, extra[2], extra[3], extra[4], 0,
@@ -828,7 +831,7 @@ mod tests {
         for len in 0..=9usize {
             let buf: Vec<u8> = (0..len)
                 .map(|i| {
-                    #[allow(clippy::cast_possible_truncation)]
+                    #[expect(clippy::cast_possible_truncation, reason = "`i` is at most 9")]
                     let n = i as u8;
                     n.wrapping_mul(37).wrapping_add(11)
                 })
@@ -1075,7 +1078,6 @@ mod tests {
             DISCONNECTED_C.to_bits()
         );
         // One 1/128 °C step up is fine.
-        #[allow(clippy::cast_possible_truncation)]
         let just_above = raw_to_celsius(DISCONNECTED_RAW + 1);
         assert!(just_above > -55.0);
     }

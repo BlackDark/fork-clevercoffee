@@ -222,17 +222,11 @@ pub const fn low_us(pct: u32) -> u32 {
 }
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::assertions_on_constants,
     reason = "these tests assert protocol constants against the app note's printed \
               numbers on purpose: that is the entire claim, and the compiler is \
               right that it is a constant comparison"
-)]
-#[allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    reason = "test-side narrowing of values the protocol bounds to 0..=2047"
 )]
 mod tests {
     use super::*;
@@ -265,11 +259,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(
-        clippy::float_cmp,
-        reason = "the 0.1 C sentinels are the claim: they must be exactly what the \
-                  C++ compares against"
-    )]
     fn the_strobe_is_half_the_bit_window() {
         // "the value of Tstrobe is known in advance and is equal to 125/2".
         // `STROBE_US` is the *nominal* value and the decoder does not use it; the

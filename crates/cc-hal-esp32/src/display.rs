@@ -190,14 +190,12 @@ impl<'bus, 'd> I2cPanel<'bus, 'd> {
     /// This exists because blanking the panel needs `0xAE`/`0xAF` and nothing
     /// else, and the obvious way to send them — build an [`Oled`] and call
     /// [`Oled::set_power_saved`] — puts a 1 KB page buffer plus the `Ssd1306`
-    /// wrapper on the caller's stack. [`crate::task::ControlStackBytes`]'s
-    /// control task has 8 KB, and doing that on it **overflowed it**: the device
+    /// wrapper on the caller's stack. The control task had 8 KB then
+    /// (`CONTROL_STACK_BYTES` in `cc-firmware`), and doing that on it **overflowed it**: the device
     /// reset with `***ERROR*** A stack overflow in task pthread` the first time
     /// the machine entered standby. `Oled::set_power_saved` remains correct and
     /// is still what the unit tests exercise; this is the path production uses,
     /// and it costs one stack array.
-    ///
-    /// [`crate::task::ControlStackBytes`]: crate::task::CONTROL_STACK_BYTES
     ///
     /// # Errors
     ///
@@ -347,7 +345,7 @@ impl<DI: WriteOnlyDataCommand> Oled<DI> {
     /// `framebuffer` is one whole panel, page-major and LSB-on-top, in the
     /// order the controller's GDDRAM wants it. There is no conversion step and
     /// no copy of the caller's buffer: the slice is chunked in place by
-    /// [`I2cPanel::transfer`].
+    /// `I2cPanel::transfer`.
     ///
     /// The column and page window is re-sent every frame rather than relying on
     /// the controller having wrapped back to the origin after the last one. That
@@ -448,12 +446,15 @@ pub mod tests {
     // the on-target runner is built around "a failed assert resets the chip"
     // (see `cc-device-tests`). A panic here is the reporting mechanism, not an
     // undocumented hazard, and none of this module ships.
-    #![allow(clippy::missing_panics_doc)]
-    // As in every other module here: these exercise the parent's private
-    // helpers, so the module globs its parent. The `clippy::wildcard_imports`
-    // exception the lint gives a `#[cfg(test)]` module does not apply to this
-    // one, which the on-target runner also compiles.
-    #![allow(clippy::wildcard_imports)]
+    #![allow(
+        clippy::missing_panics_doc,
+        reason = "a failed assertion is how the on-target runner reports; none of this ships"
+    )]
+    #![allow(
+        clippy::wildcard_imports,
+        reason = "the tests exercise the parent's private items, and the `cfg(test)` \
+                  exception does not cover the device-tests build"
+    )]
 
     use super::*;
 

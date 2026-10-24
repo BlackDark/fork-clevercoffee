@@ -378,7 +378,7 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::*;
-    use crate::secret::Secret;
+    use crate::Secret;
 
     struct FailingBackend;
 

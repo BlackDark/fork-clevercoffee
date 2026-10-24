@@ -56,17 +56,14 @@ pub(crate) fn push_into_machine(
 }
 
 /// Keys the violation implicates, or `None` when the configuration is safe.
-///
-/// Lives here because this crate maps `Config` to `SafetyConfig`. `cc-config`
-/// and `cc-safety` stay peers.
 fn validate_for_repair(config: &cc_config::Config) -> Option<&'static [&'static str]> {
-    cc_safety::validate_config(&crate::control::safety_config(config))
+    cc_safety::validate_config(&cc_machine::safety_config(config))
         .err()
         .map(cc_safety::ConfigViolation::implicated_keys)
 }
 
 /// Revert the keys an unsafe configuration implicates. See
-/// [`cc_config::repair_unsafe`].
+/// [`cc_config::config::repair_unsafe`].
 pub fn repair_unsafe(config: &mut cc_config::Config) -> cc_config::config::Repair {
     cc_config::config::repair_unsafe(config, validate_for_repair)
 }
@@ -169,7 +166,7 @@ pub(crate) fn persist_config(
 ///
 /// Events — a completed tare, a new factor — are the opposite of a reading: dropping one
 /// loses an operator's action, so they come over a queue that is drained every tick. **The
-/// weight is not one of them**: it is [`crate::scale_weight`], a reading, taken at step 4
+/// weight is not one of them**: it is `control_task::scale_weight`, a reading, taken at step 4
 /// with the temperature and the pressure, because the only consumer of the number,
 /// `Sensors::brew_weight`, is read by the same tick that decides on it.
 ///

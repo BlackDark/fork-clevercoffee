@@ -1,94 +1,42 @@
-# CleverCoffee developer recipes.
+# CleverCoffee developer recipes. `just --list` prints them all. Arguments are
+# POSITIONAL: `KEY=value` is make syntax and would reach espflash verbatim.
 #
-# The recipes below carry three corrections that the R1-01 build proved are
-# required. Each is marked DEVIATION and says why:
+# Three deviations from a plain cargo workflow, marked DEVIATION where they apply:
 #
-#   D1. The host recipes pass `--target {{host_target}}` explicitly.
-#       `.cargo/config.toml` sets `[build] target = "xtensa-esp32-espidf"`, and
-#       that applies to *every* cargo invocation in the repository — including
-#       `cargo test` for the portable crates, which would then try to build
-#       `std` for the Xtensa target. A host test recipe without `--target`
-#       cannot work as written.
-#   D2. The device recipes source `.rust-esp-env.sh`, which puts the Xtensa GCC
-#       on `PATH`. ESP-IDF's link line references `xtensa-esp32-elf-gcc`, so
-#       without it the build fails with "linker `xtensa-esp32-elf-gcc` not
-#       found". `just env-file` regenerates the ESP-IDF export indirection.
-#   D3. `flash` uses `cargo espflash` (not `espflash`) and passes the
-#       partition table explicitly. The app image does NOT contain the partition
-#       table — the first byte of the app is the 0xE9 app magic, and the table
-#       is a separate image at 0x8000 — so the table must be flashed or the
-#       bootloader cannot find app0.
-#
-# `just --list` prints every recipe. Arguments are POSITIONAL: `KEY=value` is
-# make syntax and just would pass the literal string through to espflash.
+#   D1. Host recipes pass `--target {{host_target}}`, so host artifacts live in
+#       `target/<host triple>/` and never share `target/debug` with the device
+#       build's build scripts, which a different toolchain would keep rebuilding.
+#   D2. Device recipes source `.rust-esp-env.sh` for `xtensa-esp32-elf-gcc`,
+#       which ESP-IDF's link line names (`just env-file` regenerates it).
+#   D3. `flash` uses `cargo espflash` and passes the partition table: the app
+#       image does not contain it, and without it the bootloader finds no app0.
 
-# One error semantic for the whole file. Every recipe runs under
-# `bash -euo pipefail -c`, so:
-#   * a failing command aborts the recipe. Before, only the six recipes that
-#     declared their own `#!/usr/bin/env bash` + `set -euo pipefail` did -- which
-#     is how `reflash` erased the chip and then died on a stray `@just flash`
-#     (fixed by `e4ec70bd`, which added the `set shell` line below);
-#   * an unset variable is an error rather than an empty string;
-#   * a pipe fails if any stage fails.
-# The per-recipe shebangs and `set -euo pipefail` lines this made redundant were
-# deleted in the same commit.
+# Every recipe fails on the first failing command, unset variable or pipe stage.
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-# `.env` holds WIFI_SSID / WIFI_PASS for `wifi-provision`. mise already loads it
-# (`mise doctor` lists it under env_files); just did not, so a recipe that wanted
-# the variable saw nothing. `scripts/wifi_provision.py` reads `.env` itself
-# (defence in depth, so a credential is never in a recipe's environment by
-# accident), so this is about honesty, not about making that one recipe work.
+# `.env` holds WIFI_SSID / WIFI_PASS for `wifi-provision`.
 set dotenv-load := true
 
-# Device build knobs. SINGLE source of truth: `.cargo/config.toml` and the
-# `firmware` CI job env must agree with these. `just doctor` asserts them.
+# Device build knobs. `.cargo/config.toml` and the CI device job must agree;
+# `just doctor` asserts it.
 export ESP_IDF_VERSION := "v5.5.5"
 export RUSTFLAGS := "--cfg espidf_time64"
 
-# A just `export` assignment is injected into EVERY recipe's environment, so
-# this single line is what makes `cargo`, `rustup`, `espflash`, `cargo-espflash`
-# and `ldproxy` reachable. They are cargo-installed and are NOT on PATH in a
-# plain login shell, which is how R1-01 left half the recipes failing with
-# "command not found". Do NOT prefix individual recipes with this.
+# cargo-installed tools (espflash, ldproxy, ...) are not on a login shell's PATH.
 export PATH := env_var_or_default("PATH", "") + ":" + home_dir() + "/.cargo/bin"
 
-# REQUIRED. A virtual workspace has no root crate, and esp-idf-sys reads
-# `[[package.metadata.esp-idf-sys]]` (which carries `extra_components`, e.g. the
-# LittleFS managed component) ONLY from the root crate
-# (esp-idf-sys/build/config.rs:92-122). Without this it prints
-# "could not identify the root crate" and SILENTLY IGNORES the metadata, so
-# `svc::fs::littlefs` would later fail with a confusing error.
-# Found 2026-09-28 during R1-01.
+# Required: a virtual workspace has no root crate, and esp-idf-sys reads its
+# metadata (the LittleFS `extra_components`) only from the root crate. Without
+# this it warns and silently ignores the metadata.
 export ESP_IDF_SYS_ROOT_CRATE := "cc-firmware"
 
-# Which toolchain the recipes compile with.
+# The recipes' toolchain: `esp` unless `CC_RUST_TOOLCHAIN` says otherwise.
 #
-# The DEFAULT is `esp`, and it stays the default: `rust-toolchain.toml` pins
-# `channel = "esp"`, and rustup gives an AMBIENT `RUSTUP_TOOLCHAIN` precedence
-# over that file. If a shell (or CI, or an agent's environment) happens to export
-# `RUSTUP_TOOLCHAIN=stable`, every device recipe would fail with "the -Z flag is
-# only accepted on the nightly channel of Cargo" -- and the host recipes would
-# silently run on the wrong compiler instead. Found 2026-09-28. Setting it here
-# makes the recipes immune to ambient state.
-#
-# It is overridable by `CC_RUST_TOOLCHAIN`, because a just `export` ALWAYS beats
-# an environment variable -- which is the point, and also the problem. Verified:
-#
-#     $ RUSTUP_TOOLCHAIN=stable just show
-#     in recipe: RUSTUP_TOOLCHAIN=esp      # the export won
-#
-# So before this was overridable there was no way at all to run the host gate
-# without the Xtensa toolchain, and CI's host job could not run: the runner has
-# stable Rust, does not have `esp`, and `rustc -vV` failed, so `just` refused to
-# even PARSE. The host gate is `cargo fmt`, clippy, rustdoc and the portable
-# tests -- none of which touch an Xtensa pin. Gating them on a multi-hundred-
-# megabyte nightly fork downloads that toolchain on every CI run and on every
-# new contributor's first `just test`, to compile code that does not care.
-#
-# So: device work takes no override and gets `esp`; host work sets
-# `CC_RUST_TOOLCHAIN=stable`. `just doctor-host` reports which one is in effect,
-# and `just doctor` refuses anything but `esp` before a device recipe runs.
+# An export beats an ambient `RUSTUP_TOOLCHAIN`, so a shell that exports
+# `stable` cannot silently build the firmware with the wrong compiler. Host work
+# (fmt, clippy, rustdoc, portable tests) sets `CC_RUST_TOOLCHAIN=stable` and
+# needs no Xtensa toolchain; `just doctor` refuses anything but `esp` for device
+# work, and `just doctor-host` reports what is in effect.
 export RUSTUP_TOOLCHAIN := env_var_or_default("CC_RUST_TOOLCHAIN", "esp")
 
 mcu_esp32 := "esp32"
@@ -99,88 +47,46 @@ tgt_esp32 := "xtensa-esp32-espidf"
 tgt_esp32s3 := "xtensa-esp32s3-espidf"
 tgt_esp32c6 := "riscv32imac-esp-espidf"
 
-# The one binary is named `firmware`, so this is the artifact path.
 bin_esp32 := "firmware"
 
-# The host triple, for the recipes that build, lint and test the *portable*
-# crates on the build machine.
-#
-# WAS `env_var_or_default("CC_HOST_TARGET", "aarch64-apple-darwin")` -- the
-# original author's laptop -- so `just test` died on any non-Apple host with
-# `cc: error: unrecognized command-line option '-arch'`, and `just doctor`
-# printed the wrong triple without failing on it (fixed by `3d6295f4`).
-#
-# Two overrides, in order:
-#   1. `CC_HOST_TARGET`, for a host chosen on purpose.
-#   2. Otherwise ask `rustc`. Backticks run in a shell WITHOUT the
-#      `export PATH` above, so this deliberately does NOT depend on the project
-#      toolchain -- `rustc` on PATH is the only assumption, satisfied by rustup,
-#      by mise, or by a system install.
-# NOTE: a backtick here is a trap -- just evaluates it while PARSING the
-# justfile, and a failing one is a parse error, so a machine without the `esp`
-# toolchain cannot run `just` at all. `scripts/host-target.sh` fails quietly and
-# `just doctor-host` turns an empty result into a diagnostic.
+# The host triple: `CC_HOST_TARGET`, else `rustc`'s. A script, not an inline
+# backtick: just evaluates backticks while parsing, and a failing one would make
+# every recipe unusable on a machine without `esp`. `just doctor-host` reports
+# an empty result.
 host_target := env_var_or_default("CC_HOST_TARGET", `./scripts/host-target.sh`)
 
-# The NINE portable crates. The device crates do not compile for a host target,
-# so `cargo test --workspace` / `cargo clippy --workspace` are wrong.
-#
-# `cc-web` was the sixth (finding 4.1): the HTTP application tier, which was
-# inside `cc-hal-esp32` and therefore reachable only by flashing a board.
-# `cc-mqtt` was the seventh (finding 4.1b): the same extraction for MQTT's topic
-# layout, registry and plan slices, whose 19 assertions ran only under
-# `just test-esp32`. `cc-protocol` and `cc-netpolicy` are the eighth and ninth.
-# All four are here because `scripts/portable-purity.py` names them as portable,
-# and naming them anywhere else would leave those surfaces untested on the host.
-host_crates := "-p cc-domain -p cc-protocol -p cc-netpolicy -p cc-safety -p cc-machine -p cc-display -p cc-config -p cc-web -p cc-mqtt"
+# The portable crates: the same list as `scripts/portable-purity.py`. The device
+# crates do not compile for a host target, so `--workspace` is wrong.
+host_crates := "-p cc-domain -p cc-protocol -p cc-safety -p cc-machine -p cc-display -p cc-config -p cc-net"
 
-# `--locked` on EVERY cargo invocation that resolves the dependency graph --
-# including `cargo doc` and `cargo test -p cc-parity`, which are not obvious
-# and were both missed the first time round. `cargo doc --no-deps` still resolves
-# and still rewrites a drifted lock without it, and `cc-parity` depends on
-# serde_json/serde_yaml_ng, so neither is a no-dependency case. `cargo fmt` is the
-# only one that does not resolve the graph.
-#
-# Cargo will otherwise UPDATE Cargo.lock to satisfy a manifest and carry on, so a
-# green CI run can be a run against a dependency set nobody reviewed and nobody
-# committed. `Cargo.lock` is committed here precisely so it is the input; `--locked`
-# is what makes it actually be the input. `cargo fmt` does not resolve the graph
-# and is left alone.
-# `cc-device-tests` is in here because `--all-targets` type-checks it like the
-# other device crates. It is the runner, NOT the firmware; see `test-esp32`.
-dev_crates := "-p cc-hal-esp32 -p cc-firmware -p cc-device-tests"
+# Host-only tools, linted and documented with the portable crates but not part of
+# `just test`: `cc-parity` has `just parity-test`, `cc-alloc-count` has no tests.
+host_tools := "-p cc-parity -p cc-alloc-count"
+
+# Every cargo invocation that resolves the graph (all but `cargo fmt`, including
+# `cargo doc`) passes `--locked`: otherwise cargo rewrites a drifted Cargo.lock
+# and CI passes against dependencies nobody committed.
+
+# `cc-device-tests` is the on-target runner, not the firmware; see `test-esp32`.
+dev_crates := "-p cc-hal-esp32 -p cc-net-esp32 -p cc-firmware -p cc-device-tests"
 
 # The on-target test image. NEVER flashed as the firmware; `just flash` is
 # hard-wired to `{{bin_esp32}}` so there is no recipe that can confuse them.
 bin_tests := "firmware-tests"
 
 # Source the generated environment file (D2) without failing when it is absent.
-#
-# `CARGO_UNSTABLE_BUILD_STD` is NOT set here. `cargo espflash` reads the config
-# table directly and ignores the env form, so the flash recipes build the image
-# with `cargo` (which takes `-Zbuild-std`) and flash the ELF with plain
-# `espflash` -- see `flash-elf`.
+# `cargo espflash` ignores `CARGO_UNSTABLE_BUILD_STD`, so the flash recipes build
+# with `cargo -Zbuild-std` and flash the ELF with `espflash` (see `flash-elf`).
 env_prefix := "[ -f .rust-esp-env.sh ] && . ./.rust-esp-env.sh || true; "
 
 # ---------------------------------------------------------------- setup / env
 
-# Show what mise will install and assert the device build knobs are set.
-# The checks that need NOTHING but a Rust toolchain: no Xtensa GCC, no esp
-# channel, no board. This is what a CI runner that has stable Rust can run, and
-# what a contributor should run before they have run `just setup`.
-#
-# It exists as a separate recipe because `doctor` cannot be the CI host gate:
-# `doctor` asserts the DEVICE toolchain, and a host job has no business
-# downloading a multi-hundred-megabyte Xtensa nightly fork to check that
-# `cargo fmt` works.
+# The checks that need only a Rust toolchain: no Xtensa GCC, no esp channel, no
+# board. The CI host gate and a contributor before `just setup` run this;
+# `doctor` asserts the device toolchain.
 [script]
 doctor-host:
-    # The host triple is what every host recipe passes to `cargo --target`, and
-    # it used to be hardcoded to the original author's laptop, with `doctor`
-    # PRINTING a mismatch instead of failing on it -- which is why `just test`
-    # failed on every non-Apple host. `host_target` is now derived by
-    # `scripts/host-target.sh`; this asserts the derivation actually produced
-    # something, because an empty value would otherwise reach `cargo --target `.
+    # An empty value would otherwise reach `cargo --target `.
     if [ -z "{{host_target}}" ]; then
       echo "host_target is empty: scripts/host-target.sh could not determine this"
       echo "machine's triple from rustc. Set CC_HOST_TARGET=<triple> explicitly."
@@ -192,7 +98,7 @@ doctor-host:
     echo "toolchain:      $(rustc --version)"
     echo "  via:          RUSTUP_TOOLCHAIN=${CC_RUST_TOOLCHAIN:-<default: esp>}"
     case "{{host_target}}" in
-      x86_64-unknown-linux-gnu|arm64-unknown-linux-gnu|aarch64-apple-darwin|x86_64-apple-darwin) ;;
+      x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu|aarch64-apple-darwin|x86_64-apple-darwin) ;;
       *)
         echo "unexpected host triple '{{host_target}}'."
         echo "The host recipes pass it to 'cargo --target', so it must be one of"
@@ -202,12 +108,7 @@ doctor-host:
         ;;
     esac
 
-    # The firmware build knobs. `ESP_IDF_VERSION` is a just `export`, i.e.
-    # unconditionally set, so the old `test -n "$ESP_IDF_VERSION"` was a
-    # tautology that could not fail. What is worth asserting is that it still
-    # agrees with the lockfile esp-idf-sys resolves, because those two drifting
-    # apart is how a "works on my machine" build happens. just's interpolation
-    # has no `#` strip operator, so the strip happens in the shell.
+    # `ESP_IDF_VERSION` must agree with the version the component lockfile pins.
     idf_version=$(echo '{{ESP_IDF_VERSION}}' | sed 's/^v//')
     if ! grep -qE "^    version: ${idf_version}$" components_esp32.lock; then
       echo "justfile ESP_IDF_VERSION={{ESP_IDF_VERSION}} does not match components_esp32.lock"
@@ -216,10 +117,7 @@ doctor-host:
     echo "ESP-IDF pinned: {{ESP_IDF_VERSION}} (matches components_esp32.lock)"
     echo "RUSTFLAGS:      {{RUSTFLAGS}}"
 
-    # The OWNERSHIP RULE, asserted against the manifest rather than the install
-    # directory (`mise ls` also lists leftovers from an older manifest): mise
-    # must not declare `rust`, because it installs no compiler here -- it
-    # symlinks ~/.cargo/bin and hands you back rustup.
+    # rustup owns the compiler; mise must not declare `rust` (AG-RUST-7).
     if grep -qE '^  rust = ' .mise.toml; then
       echo "mise declares rust, but rust-toolchain.toml owns the compiler."
       echo "Remove the 'rust = ...' line from .mise.toml (see its header)."
@@ -227,18 +125,9 @@ doctor-host:
     fi
     echo "compiler owner: rust-toolchain.toml; mise does not declare rust"
 
-    # The trap that has cost the most CI runs, stated as a check so it cannot
-    # come back unnoticed: a bare `cargo` -- which is what mise execs to install
-    # its `cargo:` backend tools -- resolves through `rust-toolchain.toml` and so
-    # demands the `esp` channel. On a machine that has not run `just setup` yet,
-    # `mise install` fails three times over with "custom toolchain 'esp' ...
-    # is not installed".
-    #
-    # This only prints advice, because `just doctor` itself runs AFTER the
-    # toolchain exists and `just doctor-host` has to work on a host-only machine
-    # where `esp` is legitimately absent -- demanding it here would make the host
-    # gate unsatisfiable. The real enforcement is `RUSTUP_TOOLCHAIN=stable` on the
-    # mise-running job, which is why that is at job level rather than on one step.
+    # Advice only: a host-only machine legitimately lacks `esp`, but any bare
+    # `cargo` (including mise's `cargo:` backend) resolves through
+    # rust-toolchain.toml and needs it.
     if ! rustup run esp rustc --version >/dev/null 2>&1; then
       echo ""
       echo "NOTE: the esp toolchain is not installed."
@@ -259,15 +148,9 @@ doctor-host:
 doctor:
     just doctor-host
 
-    # `channel = "esp"` is a FLOATING rustup channel, so the version that matters
-    # is the one .mise.toml pins for espup. Assert the two agree, or a toolchain
-    # bump silently moves under the size budget.
+    # `esp` is a floating channel; the version that matters is .mise.toml's pin.
+    # The keys are indented under `[vars]`, and an empty match must fail.
     grep -q 'channel = "esp"' rust-toolchain.toml
-    # `[[:space:]]*`, not `^`: these keys live in `.mise.toml`'s `[vars]` table, so
-    # they are indented by two spaces. A `^`-anchored pattern silently matched
-    # NOTHING and this printed an EMPTY pin -- for several commits, and through
-    # one CI run, because it only ever PRINTED the value. Asserting the pin
-    # non-empty is the fix; the tolerant pattern is why it now works at all.
     esp_pin=$(sed -n 's/^[[:space:]]*x86_64_toolchain_version = "\(.*\)"/\1/p' .mise.toml)
     espup_pin=$(sed -n 's/^[[:space:]]*espup_version = "\(.*\)"/\1/p' .mise.toml)
     host_pin=$(sed -n 's/^[[:space:]]*host_toolchain = "\(.*\)"/\1/p' .mise.toml)
@@ -286,19 +169,9 @@ doctor:
       exit 1
     fi
     echo "esp toolchain pin: $esp_pin   espup pin: $espup_pin   host pin: $host_pin"
-    # The host pin must not be OLDER than the device pin.
-    #
-    # `unknown_lints = "allow"` exists because the two channels have different
-    # lint SETS -- a lint the newer one has, the older has never heard of, and
-    # naming it in a suppression would otherwise be a build failure. That is a
-    # manageable gap. The reverse ordering is not: if the host channel is OLDER,
-    # then a lint that fires on it cannot be suppressed at all, so a gate built
-    # there would be weaker than the one the device job runs.
-    #
-    # `cut -d. -f2` for the MINOR: `${pin%%.*}` would strip from the FIRST dot
-    # and yield "1" for every 1.x, comparing equal for ever -- which is how the
-    # first version of this check silently passed with the pins three years of
-    # releases apart.
+    # The host pin must not be older than the device pin, or the host gate would
+    # be weaker than the device one. Compare minors (`cut -f2`); `${pin%%.*}`
+    # yields "1" for every 1.x.
     esp_minor="$(echo "$esp_pin" | cut -d. -f2)"
     host_minor="$(echo "$host_pin" | cut -d. -f2)"
     # For the message: `-f1,2` keeps the major, so it reads "1.97" and not "97".
@@ -315,9 +188,7 @@ doctor:
     echo "channels: device rustc ${esp_series}.x, host rustc ${host_series}.x (lint gap absorbed by unknown_lints = \"allow\")"
     rustup run esp rustc --version
 
-    # The device recipes default to `esp`; a caller who overrode it wants the
-    # host gate, not a firmware build. Say so here rather than failing later
-    # inside cargo with something about -Z flags.
+    # Fail here rather than later inside cargo with an error about -Z flags.
     if [ "${CC_RUST_TOOLCHAIN:-}" != "" ] && [ "${CC_RUST_TOOLCHAIN}" != "esp" ]; then
       echo "CC_RUST_TOOLCHAIN=${CC_RUST_TOOLCHAIN}, but a device build needs 'esp'."
       echo "Unset it (or set it to esp) to build or flash the firmware."
@@ -331,26 +202,14 @@ doctor:
     espflash --version
     command -v ldproxy >/dev/null && echo "ldproxy present"
 
-# First-time setup, in the right order: host tools, then the device toolchain
-# mise cannot install, then the web UI the firmware embeds.
-#
-# `CC_RUST_TOOLCHAIN=stable` is scoped to the two steps that need it, and both
-# need it for the same reason: `mise`'s `cargo:` backend and `espup` are ordinary
-# `cargo install`s, while `rust-toolchain.toml` already names `esp` — a channel
-# that does not exist until `espup` installs it. Bootstrapping with the thing
-# being bootstrapped is a chicken-and-egg, and it fails as
-# "custom toolchain 'esp' is not installed".
+# First-time setup: host tools, the device toolchain mise cannot install, then
+# the web UI the firmware embeds.
 setup:
-    # mise's cargo backend shells out to `cargo`, so it has to be reachable. On a
-    # machine where rustup lives somewhere unusual this is the one place that
-    # says so, instead of a bare "No such file or directory" from inside mise.
     command -v cargo >/dev/null || { echo "cargo is not on PATH; install Rust with rustup first: https://rustup.rs"; exit 1; }
     mise trust
-    # RUSTUP_TOOLCHAIN, NOT CC_RUST_TOOLCHAIN. mise execs a bare `cargo install`
-    # for its `cargo:` backend tools, and a bare cargo resolves through
-    # rust-toolchain.toml -- which says `esp`, a channel that does not exist yet
-    # on a fresh machine. CC_RUST_TOOLCHAIN is the justfile's own switch and
-    # rustup never sees it, so using it here is a no-op that fails confusingly.
+    # `RUSTUP_TOOLCHAIN`, which rustup reads (`CC_RUST_TOOLCHAIN` is this file's
+    # own switch): mise's bare `cargo install` would otherwise demand `esp`,
+    # which does not exist until this step installs it.
     RUSTUP_TOOLCHAIN=stable mise install
     mise run setup-esp
     @just ui
@@ -379,38 +238,14 @@ env-file:
     printf 'export PATH="%s:$PATH"\n' "$gcc_bin" > .rust-esp-env.sh
     echo "wrote .rust-esp-env.sh with $gcc_bin"
 
-# ----------------------------------------------------------------- format/lint
-
 # ---------------------------------------------------------------------- web UI
 
-# The firmware embeds the built React bundle, and `cc-hal-esp32/build.rs` PANICS
-# if it is absent -- deliberately, so `cargo build` can never succeed and ship a
-# firmware whose `/ui` is a placeholder string.
+# The React bundle the firmware embeds. `cc-net-esp32/build.rs` panics without
+# it, so no build can ship a placeholder `/ui` (AG-RUST-6).
 #
-# Before this recipe existed nothing built it: no recipe, no CI step, no `just`
-# invocation of `pnpm`. So `just build-esp32`, `lint-esp32`, `size`,
-# `size-check` -- and therefore the whole `gate` chain -- failed on a clean
-# checkout with a panic out of build.rs. Fixed by `e4ec70bd`, which added this
-# recipe.
-#
-# `--frozen-lockfile` so a contributor cannot silently resolve a different
-# dependency set than CI does.
-# STAMPED, so the three device recipes that depend on it (lint-esp32,
-# build-esp32, size-check) do not each pay for pnpm + vite. Measured on the green
-# run: pnpm install 3.27 s + vite build 1.42 s in the first, and 0.41 + 1.23 in
-# the second -- about 6 s for work already done.
-#
-# The stamp is keyed on the things the build actually reads, so a change to any
-# of them re-runs the build:
-#   * `ui/pnpm-lock.yaml`   -- the resolved dependency set
-#   * every file under `ui/packages/frontend/src` and its config -- the bundle
-#   * the gzipped `dist` marker itself -- the frontend's `postbuild` gzips every
-#     asset and then rimrafs the plain ones, so `dist/index.html.gz` is the one
-#     path that is always present. (Stamping `dist/index.html` silently never
-#     matched anything, which is how this was found: the recipe was not
-#     skipping.)
-# `--frozen-lockfile` still holds: the stamp skips the WORK, it does not relax
-# the lock.
+# Skipped when `dist/index.html.gz` (the one file `postbuild` always leaves) is
+# newer than the lockfile and every source and config file, so the device
+# recipes that depend on it pay once. `--frozen-lockfile` holds either way.
 ui:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -430,24 +265,22 @@ fmt-check:
     cargo fmt --all -- --check
 
 # DEVIATION D1: --target {{host_target}} is required, see the header.
+# `host_tools` are not portable, but they are host code: outside this recipe they rot.
 lint:
-    cargo clippy --locked {{host_crates}} --all-targets --target {{host_target}} -- -D warnings
+    cargo clippy --locked {{host_crates}} {{host_tools}} --all-targets --target {{host_target}} -- -D warnings
 
-# The audit runs FIRST and unconditionally, because `lint-esp32` is the recipe
-# that made 67 device tests look green while nothing ever executed them. It is
-# three greps, needs no device and no cargo, and it is what stops that from
-# recurring: a new device-crate `#[test]` that nobody registered with the
-# on-target runner is a lint failure, not a test that silently never runs.
+# The audit runs first: a device-crate test the on-target runner cannot reach is
+# a lint failure, not a test that silently never runs.
 lint-esp32: test-audit ui
     {{env_prefix}} MCU={{mcu_esp32}} cargo clippy --locked {{dev_crates}} --all-targets \
         --target {{tgt_esp32}} -Zbuild-std=std,panic_abort -- -D warnings
 
-# Only after R4-07, and only once that target has been flashed and exercised.
+# Unsupported until the target has been flashed and exercised.
 lint-esp32s3:
     {{env_prefix}} MCU={{mcu_esp32s3}} cargo clippy --locked {{dev_crates}} --all-targets \
         --target {{tgt_esp32s3}} -Zbuild-std=std,panic_abort -- -D warnings
 
-# Only after R4-08.
+# Unsupported until the target has been flashed and exercised.
 lint-esp32c6:
     {{env_prefix}} MCU={{mcu_esp32c6}} cargo clippy --locked {{dev_crates}} --all-targets \
         --target {{tgt_esp32c6}} -Zbuild-std=std,panic_abort -- -D warnings
@@ -459,28 +292,19 @@ lint-esp32c6:
 test:
     cargo test --locked {{host_crates}} --target {{host_target}}
 
-# THE RECURRENCE GUARD. Fails if any device-crate test exists that the on-target
-# runner cannot execute: a bare `#[test]` (the compiler deletes it unless the
-# crate is built with --test), a `#[cfg_attr(test, test)]` that is missing from
-# `cc_hal_esp32::device_tests::CASES`, a registry entry with no matching test,
-# or any `#[ignore]`. Runs in well under a second and needs no hardware, which
-# is what makes it cheap enough to be a dependency of `lint-esp32` and of
-# `test-esp32` rather than a thing someone remembers to run.
+# Fails on a device-crate test the on-target runner cannot execute: a bare
+# `#[test]`, a `#[cfg_attr(test, test)]` missing from
+# a crate's `device_tests::CASES`, a registry entry with no test, or any
+# `#[ignore]`. No hardware, under a second.
 test-audit:
     @python3 scripts/device-test-audit.py .
 
 # ------------------------------------------- on-target (device) unit tests
 #
-# The suite that `just test` cannot reach. `cc-hal-esp32` does not build for a
-# host target, so its 67 `#[test]` functions are executable only by flashing
-# `firmware-tests` and reading the console.
-#
-# Exits NON-ZERO when any case fails. That is the whole point: the recipe that
-# replaced "nothing ran" must not be a recipe that always exits 0.
-#
-# PORT is positional and REQUIRED, as for `flash`. Run `just identify <port>`
-# first. It flashes the test image and leaves it on the chip, so run
-# `just flash <port>` before putting the machine back into service.
+# The suite `just test` cannot reach: the device crates' tests run only by
+# flashing `firmware-tests` and reading the console. Exits non-zero when any case
+# fails. PORT is required; run `just identify <port>` first. The firmware is
+# flashed back at the end.
 [script]
 test-esp32 port: test-audit
     just build-tests-esp32
@@ -491,14 +315,8 @@ test-esp32 port: test-audit
     done
     [ -n "$py" ] || { echo "no python with pyserial found" >&2; exit 1; }
     "$py" scripts/device-tests.py {{port}}
-    # Put the firmware back.
-    #
-    # `cc-device-tests` is flashed over the top of the running firmware, so after
-    # this recipe the board is running the **test runner**: 142 cases, then a
-    # blank panel and no Wi-Fi until something is flashed. That is not an
-    # inconvenience -- it is a machine that looks broken, and the first time this
-    # ran nobody (including the person who wrote the recipe) worked out that the
-    # board was fine and simply had the wrong image on it.
+    # Without this the board keeps the test runner: a blank panel and no Wi-Fi,
+    # which looks exactly like a broken machine.
     echo ""
     echo "device-tests finished; restoring the firmware on {{port}}"
     just flash {{port}}
@@ -520,24 +338,15 @@ gate:
     just lint
     just lint-esp32
     just doc
+    just doc-esp32
     just test
     just parity-test
-    # `doc-links` was in `check` and **not** here, so a run of this recipe could
-    # push four broken links while reporting green -- which is what happened on
-    # 2026-10-05. It needs no hardware and takes under a second, so there was
-    # never a reason for the two recipes to disagree about it.
     just doc-links
     just build-esp32
     just size-check
 
-# Everything a gate must run, on ONE toolchain.
-#
-# `gate` above is what CI runs (plus the device-test audit `lint-esp32` already
-# depends on). This is the same list minus the device steps, which is what
-# `CC_RUST_TOOLCHAIN=stable just check` selects: the host gate compiling the
-# portable crates on a stock toolchain is a real check, not a consolation
-# prize, and it is what makes the workspace's `rust-version = "1.82"` claim
-# verifiable instead of decorative.
+# `gate` minus the device steps, for `CC_RUST_TOOLCHAIN=stable just check`: the
+# portable crates on a stock toolchain (AG-RUST-1, AG-RUST-3).
 check:
     just doctor-host
     just fmt-check
@@ -548,14 +357,8 @@ check:
     just test-audit
     just doc-links
 
-# Every relative markdown link resolves.
-#
-# Added 2026-10-04, after a documentation restructure left sixteen rotted links
-# in place -- nine of them in the migration execution skill, the file every
-# agent read first at the time. All sixteen predated the move; the move did not
-# introduce one. It checks EXISTENCE only: a link to a file that exists but says
-# the wrong thing is a documentation defect, not a broken link, and conflating the
-# two would make this check unreliable.
+# Every relative markdown link resolves (existence only), and the OpenAPI spec
+# matches the routes the firmware serves (AG-REPO-31).
 doc-links:
     @python3 scripts/check-doc-links.py
     @python3 scripts/check-openapi.py .
@@ -612,8 +415,7 @@ build-esp32c6:
     {{env_prefix}} MCU={{mcu_esp32c6}} cargo build --locked --release -p cc-firmware --bin {{bin_esp32}} \
         --target {{tgt_esp32c6}} -Zbuild-std=std,panic_abort
 
-# build-esp32s3 / build-esp32c6 are deliberately NOT included: a target that
-# builds is not a supported target (06 R4-07/R4-08, skill rule 5).
+# Not esp32s3 / esp32c6: a target that builds is not a supported target.
 build-all:
     just build-esp32
 
@@ -649,8 +451,7 @@ diag-addr2line *addresses:
 
 # ----------------------------------------------------------------------- size
 
-# Image size vs the app slot, and the delta vs the previous gate. Run after
-# every task (skill rule 5c).
+# Image size vs the app slot, and the delta vs the previous record.
 size: ui
     just --working-directory . --justfile just/size.just size
 
@@ -676,48 +477,15 @@ identify port:
 
 # Flash a built ELF onto a port.
 #
-# `cargo espflash flash --package ...` is NOT usable from a recipe: it builds the
-# binary itself, accepts no `-Z`, and reads the build-std setting from the cargo
-# config table rather than the environment. `e4ec70bd` removed
-# `[unstable] build-std` from `.cargo/config.toml` on the grounds that every
-# device recipe passes `-Zbuild-std` on the command line -- true for
-# `build-esp32` and `lint-esp32`, false for these four, which have been dead
-# ever since ("'build-std' not configured"). So the image is built by the
-# `build-*` recipe, which can pass the flag, and flashed from its ELF here.
-#
-# The partition table is passed explicitly, and that comment used to be a lie.
-#
-# It said: "D3 still holds: the app image does not contain the partition table.
-# `espflash` reads `rust/partitions_4M.csv` out of the ESP-IDF metadata cargo
-# embeds in the ELF, which is why no `--partition-table` is passed here." Neither
-# half is true of esp-idf-sys 0.38.1. Its README says a custom `partitions.csv`
-# is *not* consumed by the build — "the build would not use your custom
-# partitions - nor does it need to" — and that flashing must pass
-# `espflash flash [...] --partition-table partitions.csv`. The build emits the
-# ESP-IDF default table (`partition-table.bin` in the target dir, verified with
-# `gen_esp32part.py`), and the ELF carries no table metadata.
-#
-# So every `just flash` left the device's *previous* table in place. Measured on
-# a bench ESP32 (2026-10-06): the chip booted with `nvs 0x6000 / phy_init /
-# factory 0x10000+0x3f0000` -- one app slot, no app0/app1, no littlefs -- which
-# is why `POST /api/ota/firmware` answered 500 and `esp_ota_get_next_update_partition()`
-# returned NULL. With `--partition-table` the same flash reports
-# `App/part. size: 1,701,296/1,835,008` instead of `/4,128,768`, and the device
-# boots `app0`/`app1`/`littlefs`/`coredump` from `rust/partitions_4M.csv`.
-#
-# Both app slots are written, and finding #17 is why: `espflash flash` writes the
-# application at the offset in the ELF -- `app0`, 0x10000 -- and knows nothing
-# about `otadata`. Since `Writer::end` started selecting a slot
-# (`cc-hal-esp32/src/ota.rs`, 2026-10-07), a device that had taken an OTA booted
-# `app1` while every `just flash` wrote `app0`: the flash reported success, the
-# old image kept running, and the change was invisible. Found because a bench
-# build flashed this way did not take -- the emergency-threshold floor was still
-# 120 afterwards -- and only landed once it was uploaded over HTTP.
-#
-# `app1`'s offset is read out of `rust/partitions_4M.csv` rather than written
-# here, so the recipe and the partition table cannot drift apart again. Writing
-# the slot the chip is currently running from is safe: while flashing, the chip
-# executes the ROM loader from IRAM, not the application.
+# - Built by a `build-*` recipe, not `cargo espflash`: that builds the binary
+#   itself and cannot take `-Zbuild-std`.
+# - The partition table is passed explicitly: esp-idf-sys does not embed
+#   `rust/partitions_4M.csv`, and without it the chip keeps its previous table
+#   (measured: one factory slot, no OTA slots, OTA answering 500).
+# - Both app slots are written: espflash writes `app0` and ignores `otadata`, so
+#   a device that had taken an OTA would keep booting the old image from `app1`.
+#   `app1`'s offset is read from the partition table so the two cannot drift.
+#   Overwriting the running slot is safe; the ROM loader runs from IRAM.
 [script]
 flash-elf port elf:
     [ -f {{elf}} ] || { echo "no {{elf}} -- build it first"; exit 1; }
@@ -739,8 +507,8 @@ flash-elf port elf:
     # is in flight: the chip executes the ROM loader from IRAM, not the app.
     # It is NOT safe if the write is *interrupted* -- the selected slot is left
     # corrupt, there is no rollback, and recovery is another `just flash` over the
-    # cable you are already holding. That is the trade for "a USB flash always
-    # wins" (finding #17), and it is the reason this line is commented at all.
+    # cable you are already holding. That is the price of "a USB flash always
+    # wins".
     espflash write-bin --port {{port}} --chip {{mcu_esp32}} "$app1" "$tmp/app.bin"
 
 # Flash the production target. PORT is positional and REQUIRED — a bare
@@ -765,14 +533,9 @@ flash port:
 # route that can turn it on — and the firmware prints a `SAFETY BENCH BUILD`
 # warning at boot.
 #
-# `cc-safety`'s own suite is deliberately NOT run against a bench build, and
-# this recipe says so rather than quietly skipping tests: measured on
-# 2026-10-07, `CC_BENCH_UNSAFE_TEMPERATURES=1 cargo test -p cc-safety` reports
-# **13 failures**, all of them tests that assert the two headroom rules or the
-# *order* between them and the relay rules -- none of which a bench build has.
-# `just check` and `just gate` run that suite against the production image, which
-# is where its value is. `just check` and `just gate` run that suite
-# against the production image, which is where its value is.
+# `cc-safety`'s suite is not run against a bench build: its headroom tests fail
+# by design there. `just check` and `just gate` run it against the production
+# image.
 #
 # **Never flash this to the coffee machine.** On a machine it removes the check
 # that stops the emergency threshold being set where the PID would trip it during
@@ -791,8 +554,8 @@ unbench-flash port:
     just flash-elf {{port}} target/{{tgt_esp32}}/release/{{bin_esp32}}
 
 
-# Wipe and flash. Destroys NVS — but NVS is rewritten anyway (no cross-version
-# compatibility, 06 R3-08), so this is about a known-clean state, not data loss.
+# Wipe and flash, for a known-clean state. Erases NVS: the stored configuration,
+# credentials and shot counter go with it.
 [script]
 reflash port:
     printf 'Erase {{port}}? type ERASE: ' && read ans && [ "$ans" = "ERASE" ] || { echo aborted; exit 1; }
@@ -812,7 +575,7 @@ reflash port:
 #
 # **This is the correct location by construction.** The credential is not written
 # to NVS by hand: the script types `wifi set <ssid>`, `wifi pass <password>` and
-# `wifi apply` at `cc_hal_esp32::provisioning`, which parses them, hands a
+# `wifi apply` at `cc_net_esp32::provisioning`, which parses them, hands a
 # `Pending` to the control task, and persists it with `BlobConfigStore` — the same
 # path the web UI uses. Crafting the NVS blob would couple this recipe to the
 # blob's schema version and its JSON shape.
@@ -846,13 +609,8 @@ mon-noreset port:
     cargo espflash monitor --port {{port}} --baud 115200 --no-reset
 
 # Headless boot log for CI and for agents: reset the chip, then dump UART0.
-# Requires a python with pyserial; the ESP-IDF virtualenv created by the
-# esp-idf-sys build has one.
-# Found 2026-09-28: the recipe expanded `$VIRTUAL_ENV` under `set -u` and aborted with
-# "VIRTUAL_ENV: unbound variable" on a shell that is not inside an activated ESP-IDF
-# virtualenv -- which is every shell an agent runs. The ESP-IDF venv created by the
-# esp-idf-sys build already has pyserial, so the expansion bought nothing and cost the
-# recipe.
+# Requires a python with pyserial; the ESP-IDF virtualenv the esp-idf-sys build
+# creates has one, so no virtualenv needs to be active.
 [script]
 mon-headless port seconds="20":
     py=""
@@ -867,9 +625,8 @@ logs host:
 
 # ------------------------------------------------------------------- scenarios
 
-# The harness's own tests. A separate recipe because `cc-parity` is not in
-# `host_crates`: these are the binary contract (`list`/`run`) and the whole
-# scenario set in `crates/cc-parity/scenarios/`, run in process with no device.
+# The scenario harness: its binary contract and every scenario in
+# `crates/cc-parity/scenarios/`, in process, no device.
 parity-test:
     cargo test --locked -p cc-parity --target {{host_target}}
 
@@ -877,16 +634,9 @@ parity-test:
 
 # Host micro-benchmarks (reducer, layout).
 #
-# These measure **heap allocations**, not nanoseconds, and that is deliberate.
-# The device has ~320 KB of RAM; what a control tick or a display frame costs in
-# allocator pressure matters far more than how many host cycles it took. The
-# pre-fix control tick allocated 4.00 times per 10 ms tick (before `284ad17a`) and
-# `cc-display` has always been allocation-free because it is `no_std` with no
-# `alloc` in the device build. Both facts are now measured rather than assumed.
-#
-# Both targets carry the same measurement as a `#[test]`, so `just test` fails
-# if either count ever moves off zero. The bench exists so the number is a thing
-# a human watches over time.
+# Heap allocations first, nanoseconds second: on ~320 KB of RAM, allocator
+# pressure matters more than host cycles. `just test` already fails if either
+# count leaves zero (AG-RUST-11, AG-RUST-12); this prints the numbers.
 bench:
     cargo bench --locked --bench allocations -p cc-machine --target {{host_target}}
     cargo bench --locked --bench layout -p cc-display --target {{host_target}}
@@ -895,22 +645,21 @@ bench:
     @echo "'control tick: worst ... budget 10 ms' — capture it with:"
     @echo "    just mon-noreset <port> 60 | grep 'control tick'"
 
-# Control-loop timing. The host approximation is the `allocations` bench above
-# (`just bench`); the device number is captured with `just mon-noreset`.
-#
-# Control-loop timing has no recipe of its own: the host approximation is the
-# `allocations` bench (`just bench`), and the number that actually counts is the
-# one the firmware measures on the chip. Capture it without disturbing a running
-# brew -- `mon-noreset` attaches, `mon` and `mon-headless` reset the board:
+# Control-loop timing on the chip, without resetting a running machine:
 #     just mon-noreset <port> 60 | grep 'control tick'
 
 # ------------------------------------------------------------------- hygiene
 
-# `cargo doc` with warnings as errors. The workspace sets `missing_docs =
-# "warn"` but nothing ever promoted it, and no recipe or CI step ran rustdoc at
-# all, so the 83 broken intra-doc links accumulated silently (fixed by `cc1b06de`).
+# `cargo doc` with warnings as errors, so a broken intra-doc link fails the gate.
 doc:
-    RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps {{host_crates}} --target {{host_target}}
+    RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps {{host_crates}} {{host_tools}} --target {{host_target}}
+
+# The same for the device crates. Without `cc-device-tests`, so the test-only
+# feature is off and the shipped code is what gets documented.
+doc-esp32: ui
+    {{env_prefix}} MCU={{mcu_esp32}} RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps \
+        -p cc-hal-esp32 -p cc-net-esp32 -p cc-firmware \
+        --target {{tgt_esp32}} -Zbuild-std=std,panic_abort
 
 clean:
     cargo clean

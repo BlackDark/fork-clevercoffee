@@ -1,7 +1,7 @@
 //! Network bring-up and the stored-configuration safety check.
 //!
 //! `cc-config` and `cc-safety` cannot depend on each other, so firmware joins them
-//! through [`cc_config::Config::safety_view`]. Rejected blobs remain stored for
+//! through [`cc_machine::safety_config`]. Rejected blobs remain stored for
 //! diagnosis through `/api/nvs-debug`; defaults run instead and rejection is logged.
 //!
 //! Network code cannot actuate outputs. Only the control task subscribes to the
@@ -17,12 +17,12 @@ use cc_config::predecessor::{startup_notice, PredecessorProbe};
 use cc_config::{Config, NVS_NAMESPACE};
 use cc_hal_esp32::heap::{free_heap, min_free_heap};
 use cc_hal_esp32::nvs::EspNvsBlob;
-use cc_hal_esp32::provisioning::{self, Action, Session};
 use cc_hal_esp32::time::now_ms;
-use cc_hal_esp32::web::{Shared, Sse, Web};
-use cc_hal_esp32::wifi::Sta;
+use cc_net::web::{temperatures_json, Command};
+use cc_net_esp32::provisioning::{self, Action, Session};
+use cc_net_esp32::web::{Shared, Sse, Web};
+use cc_net_esp32::wifi::Sta;
 use cc_safety::ConfigOrigin;
-use cc_web::{temperatures_json, Command};
 use log::{info, warn};
 
 use esp_idf_hal::delay::FreeRtos;
@@ -99,13 +99,13 @@ pub fn bring_up_config() -> Result<Booted, EspError> {
     // The fail-closed rule. `cc_safety::load_or_default` is the whole of the
     // decision and is fully tested in `cc-safety`; this is the call.
     // **One construction, one owner.** This used to build `SafetyConfig` field by
-    // field, separately from `control::safety_config`, and a reviewer's finding
+    // field, separately from the control task's construction, and a reviewer's finding
     // was that the two drifted: this copy hard-coded the two relay trigger types
     // to `HighTrigger`, so `validate_config` never saw a stored low-trigger pump
     // or valve, the fail-closed rule did not discard the configuration — and
     // `main.rs` then applied that very polarity to the pins, energising the pump
     // at boot. Two constructions of a safety input is one too many.
-    let safety = stored.as_ref().map(crate::control::safety_config);
+    let safety = stored.as_ref().map(cc_machine::safety_config);
 
     let loaded = cc_safety::load_or_default(safety.as_ref());
 
@@ -203,10 +203,10 @@ pub struct Network {
     /// The state every handler reads.
     pub shared: Arc<Shared>,
     /// The one OTA update in flight. Owned here so the control task can read it
-    /// without reaching through [`crate::web::Web`], and so it outlives the
+    /// without reaching through [`cc_net_esp32::web::Web`], and so it outlives the
     /// server handle: a restart request raised by the last upload must still be
     /// seen by the tick that acts on it.
-    pub ota: Arc<cc_hal_esp32::ota::Session>,
+    pub ota: Arc<cc_net_esp32::ota::Session>,
     /// The SSE counters.
     pub sse: Arc<Sse>,
 }
@@ -217,8 +217,8 @@ impl Network {
     pub fn new() -> Self {
         Self {
             shared: Arc::new(Shared::new()),
-            ota: Arc::new(cc_hal_esp32::ota::Session::new()),
-            sse: Arc::new(Sse::new(cc_hal_esp32::web::SseMode::Chunked)),
+            ota: Arc::new(cc_net_esp32::ota::Session::new()),
+            sse: Arc::new(Sse::new(cc_net_esp32::web::SseMode::Chunked)),
         }
     }
 }
@@ -241,8 +241,8 @@ pub fn start_http(
     network: &Network,
     config: &Config,
     nvs_description: &str,
-    commands: Arc<cc_hal_esp32::task::CommandQueue>,
-    parameters: &Arc<cc_hal_esp32::task::ParameterHandoff>,
+    commands: Arc<cc_net_esp32::handoff::CommandQueue>,
+    parameters: &Arc<cc_net_esp32::handoff::ParameterHandoff>,
 ) -> Result<Web, EspError> {
     let shared = Arc::clone(&network.shared);
     let session = Arc::clone(&network.ota);
@@ -264,8 +264,8 @@ pub fn start_http(
     )?;
     info!(
         "http: {} routes registered; the large-response floor is {} B",
-        cc_hal_esp32::web::routes().len(),
-        cc_hal_esp32::web::HEAP_FLOOR_BYTES
+        cc_net_esp32::web::routes().len(),
+        cc_net::web::HEAP_FLOOR_BYTES
     );
     Ok(web)
 }
@@ -310,7 +310,7 @@ pub fn publish_radio(shared: &Shared, sta: Option<&Sta>) {
 
 /// Publish the SSE `new_temps` event, if an HTTP server is running.
 ///
-/// Called from the control task at [`crate::main::SSE_INTERVAL_MS`]. It reads the
+/// Called from the control task at the SSE interval (1 s). It reads the
 /// snapshot the control task has *just* published, so the frame cannot disagree with
 /// `/api/status`.
 ///
@@ -333,7 +333,7 @@ pub fn log_heap_once_a_minute(network: &Network) {
          ({} served, {} refused)",
         free_heap(),
         min_free_heap(),
-        cc_hal_esp32::web::HEAP_FLOOR_BYTES,
+        cc_net::web::HEAP_FLOOR_BYTES,
         network.shared.large_responses(),
         network.shared.large_refused(),
     );
@@ -341,13 +341,13 @@ pub fn log_heap_once_a_minute(network: &Network) {
 
 /// What the provisioning task captured, waiting for the control task to store it.
 ///
-/// A credential is **not** a [`cc_hal_esp32::web::Command`]. Those are `Copy` and eight
+/// A credential is **not** a [`cc_net_esp32::web::Command`]. Those are `Copy` and eight
 /// bytes because they cross a task queue, and a `String` cannot. That constraint is why a
 /// credential takes this route instead, and it is a good one: a credential that could
 /// travel as a command would be a credential an HTTP handler could set.
 pub enum Staged {
     /// `wifi set <ssid>`, the password line, then `wifi apply`.
-    Set(cc_hal_esp32::provisioning::Pending),
+    Set(cc_net_esp32::provisioning::Pending),
     /// `wifi clear`, then `wifi apply`.
     Clear,
 }
@@ -371,7 +371,7 @@ impl core::fmt::Debug for Staged {
 ///
 /// **One slot, and a refusal rather than an overwrite.** [`Handoff::stage`]
 /// returns `false` when something is already staged and the operator is told
-/// so. That is the opposite policy to [`cc_hal_esp32::task::CommandQueue`]'s
+/// so. That is the opposite policy to [`cc_net_esp32::handoff::CommandQueue`]'s
 /// drop-newest, and deliberately: losing a *set* because a *clear* arrived
 /// behind it, or the reverse, would leave the machine holding a credential
 /// nobody can account for.
@@ -426,7 +426,7 @@ impl core::fmt::Debug for Handoff {
 /// Persist staged credentials on the store-owning control task.
 ///
 /// Load/modify/save is one atomic blob update; an undecodable blob uses defaults.
-/// Nested serde needs about 8.6 KB of stack; [`CONTROL_STACK_BYTES`](crate::CONTROL_STACK_BYTES)
+/// Nested serde needs about 8.6 KB of stack; `bring_up::CONTROL_STACK_BYTES`
 /// reserves 16 KB. Exhaustion can reset silently before the panic handler runs.
 /// Measured load/save took 15/66 ms, 85 ms total: longer than one control period
 /// but bounded within the five-second watchdog timeout.
@@ -476,7 +476,7 @@ pub fn apply_staged(
               and is never handed anywhere else. A `&mut` would suggest it \
               could be shared, which is the one thing a UART must not be."
 )]
-pub fn run_provisioning(serial: cc_hal_esp32::provisioning::Serial<'_>, handoff: Handoff) {
+pub fn run_provisioning(serial: cc_net_esp32::provisioning::Serial<'_>, handoff: Handoff) {
     let mut session = Session::new();
     // `wifi clear` is a two-step command — the session drops the staged
     // credential and answers "apply to persist" — and which of the two things
@@ -494,7 +494,7 @@ pub fn run_provisioning(serial: cc_hal_esp32::provisioning::Serial<'_>, handoff:
         let read = serial.read_available(&mut buf);
         if read > 0 {
             // `Session::push` already returns fully-formed reply lines —
-            // `cc_hal_esp32::provisioning::reply_text` puts the `CCWIFI `
+            // `cc_net_esp32::provisioning::reply_text` puts the `CCWIFI `
             // prefix on — so they are written as they are. Wrapping them in
             // `provisioning::line` again is what put two prefixes on every
             // session reply.
@@ -544,13 +544,13 @@ pub fn run_provisioning(serial: cc_hal_esp32::provisioning::Serial<'_>, handoff:
 /// **This does not reset the machine, and that is the fix, not an omission.** An
 /// earlier revision staged the credential and then called `esp_restart()`
 /// immediately, which is a race the operator loses every time: the control task
-/// wakes every [`crate::main::CONTROL_PERIOD_MS`], so a reset issued microseconds after
+/// wakes every [`crate::control_task::CONTROL_PERIOD_MS`], so a reset issued microseconds after
 /// `Handoff::stage` resets the machine *before* it has read the slot, and the
 /// credential is silently lost with a success reply already on the console. The
 /// reboot belongs to the control task, which owns the store and knows whether
-/// the write worked; see the `handoff.take()` arm of `control_task`.
+/// the write worked; see `ControlLoop::take_console_credential`.
 fn stage_and_stop(
-    serial: &cc_hal_esp32::provisioning::Serial<'_>,
+    serial: &cc_net_esp32::provisioning::Serial<'_>,
     handoff: &Handoff,
     staged: Staged,
     reply: &str,

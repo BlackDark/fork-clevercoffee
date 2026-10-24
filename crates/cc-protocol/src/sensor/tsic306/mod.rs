@@ -447,7 +447,7 @@ impl<S: EdgeSource> Tsic306<S> {
     /// [`Self::no_signal_outcome`].
     // `&self`, not `&mut self`: an empty drain mutates nothing, and taking
     // `&mut` would make the caller hold a mutable borrow for no reason.
-    #[allow(clippy::unused_self, reason = "an empty drain mutates nothing")]
+    #[expect(clippy::unused_self, reason = "an empty drain mutates nothing")]
     fn no_signal(&self) -> Outcome {
         Outcome::ReadFailed
     }
@@ -477,26 +477,20 @@ pub fn as_probe(outcome: Outcome) -> Option<ProbeReading> {
 // and `assert_eq!(x.len(), 0)` would print a count instead of the contents.
 // Everywhere else in this crate a `String` emptiness assertion is written
 // `assert_ne!(x, "")` and is still linted.
-#[allow(
+#[expect(
     clippy::assert_is_empty,
     reason = "the assertions are on collections, so assert_eq!(x, \"\") does not typecheck"
-)]
-#[allow(
-    clippy::float_cmp,
-    reason = "the tests compare f32 temperatures that the code under test computes \
-              from the wire, at exact sentinels, and an approximate comparison would hide \
-              what is being pinned"
 )]
 // A synthesised waveform is indexed by a `usize` loop counter and the counter
 // is handed to the ring, which takes microseconds as `u32`. The values are 0 and
 // 1 in this test, so the truncation cannot occur; on a 64-bit host it is the lint
 // being conservative about a 32-bit target.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "a test waveform index of 0 or 1 microseconds, which is what a u32 \
               microsecond count can hold exactly"
 )]
-#[allow(
+#[expect(
     clippy::cast_precision_loss,
     reason = "index % 3 is 0, 1 or 2, every one of which is exact in f32"
 )]
@@ -546,7 +540,11 @@ mod tests {
     /// The 11-bit code nearest `celsius`.
     fn raw_for(celsius: f32) -> u16 {
         let steps = (celsius - protocol::RANGE_MIN_C) / protocol::RANGE_SPAN_C;
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "clamped to 0..=2047 first"
+        )]
         let raw = (steps * protocol::RANGE_STEPS).round().clamp(0.0, 2047.0) as u16;
         raw
     }

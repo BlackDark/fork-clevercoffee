@@ -26,7 +26,7 @@ use crate::widgets;
 /// stay faithful. The length lint is waived with that reason rather than by
 /// splitting the function, because a split would hide the order.
 #[must_use]
-#[allow(
+#[expect(
     clippy::too_many_lines,
     reason = "the ordered if-chain IS the control flow; see the doc comment"
 )]

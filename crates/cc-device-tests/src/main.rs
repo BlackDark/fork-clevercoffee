@@ -95,7 +95,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     esp_idf_svc::log::init_from_env();
     info!("CleverCoffee on-target unit test runner");
 
-    let cases = cc_hal_esp32::device_tests::CASES;
+    let cases: Vec<&Case> = cc_hal_esp32::device_tests::CASES
+        .iter()
+        .chain(cc_net_esp32::device_tests::CASES)
+        .collect();
     // + the two reboot cases below.
     let total = cases.len() + 2;
 
@@ -114,9 +117,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     ]);
 
     let mut ran = 0usize;
-    for case in cases.iter().enumerate().skip(start) {
-        let index = case.0;
-        run_case(checkpoint.as_ref(), index, case.1);
+    for (index, case) in cases.iter().copied().enumerate().skip(start) {
+        run_case(checkpoint.as_ref(), index, case);
         ran += 1;
     }
     // Both reboot cases, in order: the unflushed one first, because the drained

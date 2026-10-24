@@ -1,15 +1,12 @@
-//! Gate reducer allocations using the benchmark's shared counter.
+//! Gate reducer allocations with the `cc-alloc-count` allocator.
 //!
 //! This does not cover the device-only shell or other tasks. Set up fixtures
 //! outside the counting window and keep counter access within one test.
 
-#[path = "../benches/alloc.rs"]
-mod alloc;
-
 use cc_domain::units::{Celsius, Millis};
 use cc_machine::{boot, reduce, Context, Event, Machine, Sensors};
 
-use alloc::Counting;
+use cc_alloc_count::Counting;
 
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
@@ -45,16 +42,16 @@ fn the_control_tick_does_not_allocate() {
     // a tick's cost.
     one_tick(&mut machine, &ctx, sensors, Millis::new(2_000));
 
-    let mark = alloc::counters();
+    let mark = cc_alloc_count::counters();
     for i in 0..TICKS {
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
             reason = "TICKS is 1_000, a literal; the truncation is exact"
         )]
         let step = i as u32 * 10;
         one_tick(&mut machine, &ctx, sensors, Millis::new(2_000 + step));
     }
-    let (allocs, bytes) = alloc::delta_since(mark);
+    let (allocs, bytes) = cc_alloc_count::delta_since(mark);
 
     assert_eq!(
         allocs, 0,

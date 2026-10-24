@@ -133,7 +133,10 @@ mod tests {
         // field's `Debug` is the redacted one. This is the property that makes
         // `#[derive(Debug)]` on `Config` safe.
         #[derive(Debug)]
-        #[allow(dead_code)]
+        #[expect(
+            dead_code,
+            reason = "the fields exist to be printed by the derived Debug"
+        )]
         struct Wrapper {
             user: String,
             password: Secret<String>,

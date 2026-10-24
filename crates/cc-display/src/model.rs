@@ -110,7 +110,7 @@ pub enum BrewTimerState {
 // A snapshot, not a behaviour: the flags are independent facts about the machine
 // at one instant, and the lint is about the risk of a confusing *constructor*;
 // this type is only ever built by field name.
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "a flat snapshot of the machine's display reads; see the type's doc comment"
 )]
@@ -239,7 +239,7 @@ impl Default for DisplayInput {
 // A flat copy of the parameters the display reads. Grouping the feature flags
 // into sub-structs would make the device's mapping code translate rather than
 // copy, which is where a field would get missed.
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "a flat copy of the display's feature flags; see the type's doc comment"
 )]

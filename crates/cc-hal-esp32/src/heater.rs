@@ -324,7 +324,7 @@ impl TimerIsrPwm {
     ///
     /// Never. There is no peripheral call here — the pin belongs to the ISR, and
     /// the pin is already inactive because the gate closed the duty to zero
-    /// before this was called. See [`HeaterOutput`](super::HeaterOutput)'s
+    /// before this was called. See [`HeaterOutput`]'s
     /// ordering note.
     pub fn disarm(&self) -> Result<(), EspError> {
         self.chopper.disarm();
@@ -382,7 +382,10 @@ impl TimerIsrPwm {
         let fraction = if max_duty == 0 {
             0.0
         } else {
-            #[allow(clippy::cast_precision_loss)]
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "duty counts are far below 2^24, where f32 stops being exact"
+            )]
             {
                 counts as f32 / max_duty as f32
             }

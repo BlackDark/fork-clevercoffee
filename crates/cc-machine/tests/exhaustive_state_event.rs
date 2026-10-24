@@ -49,11 +49,10 @@ impl Outcome {
 ///
 /// Every arm is one rule of one state's own transition check, so the table can report *which* rule
 /// answered rather than only that the machine moved. There is deliberately no "other" arm.
-#[allow(dead_code)]
-// Justification: `Specific` is the table's naming scheme. Not every arm is
-// reachable from every machine flavour — the global guards shadow several — and
-// removing the unreachable arms would remove the per-state naming the table
-// exists to provide.
+#[expect(
+    dead_code,
+    reason = "`Specific` names every arm; no single machine flavour reaches them all"
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Specific {
     /// `INIT` routes to the configured PID state.
@@ -119,10 +118,10 @@ enum Specific {
 
 /// The full event set, named. The table is over *this* list, so a new
 /// [`Event`] variant cannot be added without a decision for all eighteen states.
-#[allow(clippy::too_many_lines)]
-// Justification: this is the *specification* of the table's axes — 46 events,
-// every one named. Splitting it would hide which events are in the table, which
-// is the only thing a reader needs from it.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the table's axes, every event named, are the specification"
+)]
 fn all_events() -> Vec<Event> {
     // Eleven sensor samples first, then the switch, command, tick, PID and safety
     // events. The implausible readings matter: `Celsius` is not validated at
@@ -304,9 +303,6 @@ type Build = fn(MachineState) -> Machine;
 /// One machine flavour: a name for the report and a constructor.
 type Flavour = (&'static str, Build);
 
-#[allow(clippy::type_complexity)]
-// Justification: `Flavour` is the alias this function returns; the lint is
-// complaining about the un-aliased spelling of its own return type.
 fn flavours() -> Vec<Flavour> {
     vec![
         ("adversarial", adversarial),

@@ -100,7 +100,7 @@ mod tests {
     // typecheck, and `assert_eq!(x.len(), 0)` would print a count instead of
     // the contents. A `String` emptiness assertion elsewhere in this crate is
     // still linted -- those are written `assert_ne!(x, "")`.
-    #![allow(
+    #![expect(
         clippy::assert_is_empty,
         reason = "the assertions are on collections, so the suggested \
                   assert_eq!(x, \"\") does not typecheck"
@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn a_paste_of_many_fields_parses_into_many_fields() {
-        // The read limit is the *caller's* (`cc_hal_esp32::web::drain_body`,
+        // The read limit is the *caller's* (`cc_net_esp32::web::drain_body`,
         // 256 bytes), and this asserts the parser is not a second limit: every
         // field in a 4 KB paste comes back, so a caller that forgets to bound
         // its read gets a big Vec rather than a truncated one. That is the

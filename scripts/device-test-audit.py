@@ -1,27 +1,15 @@
 #!/usr/bin/env python3
 """Fail if a device-crate unit test exists that the on-target runner cannot run.
 
-The bug this guards against is a process one, not a code one. `just lint-esp32`
-compiles `cc-hal-esp32`'s `#[test]` functions with `--all-targets`, which
-type-checks them. Nothing ran them: `cargo test` cannot build the crate for a
-host target, and `just test` lists only the portable crates. So the suite was
-green and two real device bugs shipped through it -- a provisioning password
-window that lasted zero milliseconds, and console lines lost across
-`esp_restart()` -- each with a test that had never been executed.
+Device crates cannot be tested by `cargo test` on the host; their tests run only
+through `just test-esp32`, which calls each crate's `device_tests::CASES`. A test
+can silently fall out of that run in three ways, all caught here:
 
-Three ways a test can now end up neither run nor visible, and one check catches
-all of them:
+  1. a `#[test]` nobody registered in its crate's `CASES`;
+  2. a registry entry for a test that was deleted or renamed;
+  3. a test marked `#[ignore]`.
 
-  1. a new `#[test]` in a device crate that nobody added to
-     `cc_hal_esp32::device_tests::CASES`, so the runner silently skips it;
-  2. a registry entry for a test that has been deleted or renamed, so the runner
-     fails to link or panics on a name that no longer exists;
-  3. a test marked `#[ignore]` "to make the runner pass", which is the move this
-     whole exercise exists to prevent.
-
-The check is three greps and a set comparison: it runs in well under a second,
-needs no device and no cargo, and is wired into `just lint-esp32` so it cannot be
-skipped by running the lint on its own.
+Runs in under a second, needs no device and no cargo; `just lint-esp32` runs it.
 
 Usage:
     python3 scripts/device-test-audit.py [workspace-root]
@@ -37,10 +25,10 @@ import re
 import sys
 from pathlib import Path
 
-# The crates that cannot be tested by `cargo test` on a host target. Each one
-# listed here is a crate whose `#[test]` functions are ONLY executable through
-# the on-target runner.
-DEVICE_CRATES = ("cc-hal-esp32", "cc-firmware", "cc-device-tests")
+# Crates whose tests run only on the device.
+DEVICE_CRATES = ("cc-hal-esp32", "cc-net-esp32", "cc-firmware", "cc-device-tests")
+# The device crates that carry a `src/device_tests.rs` registry.
+REGISTRY_CRATES = ("cc-hal-esp32", "cc-net-esp32")
 
 # A test that carries `#[cfg_attr(test, test)]` instead of a bare `#[test]` is
 # reachable from `device_tests::CASES`. A bare `#[test]` is NOT, and is a bug.
@@ -48,12 +36,7 @@ CALLABLE_TEST = re.compile(r"^\s*#\[cfg_attr\(test, test\)\]\s*$")
 BARE_TEST = re.compile(r"^\s*#\[test\]\s*$")
 IGNORED = re.compile(r"^\s*#\[ignore")
 TEST_FN = re.compile(r"^\s*pub fn ([A-Za-z0-9_]+)\(")
-# `DOTALL`, not `MULTILINE`: rustfmt wraps a long `use` across several lines
-# once the list stops fitting in 100 columns, and the module list then contains
-# newlines of its own. Matching only the single-line form made this audit
-# report `imports ``, which has no source file` — a false failure caused purely
-# by formatting, which is the worst kind: it teaches people to ignore the gate
-# that exists to stop tests going unrun.
+# `DOTALL`: rustfmt wraps a long `use` list across lines.
 REGISTRY_MODULES = re.compile(r"use\s+crate::\{(.*?)\}\s*;", re.DOTALL)
 REGISTRY_ENTRY = re.compile(
     r'name:\s*"([A-Za-z0-9_]+)::([A-Za-z0-9_]+)",\s*\n\s*run:\s*([A-Za-z0-9_]+)::tests::'
@@ -63,6 +46,11 @@ REGISTRY_ENTRY = re.compile(
 
 def walk_sources(crate: Path) -> list[Path]:
     return sorted(p for p in (crate / "src").rglob("*.rs"))
+
+
+def module_of(crate: Path, path: Path) -> str:
+    """The top-level module a source file belongs to: `src/web/tests.rs` is `web`."""
+    return path.relative_to(crate / "src").parts[0].removesuffix(".rs")
 
 
 def find_tests(crate: Path) -> tuple[list[str], list[str], list[str]]:
@@ -86,19 +74,65 @@ def find_tests(crate: Path) -> tuple[list[str], list[str], list[str]]:
                 if name is None:
                     continue
                 if CALLABLE_TEST.match(line):
-                    callable_names.append(f"{path.stem}::{name}")
+                    callable_names.append(f"{module_of(crate, path)}::{name}")
                 else:
-                    bare_names.append(f"{path.stem}::{name}")
+                    bare_names.append(f"{module_of(crate, path)}::{name}")
             elif IGNORED.match(line):
-                ignored.append(f"{path.stem}:{number + 1}")
+                ignored.append(f"{path.relative_to(crate)}:{number + 1}")
     return callable_names, bare_names, ignored
+
+
+def audit_registry(root: Path, crate_name: str) -> tuple[int, list[str]]:
+    """Check one crate's `device_tests::CASES` against its tests on disk."""
+    crate = root / "crates" / crate_name
+    registry = f"crates/{crate_name}/src/device_tests.rs"
+    cases = f"{crate_name.replace('-', '_')}::device_tests::CASES"
+    failures: list[str] = []
+
+    callable_names, _, _ = find_tests(crate)
+    registry_path = root / registry
+    if not registry_path.is_file():
+        return len(callable_names), [f"{registry} is missing; `just test-esp32` needs it"]
+
+    text = registry_path.read_text()
+    entries = [(m.group(1), m.group(2)) for m in REGISTRY_ENTRY.finditer(text)]
+    registered = set(entries)
+    declared_modules = {
+        name.strip()
+        for group in REGISTRY_MODULES.findall(text)
+        for name in re.split(r"[,\n]", group)
+        if name.strip()
+    }
+    present_modules = {module_of(crate, p) for p in walk_sources(crate)}
+
+    for module in sorted(declared_modules - present_modules):
+        failures.append(f"{registry} imports `{module}`, which has no source file")
+    for module in sorted(present_modules - declared_modules):
+        # Only a module that holds tests must be imported.
+        if any(name.startswith(f"{module}::") for name in callable_names):
+            failures.append(
+                f"crates/{crate_name}/src/{module}.rs holds tests but "
+                "device_tests.rs does not import it"
+            )
+
+    on_disk = {tuple(name.split("::", 1)) for name in callable_names}
+    for module, function in sorted(on_disk - registered):
+        failures.append(
+            f"{crate_name}: {module}::{function} is #[cfg_attr(test, test)] but is "
+            f"not in {cases}, so `just test-esp32` will never run it"
+        )
+    for module, function in sorted(registered - on_disk):
+        failures.append(
+            f"{cases} registers {module}::{function}, which is not a test in "
+            "this crate any more"
+        )
+    if len(registered) != len(entries):
+        failures.append(f"{cases} has a duplicate entry")
+    return len(callable_names), failures
 
 
 def main() -> int:
     root = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
-    hal = root / "crates" / "cc-hal-esp32"
-    registry_path = hal / "src" / "device_tests.rs"
-
     failures: list[str] = []
 
     for crate_name in DEVICE_CRATES:
@@ -109,72 +143,21 @@ def main() -> int:
         _, bare, ignored = find_tests(crate)
         for name in bare:
             failures.append(
-                f"crates/{crate_name}/{name} is a bare `#[test]`: `#[test]` is "
-                "deleted by the compiler unless the crate is built with --test, "
-                "so the on-target runner cannot call it. Use "
-                "`#[cfg_attr(test, test)]` and register it in "
-                "cc_hal_esp32::device_tests::CASES"
+                f"crates/{crate_name}/{name} is a bare `#[test]`, which the "
+                "on-target runner cannot call. Use `#[cfg_attr(test, test)]` and "
+                "register it in the crate's device_tests::CASES"
             )
         for where in ignored:
             failures.append(
-                f"crates/{crate_name}/{where} is #[ignore]d. An ignored device "
-                "test is a test that does not run, which is the failure this "
-                "harness exists to end: fix the test, or move it out of the "
-                "device crates with a comment saying why"
+                f"crates/{crate_name}/{where} is #[ignore]d: fix the test, or move "
+                "it out of the device crates with a comment saying why"
             )
 
-    callable_names, _, _ = find_tests(hal)
-    if not registry_path.is_file():
-        failures.append(
-            "crates/cc-hal-esp32/src/device_tests.rs is missing, so nothing "
-            "makes the device tests callable. `just test-esp32` needs it."
-        )
-        print("\n".join(f"[device-test-audit] {f}" for f in failures), file=sys.stderr)
-        return 1
-
-    text = registry_path.read_text()
-    registered = {(m.group(1), m.group(2)) for m in REGISTRY_ENTRY.finditer(text)}
-    declared_modules = {
-        name.strip()
-        for group in REGISTRY_MODULES.findall(text)
-        # Split on commas *and* newlines: a rustfmt-wrapped `use` puts one
-        # module per line, with a trailing comma and leading indentation.
-        for name in re.split(r"[,\n]", group)
-        if name.strip()
-    }
-    present_modules = {p.stem for p in walk_sources(hal)}
-
-    for module in sorted(declared_modules - present_modules):
-        failures.append(
-            f"crates/cc-hal-esp32/src/device_tests.rs imports `{module}`, which "
-            "has no source file. A stale import usually means a module was "
-            "renamed and the registry was not updated"
-        )
-    for module in sorted(present_modules - declared_modules):
-        # Not every file is a module (lib.rs and device_tests.rs are not
-        # imported that way); only complain about one that holds tests.
-        if any(name.startswith(f"{module}::") for name in callable_names):
-            failures.append(
-                f"crates/cc-hal-esp32/src/{module}.rs holds tests but "
-                "device_tests.rs does not import it"
-            )
-
-    on_disk = {tuple(name.split("::", 1)) for name in callable_names}
-    for module, function in sorted(on_disk - registered):
-        failures.append(
-            f"{module}::{function} is #[cfg_attr(test, test)] but is not in "
-            "cc_hal_esp32::device_tests::CASES, so `just test-esp32` will never "
-            "run it"
-        )
-    for module, function in sorted(registered - on_disk):
-        failures.append(
-            f"cc_hal_esp32::device_tests::CASES registers {module}::{function}, "
-            "which is not a test in this crate any more"
-        )
-    if registered and len(registered) != len(
-        [m for m in REGISTRY_ENTRY.finditer(text)]
-    ):
-        failures.append("cc_hal_esp32::device_tests::CASES has a duplicate entry")
+    total = 0
+    for crate_name in REGISTRY_CRATES:
+        count, crate_failures = audit_registry(root, crate_name)
+        total += count
+        failures += crate_failures
 
     if failures:
         print("\n".join(f"[device-test-audit] {f}" for f in failures), file=sys.stderr)
@@ -186,8 +169,7 @@ def main() -> int:
         return 1
 
     print(
-        f"[device-test-audit] {len(callable_names)} device unit tests, all "
-        f"registered with cc_hal_esp32::device_tests::CASES "
+        f"[device-test-audit] {total} device unit tests, all registered "
         f"({len(DEVICE_CRATES)} device crates checked, 0 ignored)"
     )
     return 0

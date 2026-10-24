@@ -166,7 +166,7 @@ fn ink_bounds(d: &Display) -> Option<(i32, i32)> {
 /// Named rather than generated, because the *interesting* extremes are the ones
 /// a person thought of: a three-digit temperature, an uptime past a hundred
 /// hours, a boiler that is on fire. A generator would have found none of them.
-#[allow(
+#[expect(
     clippy::too_many_lines,
     reason = "this IS the table of cases; splitting it hides which case is which, and the case names are the failure messages"
 )]
@@ -576,7 +576,7 @@ fn a_brew_timer_shows_and_then_goes_away() {
     assert_eq!(input.brew_timer, BrewTimerState::PostBrew);
 
     // And it goes away on its own, with nothing but the clock.
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
         reason = "the duration is seconds and is bounded to [1, 60] by the schema"
@@ -652,7 +652,7 @@ fn every_system_screen_is_reachable_from_some_state() {
 }
 
 #[test]
-#[allow(
+#[expect(
     clippy::too_many_lines,
     reason = "one entry per DisplayInput field; the list is the test"
 )]

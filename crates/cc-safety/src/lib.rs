@@ -301,7 +301,7 @@ pub enum Reason {
 /// from the reservoir) and an emergency must stop everything — so they are four
 /// booleans rather than one enum. Each permission is written to a distinct
 /// actuator.
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "an enum would either lose the \"heater yes, pump no\" combination or \
               grow a combinatorial number of variants: an empty tank blocks the \

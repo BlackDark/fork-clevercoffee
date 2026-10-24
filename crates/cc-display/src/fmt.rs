@@ -154,9 +154,8 @@ pub fn truncate_to_i32(value: f64) -> i32 {
     // everything the display can produce. The bound is checked anyway so a sensor
     // fault cannot silently print a saturated number.
     if value.is_finite() && value >= f64::from(i32::MIN) && value <= f64::from(i32::MAX) {
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
             reason = "the range is checked above; truncation toward zero is intended"
         )]
         return value as i32;

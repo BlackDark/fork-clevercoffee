@@ -49,7 +49,7 @@ pub struct Control {
     /// **Except** after a tuning is written at runtime — see
     /// [`Self::retune_now`], which clears this so the next tick re-chooses.
     tuned_for: Option<MachineState>,
-    /// The S1-S5 configuration, from `cc-config`'s `safety_view()`.
+    /// The S1-S5 configuration, from `cc_machine::safety_config`.
     safety: SafetyConfig,
     /// The active setpoint, °C.
     ///
@@ -152,7 +152,7 @@ impl Control {
             // applies the mode whatever the configuration says.
             pid_mode_enabled,
             tuned_for: None,
-            safety: safety_config(config),
+            safety: cc_machine::safety_config(config),
             setpoint,
         };
         // The tunings are applied for the *initial* state, so the first `compute` of
@@ -562,7 +562,7 @@ pub(crate) fn effective_setpoint(config: &Config, steam_mode: bool) -> f64 {
 /// that is what the DS18B20's 0.0625 °C resolution needs. Over every range the schema
 /// allows — `brew.setpoint` 20..=110, `brew.temp_offset` 0..=20, `steam.setpoint`
 /// 100..=140, `safety.emergency_temp` 120..=180 — the loss is under 1e-5 °C, four
-/// orders of magnitude below the probe's own resolution. `cc_config::safety_view`
+/// orders of magnitude below the probe's own resolution. `cc_machine::safety_config`
 /// narrows for exactly the same reason and says so.
 fn celsius(degrees: f64) -> Celsius {
     #[allow(
@@ -570,41 +570,8 @@ fn celsius(degrees: f64) -> Celsius {
         reason = "every value that reaches here is a configured temperature in \
                   degrees Celsius within a range where f32 is exact to well \
                   under the probe's 0.0625 C resolution. See this function's \
-                  documentation and cc_config::safety_view, which narrows the \
+                  documentation and cc_machine::safety_config, which narrows the \
                   same way for the same reason"
     )]
     Celsius::new(degrees as f32)
-}
-
-/// `cc-config`'s `safety_view()` widened to `cc-safety`'s own struct.
-///
-/// A straight field-for-field copy; `cc_config::SafetyView` is typed in `Celsius`
-/// precisely so that this join is a copy and not a conversion.
-///
-/// `pub(crate)` rather than private because three call sites need it and the join
-/// is the thing that must not be written twice: `cc_config::Config::safety_view`
-/// names exactly the five fields, and a second spelling of that list is a second
-/// answer to "which parameters can make this machine unsafe".
-/// The single place a [`SafetyConfig`] is built from a [`Config`].
-///
-/// One owner, deliberately: the boot path (`network::bring_up_config`) and this
-/// module's tick both need it, and two field-by-field copies drifted once —
-/// see the call site's note. If a field is added to `SafetyConfig`, this is the
-/// only function that has to learn about it.
-pub(crate) fn safety_config(config: &Config) -> SafetyConfig {
-    let view = config.safety_view();
-    SafetyConfig {
-        emergency_temp: view.emergency_temp,
-        emergency_hysteresis: view.emergency_hysteresis,
-        steam_setpoint: view.steam_setpoint,
-        effective_brew_setpoint: view.effective_brew_setpoint,
-        brew_mode: view.brew_mode,
-        brew_by_time_enabled: view.brew_by_time_enabled,
-        brew_by_weight_enabled: view.brew_by_weight_enabled,
-        scale_fitted: view.scale_fitted,
-        heater_relay_trigger: view.heater_relay_trigger,
-        pump_relay_trigger: view.pump_relay_trigger,
-        valve_relay_trigger: view.valve_relay_trigger,
-        temperature_sensor: view.temperature_sensor,
-    }
 }

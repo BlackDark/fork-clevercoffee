@@ -345,7 +345,7 @@ pub fn display_brew_time(
 /// As [`display_brew_time`], but the value is a float with zero decimals and
 /// the unit is grams. `setpoint` is `-1` for no target, `fault` replaces the
 /// value with the language's "Fault" string.
-#[allow(
+#[expect(
     clippy::too_many_arguments,
     reason = "eight independent fields, each a distinct part of the readout"
 )]

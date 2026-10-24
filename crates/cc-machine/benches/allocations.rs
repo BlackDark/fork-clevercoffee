@@ -1,17 +1,14 @@
 //! Measure reducer allocations; timing alone misses device heap pressure.
 //!
-//! `tests/tick_allocations.rs` gates the same invariant with the shared allocator.
+//! `tests/tick_allocations.rs` gates the same invariant with the same allocator.
 //! The measurement excludes other tasks. Run with `just bench`.
-
-#[path = "alloc.rs"]
-mod alloc;
 
 use std::time::Instant;
 
 use cc_domain::units::{Celsius, Millis};
 use cc_machine::{boot, reduce, Context, Event, Machine, Sensors};
 
-use alloc::{nanos_per, per, Counting};
+use cc_alloc_count::{nanos_per, per, Counting};
 
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
@@ -52,10 +49,10 @@ fn main() {
     // lazily-initialised statics, and that is not what is being measured.
     one_tick(&mut machine, &ctx, sensors, Millis::new(2_000));
 
-    let mark = alloc::counters();
+    let mark = cc_alloc_count::counters();
     let started = Instant::now();
     for i in 0..REPORTED_TICKS {
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
             reason = "REPORTED_TICKS is 100_000, a literal; the truncation is exact"
         )]
@@ -63,7 +60,7 @@ fn main() {
         one_tick(&mut machine, &ctx, sensors, Millis::new(2_000 + step));
     }
     let elapsed = started.elapsed();
-    let (allocs, bytes) = alloc::delta_since(mark);
+    let (allocs, bytes) = cc_alloc_count::delta_since(mark);
 
     println!("control tick: {REPORTED_TICKS} iterations");
     println!(

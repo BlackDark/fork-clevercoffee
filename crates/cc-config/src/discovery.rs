@@ -306,7 +306,7 @@ pub const STEP_ONE: f64 = 1.0;
 /// 300 s pass picks up where this one stopped. The retention flag is on every one
 /// of them, without which Home Assistant would re-adopt the entities on every
 /// broker restart.
-#[allow(
+#[expect(
     clippy::too_many_lines,
     reason = "this IS the discovery table: 16 unconditional entities plus the \
               conditionals, in publication order. Splitting it would hide the one \
@@ -695,9 +695,8 @@ mod tests {
         // world-readable on a shared broker, so a payload carrying one would be
         // a leak with no local symptom.
         let mut config = Config::default();
-        config.mqtt.password = crate::secret::Secret::new(alloc::string::String::from("brokerpw"));
-        config.system.auth.password =
-            crate::secret::Secret::new(alloc::string::String::from("httppw"));
+        config.mqtt.password = crate::Secret::new(alloc::string::String::from("brokerpw"));
+        config.system.auth.password = crate::Secret::new(alloc::string::String::from("httppw"));
         for message in all(&config) {
             assert!(!message.payload.contains("brokerpw"), "{}", message.topic);
             assert!(!message.payload.contains("httppw"), "{}", message.topic);

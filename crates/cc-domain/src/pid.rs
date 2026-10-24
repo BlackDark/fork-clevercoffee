@@ -1,4 +1,4 @@
-//! PID arithmetic with frozen reference vectors in `pid_parity.rs`.
+//! PID arithmetic with frozen reference vectors in `tests/pid_parity.rs`.
 //!
 //! Preserve `f64` operation order: tuning depends on it. Values are owned, time is
 //! injected, all fields are initialized, and rejected negative tunings return `false`.

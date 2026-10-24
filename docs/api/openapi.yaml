@@ -212,7 +212,7 @@ paths:
         "413":
           description: |
             Body over the 16384-byte transport limit
-            (`MAX_CONFIG_UPLOAD_BYTES` in `cc-web/src/parameters.rs`). Refused
+            (`MAX_CONFIG_UPLOAD_BYTES` in `cc-net/src/web/parameters.rs`). Refused
             unread rather than truncated, so a partial configuration is never
             applied. Nothing is parsed.
           content:

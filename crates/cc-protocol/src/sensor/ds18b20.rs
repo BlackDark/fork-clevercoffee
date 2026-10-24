@@ -429,9 +429,15 @@ mod tests {
         /// negative reading into a large positive one.
         fn with_raw(raw: i16) -> Self {
             let mut this = Self::new();
-            #[allow(clippy::cast_sign_loss)]
+            #[expect(
+                clippy::cast_sign_loss,
+                reason = "reinterpreting the two's-complement bits is the point"
+            )]
             let lsb = ((raw as u16 >> 3) & 0xFF) as u8;
-            #[allow(clippy::cast_sign_loss)]
+            #[expect(
+                clippy::cast_sign_loss,
+                reason = "reinterpreting the two's-complement bits is the point"
+            )]
             let msb = ((raw >> 11) & 0xFF) as u8;
             let mut pad = ScratchPad([
                 lsb,
@@ -495,9 +501,15 @@ mod tests {
     /// The device reports 11 of 16 bits, so the raw value is a multiple of 8
     /// and the grid step is 0.0625 °C.
     fn grid(celsius: f32) -> i16 {
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "test temperatures are a few hundred degrees at most"
+        )]
         let raw = (celsius * 128.0).round() as i32;
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "test temperatures are a few hundred degrees at most"
+        )]
         let snapped = ((raw + 4) / 8 * 8) as i16;
         snapped
     }

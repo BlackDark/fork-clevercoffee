@@ -135,7 +135,7 @@ fn render_boot(
 }
 
 /// The cases, in the order they are printed.
-#[allow(
+#[expect(
     clippy::too_many_lines,
     reason = "this IS the table of cases; splitting it hides which case is which, and the case names are the failure messages"
 )]
@@ -445,7 +445,7 @@ impl Sheet {
     }
 
     /// Copy a framebuffer in, flipping it (the panel is 0 = lit).
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_possible_wrap,
         reason = "the loops are bounded by TILE_W/TILE_H, which are 128 and 64"
@@ -497,7 +497,7 @@ impl Sheet {
     /// Greyscale rather than 1-bit indexed: the framebuffer is a byte per pixel
     /// and a `P3`/palette PNG would need a palette; greyscale keeps the encoder
     /// to chunk framing and two checksums.
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "the sheet is a few hundred pixels across; PNG's fields are u32"
     )]
@@ -527,7 +527,7 @@ impl Sheet {
 }
 
 /// One PNG chunk: length, type, data, CRC over type+data.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "a PNG chunk is u32-length by definition; the data is a framebuffer \
               row, so it is kilobytes at most"
@@ -543,7 +543,7 @@ fn chunk(out: &mut Vec<u8>, kind: [u8; 4], data: &[u8]) {
 }
 
 /// A zlib stream of stored (uncompressed) deflate blocks.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "the chunks are 0xffff bytes by construction, so the u16 is exact"
 )]
@@ -705,5 +705,4 @@ const DIGIT_PIXELS: [[(usize, usize); 9]; 10] = [
 
 /// Unused import guard: `Display` is only needed for `framebuffer()`, which the
 /// caller uses through the trait.
-#[allow(dead_code, reason = "the type is named in the blit signature")]
 type _Display = Display;

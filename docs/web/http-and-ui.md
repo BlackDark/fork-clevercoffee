@@ -3,8 +3,8 @@
 **The device's outward faces: 28 HTTP endpoints, an event stream, an MQTT
 registry, and a React app served from flash.**
 
-Everything here is a pure function of a telemetry snapshot. `cc-web` and
-`cc-mqtt` do not touch a socket — they take the machine's state and return what
+Everything here is a pure function of a telemetry snapshot. `cc-net` does
+not touch a socket — they take the machine's state and return what
 the response should be. That is why the HTTP layer can be unit
 tested for an application that runs on one microcontroller, and why the same
 handlers are testable against the mock server in `ui/` without hardware.
@@ -17,7 +17,7 @@ against the routes the firmware actually registers by
 
 ## Routing
 
-The `ROUTES` table in `crates/cc-hal-esp32/src/web.rs` is the authority. It is a
+The `ROUTES` table in `crates/cc-net-esp32/src/web.rs` is the authority. It is a
 flat list of `(path, method)` pairs, and the handlers are pure functions behind
 it.
 
@@ -90,9 +90,8 @@ Three of them are dormant: registered, persisted, and never exercised.
 
 ## MQTT
 
-`cc-mqtt` holds the topic layout, the publish registry and the value buffers — 19
-assertions that ran only under the on-target test runner before it was extracted
-into its own portable crate.
+`cc_net::mqtt` holds the topic layout, the publish registry and the value buffers,
+host-tested.
 
 Publishing is real and runs. The transport, the auth and the Home Assistant
 discovery surface are a different matter; see
@@ -102,7 +101,7 @@ discovery surface are a different matter; see
 
 The web UI is served from **flash**, and that is a deliberate consequence of the
 ESP32's 320 KB. A 199 KB gzipped bundle costs **0 B of RAM** because
-`cc-hal-esp32/build.rs` embeds it with `include_bytes!`. Static RAM is identical
+`cc-net-esp32/build.rs` embeds it with `include_bytes!`. Static RAM is identical
 before and after the UI is included.
 
 Do not "improve" this by buffering the bundle, and do not build large JSON
