@@ -99,6 +99,8 @@ pub struct Live {
     pub mqtt_connected: bool,
     pub free_heap: u32,
     pub min_free_heap: u32,
+    /// Main stack never touched since boot (0: not measured).
+    pub min_free_stack: u32,
 }
 
 /// `GET /api/status`. Fields as in the C++, plus a few diagnostics.
@@ -145,6 +147,7 @@ pub fn write_status(st: &Status, cfg: &Config, live: &Live, w: &mut Writer<impl 
     w.kv_bool("mqttConnected", live.mqtt_connected)?;
     w.kv_int("freeHeap", i64::from(live.free_heap))?;
     w.kv_int("minFreeHeap", i64::from(live.min_free_heap))?;
+    w.kv_int("minFreeStack", i64::from(live.min_free_stack))?;
     w.end_object()
 }
 

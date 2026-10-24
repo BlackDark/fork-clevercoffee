@@ -146,6 +146,9 @@ type Check = (&'static str, fn(&str) -> Result<(), String>);
 /// Lowest acceptable heap low-water mark (`minFreeHeap`), bytes. The `full` image on
 /// the bench bottoms out near 16 KB (docs/firmware.md); a failed allocation is a reboot.
 const HEAP_FLOOR: u64 = 12_000;
+/// Main stack never used since boot (`minFreeStack`): below this the stack guard is
+/// close (a hit is a panic).
+const STACK_FLOOR: u64 = 4_000;
 
 const CHECKS: &[Check] = &[
     ("status", |h| {
@@ -157,11 +160,17 @@ const CHECKS: &[Check] = &[
             "uptime",
             "freeHeap",
             "minFreeHeap",
+            "minFreeStack",
         ] {
             ensure(!v[k].is_null(), || format!("missing {k}"))?;
         }
         ensure(v["minFreeHeap"].as_u64().unwrap_or(0) >= HEAP_FLOOR, || {
             format!("heap low-water mark {} below {HEAP_FLOOR}", v["minFreeHeap"])
+        })?;
+        // 0: measured every 10 s, not yet.
+        let stack = v["minFreeStack"].as_u64().unwrap_or(0);
+        ensure(stack == 0 || stack >= STACK_FLOOR, || {
+            format!("stack low-water mark {stack} below {STACK_FLOOR}")
         })
     }),
     ("all parameters (largest response)", |h| {

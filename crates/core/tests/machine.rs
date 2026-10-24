@@ -680,3 +680,32 @@ fn brew_offset_is_subtracted_outside_steam() {
     s.run(200);
     assert_eq!(s.m.status(&s.cfg).temperature, 93.0);
 }
+
+#[test]
+fn idle_for_restart_waits_for_shots_steam_and_hot_water() {
+    let mut s = Sim::ready();
+    let idle = |s: &Sim| s.m.status(&s.cfg).idle_for_restart();
+    assert!(idle(&s));
+
+    s.brew(true);
+    assert!(s.state().is_brew_active());
+    assert!(!idle(&s));
+    s.brew(false);
+    assert_eq!(s.state(), State::BrewFinished);
+    assert!(!idle(&s), "the shot result is still on the display");
+    s.run(FINISHED_DISPLAY_MS + 100);
+    assert!(idle(&s));
+
+    s.inp.hot_water_switch = true;
+    s.run(100);
+    assert!(s.out().pump);
+    assert!(!idle(&s));
+    s.inp.hot_water_switch = false;
+    s.run(100);
+    assert!(idle(&s));
+
+    s.inp.steam_switch = true;
+    s.run(100);
+    assert_eq!(s.state(), State::Steam);
+    assert!(!idle(&s));
+}

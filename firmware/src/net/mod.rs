@@ -89,7 +89,14 @@ macro_rules! mk_static {
 }
 
 /// Builds both IP stacks; returns them with their runners.
-pub fn stacks(hostname: &str, seed: u64) -> (Stacks, Runner<'static, Interface>, Runner<'static, Interface>) {
+pub fn stacks(
+    hostname: &str,
+    seed: u64,
+) -> (
+    &'static Stacks,
+    Runner<'static, Interface>,
+    Runner<'static, Interface>,
+) {
     let mut dhcp = embassy_net::DhcpConfig::default();
     dhcp.hostname = hostname.try_into().ok();
     let (sta, sta_runner) = embassy_net::new(
@@ -108,7 +115,7 @@ pub fn stacks(hostname: &str, seed: u64) -> (Stacks, Runner<'static, Interface>,
         mk_static!(StackResources<8>, StackResources::new()),
         seed.rotate_left(17),
     );
-    (Stacks { sta, ap }, sta_runner, ap_runner)
+    (mk_static!(Stacks, Stacks { sta, ap }), sta_runner, ap_runner)
 }
 
 #[embassy_executor::task(pool_size = 2)]
@@ -143,6 +150,9 @@ pub async fn wifi_task(
                         s.net.wifi_connected = true;
                         s.net.ip = c.address.address().octets();
                     });
+                }
+                if ap_open {
+                    restart_when_idle().await;
                 }
                 // Refresh the RSSI until the link drops.
                 loop {
@@ -187,6 +197,21 @@ pub async fn wifi_task(
                 }
             }
         }
+    }
+}
+
+/// The home network is back while the fallback access point is open. A restart
+/// closes the access point (its password is printed in the docs) and brings the
+/// device back to one network, which the HTTP workers rely on (`web::task`).
+/// It waits until no shot, steam or hot water is running.
+async fn restart_when_idle() -> ! {
+    info!("wifi: home network back, restarting once the machine is idle to close the access point");
+    loop {
+        if shared::with(|s| s.machine.status(&s.cfg).idle_for_restart()) {
+            shared::RESTART.signal(shared::RestartKind::Plain);
+            core::future::pending::<()>().await;
+        }
+        Timer::after(Duration::from_secs(1)).await;
     }
 }
 

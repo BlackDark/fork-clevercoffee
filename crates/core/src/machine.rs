@@ -243,6 +243,22 @@ impl Status {
         cfg.maintenance_backflush_reminder_enabled
             && self.shots_since_backflush >= cfg.maintenance_backflush_reminder_threshold as u32
     }
+    /// Nothing the user started is running: no shot (nor its result on the display),
+    /// flush, backflush cycle, steam or hot water. A restart the user did not ask for
+    /// (the WiFi fallback ending) waits for this.
+    pub fn idle_for_restart(&self) -> bool {
+        !self.state.is_brew()
+            && !matches!(
+                self.state,
+                State::ManualFlush
+                    | State::Steam
+                    | State::BackflushFilling
+                    | State::BackflushFlushing
+                    | State::BackflushFinished
+            )
+            && !self.outputs.pump
+            && !self.outputs.valve
+    }
 }
 
 /// The machine. Owns all control state; the firmware owns the hardware.

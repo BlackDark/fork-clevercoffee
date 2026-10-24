@@ -4,10 +4,14 @@ use cc_api::Live;
 use cc_core::history::History;
 use cc_core::{Command, Config, Event, Reply, Status};
 use cc_web::{Asset, Backend, OtaError, OtaStatus};
+use embassy_futures::select::{Either, select};
 use embassy_net::Stack;
+use embassy_net::tcp::TcpSocket;
 use embassy_time::{Duration, Timer};
 
 use crate::shared::{self, RestartKind};
+use log::{debug, warn};
+
 use crate::{ota, ui_assets};
 
 pub struct Device;
@@ -21,6 +25,7 @@ impl Backend for Device {
                 mqtt_connected: s.net.mqtt_connected,
                 free_heap: (heap.size - heap.current_usage) as u32,
                 min_free_heap: shared::MIN_FREE_HEAP.load(core::sync::atomic::Ordering::Relaxed),
+                min_free_stack: crate::stackmon::last(),
                 ..s.live
             };
             f(&s.cfg, &st, &live)
@@ -140,43 +145,78 @@ static CONFIG: picoserve::Config = picoserve::Config::new(picoserve::Timeouts {
 })
 .keep_connection_alive();
 
-/// HTTP workers on the home network. Each UI tab holds one for its event stream; a
+/// HTTP workers, shared by the home network and the access point: a boot runs one of
+/// them at a time (the device restarts when the home network comes back after the
+/// fallback, `net::wifi_task`). Each UI tab holds one for its event stream; a
 /// connection that finds every worker busy waits for its SYN retry (ADR 0008).
-pub const STA_WORKERS: usize = 4;
+pub const WORKERS: usize = 4;
 /// With a Bluetooth scale the controller keeps its 64 KB and the heap is that much
 /// smaller: two workers (ADR 0008).
-const STA_WORKERS_WITH_BLE: usize = 2;
-/// HTTP workers on the access point: one made a phone's page load take tens of
-/// seconds (eight requests, one at a time, each waiting a growing SYN retry).
-pub const AP_WORKERS: usize = 3;
+const WORKERS_WITH_BLE: usize = 2;
 /// Event streams (one per open UI tab) may hold at most half the workers; the rest
 /// stay free for page loads and API calls.
-static STA_STREAMS: cc_web::StreamSlots = cc_web::StreamSlots::new(STA_WORKERS / 2);
-static STA_STREAMS_WITH_BLE: cc_web::StreamSlots = cc_web::StreamSlots::new(STA_WORKERS_WITH_BLE / 2);
-pub static AP_STREAMS: cc_web::StreamSlots = cc_web::StreamSlots::new(1);
+static STREAMS: cc_web::StreamSlots = cc_web::StreamSlots::new(WORKERS / 2);
+static STREAMS_WITH_BLE: cc_web::StreamSlots = cc_web::StreamSlots::new(WORKERS_WITH_BLE / 2);
 
-/// Workers on the home network and the stream cap they share.
-pub fn home_network(ble_scale: bool) -> (usize, &'static cc_web::StreamSlots) {
+/// Number of workers and the stream cap they share.
+pub fn pool(ble_scale: bool) -> (usize, &'static cc_web::StreamSlots) {
     if ble_scale {
-        (STA_WORKERS_WITH_BLE, &STA_STREAMS_WITH_BLE)
+        (WORKERS_WITH_BLE, &STREAMS_WITH_BLE)
     } else {
-        (STA_WORKERS, &STA_STREAMS)
+        (WORKERS, &STREAMS)
     }
 }
 
-#[embassy_executor::task(pool_size = 7)]
-pub async fn task(id: usize, stack: Stack<'static>, streams: &'static cc_web::StreamSlots) -> ! {
-    // Buffers only once the interface is up: the access point's workers then cost no
-    // heap while the machine is on the home network.
-    stack.wait_link_up().await;
+/// The TCP receive buffer is the window a client may send without waiting: 1 KB held a
+/// firmware upload to 35–45 KB/s (one window per round trip).
+const RX_BUF: usize = 2048;
+const TX_BUF: usize = 1536;
+const HTTP_BUF: usize = 2048;
+
+/// The network to serve next: the home network if its link is up, else the access
+/// point, else whichever comes up first.
+async fn pick(stacks: &super::Stacks) -> Stack<'static> {
+    loop {
+        if stacks.sta.is_link_up() {
+            return stacks.sta;
+        }
+        if stacks.ap.is_link_up() {
+            return stacks.ap;
+        }
+        let _ = select(stacks.sta.wait_link_up(), stacks.ap.wait_link_up()).await;
+    }
+}
+
+#[embassy_executor::task(pool_size = 4)]
+pub async fn task(id: usize, stacks: &'static super::Stacks, streams: &'static cc_web::StreamSlots) -> ! {
+    // Buffers only once a network is up.
+    let _ = pick(stacks).await;
     let app = cc_web::Api::new(&DEVICE, streams).router();
-    // Socket and request buffers on the heap (reclaimed RAM), not in the static
-    // task pool: main RAM is short once Bluetooth reserves its 64 KB.
-    let mut rx = alloc::vec![0; 1024];
-    let mut tx = alloc::vec![0; 1536];
-    let mut http = alloc::vec![0; 2048];
-    picoserve::Server::new(&app, &CONFIG, &mut http)
-        .listen_and_serve(id, stack, 80, &mut rx, &mut tx)
-        .await
-        .into_never()
+    // Socket and request buffers on the heap (reclaimed RAM), not in the static task
+    // pool: main RAM is short once Bluetooth reserves its 64 KB.
+    let mut rx = alloc::vec![0; RX_BUF];
+    let mut tx = alloc::vec![0; TX_BUF];
+    let mut http = alloc::vec![0; HTTP_BUF];
+    loop {
+        let stack = pick(stacks).await;
+        let mut socket = TcpSocket::new(stack, &mut rx, &mut tx);
+        // Waiting on a network that goes away (the home network drops, the fallback
+        // opens the access point) would hold this worker forever.
+        match select(socket.accept(80), stack.wait_link_down()).await {
+            Either::First(Ok(())) => {}
+            Either::First(Err(e)) => {
+                warn!("http {id}: accept: {e:?}");
+                continue;
+            }
+            Either::Second(()) => continue,
+        }
+        socket.set_keep_alive(Some(Duration::from_secs(30)));
+        socket.set_timeout(Some(Duration::from_secs(45)));
+        if let Err(e) = picoserve::Server::new(&app, &CONFIG, &mut http)
+            .serve(socket)
+            .await
+        {
+            debug!("http {id}: {e:?}");
+        }
+    }
 }

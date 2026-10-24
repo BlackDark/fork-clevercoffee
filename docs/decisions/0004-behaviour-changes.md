@@ -30,8 +30,8 @@ The C++ firmware v1.3.4 and its tests were the specification. Porting them line 
 | HA discovery for "Use PonM" pointed to `usePonM`, the command topic was `pidUsePonM`. | Both use the same topic (`fix_ponm_switch_discovery_matches_its_command_topic`). |
 | Filesystem and URL updates. | Firmware upload only; the UI is inside it (ADR 0005). |
 | Settings survived updates in NVS. | New storage, no import from C++ (ADR 0005). |
-| WiFiManager portal. | Own portal with the same UI (`CleverCoffee-XXXX`, password `CleverCoffee`); the full UI is reachable on the access point. |
-| Unlimited server-sent event streams (AsyncWebServer). | Two per network (one on the portal); a further `/events` gets 503 and the UI polls (ADR 0008, `server_sent_events`). |
+| WiFiManager portal. | Own portal with the same UI (`CleverCoffee-XXXX`, password `CleverCoffee`); the full UI is reachable on the access point. When the home network comes back the device restarts once idle, which closes the access point. |
+| Unlimited server-sent event streams (AsyncWebServer). | Two (one with a Bluetooth scale); a further `/events` gets 503 and the UI polls (ADR 0008, `server_sent_events`). |
 | MQTT 3.1.1. | MQTT 5. |
 
 ## Display

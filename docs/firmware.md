@@ -41,7 +41,7 @@ Later updates: web UI → System → Firmware Update, upload `target/app-<profil
 
 Either:
 
-- **Portal**: with no WiFi configured the device opens `CleverCoffee-XXXX` (password `CleverCoffee`). Join it; phones and Macs open the UI, otherwise go to http://192.168.4.1. Enter SSID and password under Configuration → System, save, restart. If the home network is unreachable for 2 minutes, the portal opens again next to the station; the station then retries every 60 s, and not while a client is on the portal (each attempt scans all channels and stalls the portal for seconds).
+- **Portal**: with no WiFi configured the device opens `CleverCoffee-XXXX` (password `CleverCoffee`). Join it; phones and Macs open the UI, otherwise go to http://192.168.4.1. Enter SSID and password under Configuration → System, save, restart. If the home network is unreachable for 2 minutes, the portal opens again next to the station; the station then retries every 60 s, and not while a client is on the portal (each attempt scans all channels and stalls the portal for seconds). Once the home network is back the device restarts, as soon as no shot, steam or hot water is running, which closes the portal.
 - **Provisioning over USB**, before or instead of the portal:
 
   ```bash
@@ -71,7 +71,7 @@ The machine is then reachable at `http://<hostname>.local`.
 | hx711, pressure, ble scale | thread | 100 ms / 100 ms / notifications | scale, pressure |
 | display | thread | 100 ms | render, flush when changed |
 | storage | thread | on change (+2 s) | save settings and shot counter; restarts |
-| wifi, net ×2, web ×4 (×2 with a BLE scale) + ×3 on the portal, dns, dhcp, mdns, mqtt | thread | | network (ADR 0008) |
+| wifi, net ×2, web ×4 (×2 with a BLE scale, shared by home network and portal), dns, dhcp, mdns, mqtt | thread | | network (ADR 0008) |
 
 GPIO and timing: the TSIC is decoded from edge timestamps taken in the GPIO interrupt; DS18B20 and HX711 bit slots run with interrupts off (≤ 70 µs each).
 

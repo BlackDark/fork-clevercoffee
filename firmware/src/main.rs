@@ -18,6 +18,7 @@ mod net;
 mod ota;
 mod sensors;
 mod shared;
+mod stackmon;
 mod storage;
 
 #[cfg(feature = "ble-scale")]
@@ -87,6 +88,8 @@ fn relay(pin: impl esp_hal::gpio::OutputPin + 'static, active_high: bool) -> Out
 
 #[esp_hal::main]
 async fn main(spawner: Spawner) -> ! {
+    // Before anything deep runs: the high-water mark counts from here.
+    stackmon::paint();
     // Info until the settings are loaded; then `system.log_level` applies.
     esp_println::logger::init_logger(LevelFilter::Info);
     let p = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
@@ -307,14 +310,9 @@ async fn main(spawner: Spawner) -> ! {
         Ok(controller) => {
             spawner.spawn(net::net_task(sta_runner).unwrap());
             spawner.spawn(net::net_task(ap_runner).unwrap());
-            let (workers, streams) = net::web::home_network(ble_scale);
+            let (workers, streams) = net::web::pool(ble_scale);
             for id in 0..workers {
-                spawner.spawn(net::web::task(id, stacks.sta, streams).unwrap());
-            }
-            for id in 0..net::web::AP_WORKERS {
-                spawner.spawn(
-                    net::web::task(net::web::STA_WORKERS + id, stacks.ap, &net::web::AP_STREAMS).unwrap(),
-                );
+                spawner.spawn(net::web::task(id, stacks, streams).unwrap());
             }
             spawner.spawn(net::portal::dns_task(stacks.ap).unwrap());
             spawner.spawn(net::portal::dhcp_task(stacks.ap).unwrap());
@@ -337,11 +335,20 @@ async fn main(spawner: Spawner) -> ! {
         spawner.spawn(storage::run(store).unwrap());
     }
 
+    let mut stack_low = u32::MAX;
     loop {
         let stats = esp_alloc::HEAP.stats();
         let free = (stats.size - stats.current_usage) as u32;
         if free < shared::MIN_FREE_HEAP.fetch_min(free, core::sync::atomic::Ordering::Relaxed) {
             info!("heap: {free} bytes free (lowest so far)");
+        }
+        let stack_free = stackmon::measure();
+        if stack_free < stack_low {
+            stack_low = stack_free;
+            info!(
+                "stack: {stack_free} of {} bytes never used (lowest so far)",
+                stackmon::size()
+            );
         }
         Timer::after(Duration::from_secs(10)).await;
     }
