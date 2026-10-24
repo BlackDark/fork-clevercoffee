@@ -25,3 +25,10 @@ The first run on a DevKitC (docs/bench.md) found the web server and the RAM budg
 - A third UI tab on the home network gets no event stream; its temperatures update every 10 s.
 - `full` with a Bluetooth scale stays tight (about 18 KB free with MQTT, no tabs); not measured with a scale connected.
 - `tools/bench` checks more connections than workers and a heap floor.
+
+## Revision 2026-10-24
+
+- One worker pool for both networks (above); `full`'s main stack grew from 26 to 38 KB.
+- History points in hundredths (`i16`/`u16`): 3.6 KB instead of 7.2 KB, for the history and for each `/api/history` copy.
+- Without `ble-scale` the main-RAM heap is 80 KB instead of 48: `full` served every bench test with a 26 KB main stack, `standard` keeps 36 KB. The firmware reports the stack's high-water mark (`minFreeStack`, `firmware/src/stackmon.rs`); the bench fails below 4 KB. With measurements from a Bluetooth scale connected, `full` can move part of its 38 KB stack to the heap the same way.
+- TCP receive buffer 2 KB per worker (was 1 KB): it is the window a firmware upload gets.

@@ -4,6 +4,8 @@ Ordered by value. Remove an item when it lands.
 
 ## Needs the bench
 
+- Remeasure heap and stack (`minFreeHeap`, `minFreeStack`) per image after the 2026-10-24 RAM changes; with the stack margin known, move part of `full`'s main stack to the heap.
+- Firmware upload speed with the 2 KB TCP window (35–45 KB/s with 1 KB; flash erases cap it near 60–70 KB/s).
 - Heap low-water mark with a Bluetooth scale connected (`full`, two home-network workers) and for `minimal`; `standard` and `full` without a scale are in docs/firmware.md.
 - Control-loop worst case with `system.timing_debug.enabled` during a BLE scale connect (a firmware upload: 50 ms, docs/firmware.md).
 - TSIC: confirm edge timing under WiFi load (parity error rate in the log). The bench has a DS18B20: no read errors under HTTP and MQTT load, a few CRC errors during firmware uploads.
@@ -14,7 +16,6 @@ Ordered by value. Remove an item when it lands.
 - Report the `xtensa-lx-rt` `global_asm!` ordering upstream; drop `firmware/vendor/xtensa-lx-rt` once fixed.
 - smoltcp has no listen backlog; propose the SYN-drop (ADR 0008) or a backlog upstream, then drop `firmware/vendor/smoltcp`.
 - WiFi setup in the web UI: a "Connect to WiFi" card on the portal's home page with a network scan, instead of SSID and password under Configuration → System. Needs a scan endpoint.
-- Firmware upload runs at 35–45 KB/s (1 KB TCP receive window per worker); a larger window for the upload would halve the time.
 - The MQTT session drops during a firmware upload (flash stalls) and reconnects after it.
 
 ## Features

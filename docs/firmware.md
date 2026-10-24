@@ -89,7 +89,9 @@ GPIO and timing: the TSIC is decoded from edge timestamps taken in the GPIO inte
 
 ## RAM
 
-ESP32: ~320 KB data RAM. Heap: 94 KB reclaimed bootloader RAM, plus 48 KB main RAM without the `ble-scale` feature, or the Bluetooth controller's 64 KB when no Bluetooth scale is configured (ADR 0008). Main stack: 57 KB (`standard`), 26.5 KB (`full`). The device logs each new low of free heap; `/api/status` reports `freeHeap` and `minFreeHeap`.
+ESP32: ~320 KB data RAM. Heap: 94 KB reclaimed bootloader RAM, plus 80 KB main RAM without the `ble-scale` feature, or the Bluetooth controller's 64 KB when no Bluetooth scale is configured (ADR 0008). Main stack: 44 KB (`minimal`), 36 KB (`standard`), 38 KB (`full`). The device logs each new low of free heap and of never-used stack; `/api/status` reports `freeHeap`, `minFreeHeap` and `minFreeStack`.
+
+The numbers below were measured before 2026-10-24, when the main-RAM heap grew from 48 to 80 KB, the history shrank from 7.2 to 3.6 KB and the portal's 3 own HTTP workers went (ADR 0008): expect about 35 KB more heap in `standard`, 4 KB more in `full`, and remeasure.
 
 Measured on the bench (DevKitC v4, 2026-10-23), `minFreeHeap` with MQTT and Home Assistant discovery on, two UI tabs open (Home and Configuration) and `just bench` run 3–5 times:
 
@@ -99,7 +101,7 @@ Measured on the bench (DevKitC v4, 2026-10-23), `minFreeHeap` with MQTT and Home
 | `full`, no Bluetooth scale | 120 KB | 70 KB; 67 KB during a firmware upload |
 | `full` with the Bluetooth RAM reserved (as with a scale; before ADR 0008, 4 workers) | 44 KB | 7 KB, then a panic |
 
-`tools/bench` fails below 12 KB. A Bluetooth scale has not been measured connected (docs/todo.md).
+`tools/bench` fails below 12 KB of heap or 4 KB of stack. A Bluetooth scale has not been measured connected (docs/todo.md).
 
 Control loop (`full`, `system.timing_debug.enabled`): a tick takes ≤ 1 ms; ticks start at most 11 ms apart (10 ms period) under HTTP and MQTT load, 50 ms apart during a firmware upload (flash erases stall the CPU; the relays are off then), about 75 ms once at boot.
 

@@ -94,12 +94,13 @@ async fn main(spawner: Spawner) -> ! {
     esp_println::logger::init_logger(LevelFilter::Info);
     let p = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
 
-    // ADR 0001: the reclaimed bootloader RAM plus a small main-RAM region.
+    // ADR 0001: the reclaimed bootloader RAM plus a main-RAM region.
     esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 94 * 1024);
     // Bluetooth claims 64 KB of main RAM for its controller; then there is no room
-    // for a second heap region.
+    // for a second heap region. Without it 80 KB leave the main stack about 36 KB
+    // (`standard`); `full` ran the bench with 26 KB. `minFreeStack` tells the margin.
     #[cfg(not(feature = "ble-scale"))]
-    esp_alloc::heap_allocator!(size: 48 * 1024);
+    esp_alloc::heap_allocator!(size: 80 * 1024);
 
     let timg0 = TimerGroup::new(p.TIMG0);
     esp_rtos::start(timg0.timer0, p.FROM_CPU_INTR0);
