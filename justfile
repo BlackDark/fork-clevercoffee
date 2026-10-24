@@ -62,10 +62,26 @@ _features p=profile:
     esac
 
 # Format check and clippy on the firmware, smallest and largest feature set.
-firmware-lint:
+firmware-lint: vendor-check
     cd firmware && {{esp_env}} && cargo fmt --check
     cd firmware && {{esp_env}} && cargo clippy --release $(just _features minimal) -- -D warnings
     cd firmware && {{esp_env}} && cargo clippy --release $(just _features bench) -- -D warnings
+
+# Fails when a vendored crate (firmware/vendor) is not what the build uses: after a
+# dependency bump Cargo drops an unmatched `[patch]` with only a warning.
+vendor-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd firmware && {{esp_env}}
+    for crate in smoltcp xtensa-lx-rt; do
+      used=$(cargo tree --locked --features full --invert "$crate" --depth 0 2>&1 || true)
+      if ! grep -q "(.*firmware/vendor/$crate)" <<<"$used"; then
+        echo "vendored $crate is not used: $used" >&2
+        echo "rebase the CleverCoffee patch onto the new version or drop it (docs/todo.md)" >&2
+        exit 1
+      fi
+    done
+    echo "vendored crates in use: smoltcp, xtensa-lx-rt"
 
 # Builds the firmware; embeds ui/packages/frontend/dist (run `just ui` first).
 build p=profile:
