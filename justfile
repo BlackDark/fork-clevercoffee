@@ -109,8 +109,10 @@ monitor:
     espflash monitor --chip esp32
 
 # Settings applied at next boot: `just provision --ssid Home --password secret system.hostname=silvia`.
+# Arguments are passed as given: an SSID with spaces stays one argument.
+[positional-arguments]
 provision *args:
-    cargo run -q -p provision -- {{args}} -o target/provision.bin
+    cargo run -q -p provision -- "$@" -o target/provision.bin
     espflash write-bin --chip esp32 {{prov_offset}} target/provision.bin
 
 # Erases the whole flash (settings included).
