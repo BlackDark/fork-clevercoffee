@@ -4,12 +4,10 @@ Ordered by value. Remove an item when it lands.
 
 ## Needs the bench
 
-- Remeasure heap and stack (`minFreeHeap`, `minFreeStack`) per image after the 2026-10-24 RAM changes; with the stack margin known, move part of `full`'s main stack to the heap.
-- Firmware upload speed with the 2 KB TCP window (35–45 KB/s with 1 KB; flash erases cap it near 60–70 KB/s).
-- Heap low-water mark with a Bluetooth scale connected (`full`, two home-network workers) and for `minimal`; `standard` and `full` without a scale are in docs/firmware.md.
+- Heap and stack with a Bluetooth scale connected (`full`, two home-network workers); the other images are in docs/firmware.md. Then move part of `full`'s main stack (22 KB never used without a scale) to the heap.
 - Control-loop worst case with `system.timing_debug.enabled` during a BLE scale connect (a firmware upload: 50 ms, docs/firmware.md).
-- TSIC: confirm edge timing under WiFi load (parity error rate in the log). The bench has a DS18B20: no read errors under HTTP and MQTT load, a few CRC errors during firmware uploads.
-- Fallback end to end: home network down for 2 min (portal opens), back (the device restarts once idle, the portal is gone).
+- TSIC: confirm edge timing under WiFi load (parity error rate in the log). The bench has a DS18B20: no read errors under HTTP and MQTT load; during a firmware upload enough CRC errors for a brief SENSOR_ERROR (the relays are off then anyway).
+- Fallback while brewing: the restart after the home network returns must wait for the shot (host-tested; on the bench only the idle case ran: down 2 min → portal, back → restart 55 s later, station only).
 
 ## Found on the bench, not fixed yet
 

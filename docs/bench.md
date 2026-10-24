@@ -94,4 +94,6 @@ What the first run on a chip (2026-10-23) found; each has a fix and, where the l
 | MQTT reconnects every minute on a cold machine | a publish round without changes was counted as traffic; no ping was sent |
 | State passes WATER_TANK_EMPTY at every boot | the tank switch read empty until its first debounce period was over |
 | `ds18b20: Crc` now and then during a firmware upload | flash writes stall the 1-Wire bit timing; a reading is dropped, nothing else |
+| Panic in the first flash call, a pointer reading 0xA5A5A5A5 | the stack monitor painted below a local's address, but inlined into `main` the local sat kilobytes above the stack pointer: it overwrote `main`'s variables. `paint` is not inlined now |
+| `just provision --ssid "My Net"` fails with "not KEY=VALUE" | the recipe split arguments at spaces |
 | Opening the serial port resets the board | DTR/RTS auto-reset: release RTS before DTR, or use `just monitor` |
