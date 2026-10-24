@@ -17,7 +17,7 @@ The first run on a DevKitC (docs/bench.md) found the web server and the RAM budg
 - **Event streams are capped** (`cc_web::StreamSlots`): half the workers. A further `/events` gets 503; the UI retries it and polls the status meanwhile. Requests always find a worker within one SYN retry.
 - **Bluetooth RAM joins the heap** when no Bluetooth scale is configured, as ESP-IDF's `esp_bt_mem_release` does: `full` without a BLE scale has 158 KB of heap instead of 94 KB. Scale settings need a restart, so the controller can never start on memory the heap owns.
 - **WiFi driver buffers** come from the same heap: 4 static RX (default 10), at most 8 dynamic RX and 8 TX (default 32 each).
-- **Big allocations in request handlers are fallible** (history copy, config upload): 503 instead of a reboot.
+- **Big allocations in request handlers are fallible** (history copy, config upload): 503 instead of a reboot. Every request but `/api/health` starts only with 8 KB of heap free (`cc_web::MIN_FREE_HEAP`), else 503 with `Retry-After`: the per-request allocations stay small and infallible, and the WiFi driver keeps room for its packet buffers.
 
 ## Consequences
 

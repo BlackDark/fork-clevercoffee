@@ -22,6 +22,11 @@ struct Fake {
     restarted: RefCell<bool>,
 }
 
+thread_local! {
+    /// Free heap the fake reports; tests run on one thread (current_thread runtime).
+    static FAKE_HEAP: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
 impl Fake {
     fn new(cfg: Config) -> Self {
         let mut m = Machine::new(&cfg, 0, 0);
@@ -88,6 +93,9 @@ impl Backend for Fake {
     }
     async fn sleep_ms(&self, ms: u64) {
         tokio::time::sleep(Duration::from_millis(ms / 20)).await;
+    }
+    fn heap_free(&self) -> usize {
+        FAKE_HEAP.with(std::cell::Cell::get).unwrap_or(100_000)
     }
     fn deadline(&self, ms: u64) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()>>> {
         Box::pin(tokio::time::sleep(Duration::from_millis(ms)))
@@ -527,4 +535,20 @@ async fn bench_hang_route() {
     })
     .await;
     assert!(*fake.restarted.borrow());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn low_heap_answers_503_but_health() {
+    with_server(ready(), |port| async move {
+        assert_eq!(get(port, "/api/status").await.status, 200);
+        FAKE_HEAP.with(|h| h.set(Some(cc_web::MIN_FREE_HEAP - 1)));
+        let r = get(port, "/api/parameters").await;
+        assert_eq!(r.status, 503);
+        assert_eq!(r.header("Retry-After"), Some("1"));
+        assert_eq!(r.json()["success"], false);
+        assert_eq!(get(port, "/api/health").await.status, 200);
+        FAKE_HEAP.with(|h| h.set(None));
+        assert_eq!(get(port, "/api/parameters").await.status, 200);
+    })
+    .await;
 }

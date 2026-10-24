@@ -45,7 +45,7 @@ Same PR, only what the change touches:
 
 - Heater, pump and valve are driven only by `control.rs` from `Machine::outputs()`. Nothing else touches those pins (the panic hook excepted).
 - `shared::with` is a critical section: copy out, never render, format large JSON or do I/O inside it.
-- Big buffers go on the heap (reclaimed RAM), not in task futures: a configured Bluetooth scale takes 64 KB of main RAM in `full` (ADR 0001, 0008). Allocations a request can trigger are fallible: a failed allocation is a panic and a reboot.
+- Big buffers go on the heap (reclaimed RAM), not in task futures: a configured Bluetooth scale takes 64 KB of main RAM in `full` (ADR 0001, 0008). Allocations a request can trigger are fallible: a failed allocation is a panic and a reboot. `cc_web::MIN_FREE_HEAP` admits a request only with 8 KB free; a route that allocates more checks for itself (`try_reserve`).
 - A task that can block must not run on the control executor.
 
 ## Git

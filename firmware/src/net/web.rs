@@ -91,6 +91,10 @@ impl Backend for Device {
         Timer::after(Duration::from_millis(ms)).await;
     }
 
+    fn heap_free(&self) -> usize {
+        esp_alloc::HEAP.free()
+    }
+
     fn deadline(&self, ms: u64) -> core::pin::Pin<alloc::boxed::Box<dyn core::future::Future<Output = ()>>> {
         alloc::boxed::Box::pin(Timer::after(Duration::from_millis(ms)))
     }

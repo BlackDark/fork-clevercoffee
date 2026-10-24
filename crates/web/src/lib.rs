@@ -33,6 +33,14 @@ pub const EVENT_INTERVAL_MS: u64 = 1_000;
 /// Time allowed for a whole firmware upload. picoserve gives a request body 3 s in
 /// total; the ESP32 takes 30 to 60 s for an image.
 pub const UPLOAD_TIMEOUT_MS: u64 = 180_000;
+/// A request starts only with this much heap free. The largest a request allocates
+/// at once is the history copy (3.6 KB) or a stream (3 KB); the rest is headroom for
+/// the WiFi driver, which allocates its packet buffers from the same heap. A failed
+/// allocation is a panic and a reboot; a 503 is a retry.
+pub const MIN_FREE_HEAP: usize = 8 * 1024;
+
+/// The 503 for a full heap: static, it needs no allocation.
+const LOW_MEMORY: &[u8] = br#"{"success":false,"message":"Low on memory, try again"}"#;
 
 /// An embedded UI file.
 #[derive(Debug, Clone, Copy)]
@@ -90,6 +98,8 @@ pub trait Backend {
     fn wifi_reset(&self);
     fn asset(&self, path: &str) -> Option<Asset>;
     async fn sleep_ms(&self, ms: u64);
+    /// Free heap in bytes, for [`MIN_FREE_HEAP`].
+    fn heap_free(&self) -> usize;
     /// A timer that resolves after `ms` (the firmware upload deadline).
     fn deadline(&self, ms: u64) -> core::pin::Pin<alloc::boxed::Box<dyn core::future::Future<Output = ()>>>;
 
@@ -432,6 +442,20 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
 
         if method == "OPTIONS" {
             reply!(Response::empty(StatusCode::NO_CONTENT).with_headers(CORS));
+        }
+
+        // Health stays answerable: it allocates nothing.
+        if path != "/api/health" && b.heap_free() < MIN_FREE_HEAP {
+            reply!(
+                Response::new(
+                    StatusCode::new(503),
+                    Bytes {
+                        data: LOW_MEMORY,
+                        content_type: "application/json",
+                    }
+                )
+                .with_headers([("Retry-After", "1")])
+            );
         }
 
         match (method, path) {
