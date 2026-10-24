@@ -6,8 +6,9 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 const PATTERN: u32 = 0xA5A5_A5A5;
-/// Left untouched next to the current stack pointer while painting.
-const MARGIN: usize = 512;
+/// Left untouched below the stack pointer while painting: the frames of
+/// `critical_section::with` and the painting closure live there.
+const MARGIN: usize = 1024;
 /// esp-hal's stack guard word sits this far above the stack's end.
 const GUARD_OFFSET: usize = 60;
 
@@ -35,10 +36,19 @@ pub fn size() -> usize {
 }
 
 /// Fills the free stack below the current frame. Call once, early in `main`.
+///
+/// Never inlined: its frame is small, so a local's address is within bytes of the
+/// stack pointer. Inlined into `main`'s 7.6 KB frame, the local sat kilobytes above
+/// it, and painting below the local overwrote `main`'s own variables (the chip
+/// crashed in the next flash call, on a pointer reading 0xA5A5A5A5).
+#[inline(never)]
 pub fn paint() {
-    let (bottom, _) = bounds();
+    let (bottom, top) = bounds();
     let here = 0u8;
     let sp = core::ptr::addr_of!(here) as usize;
+    if !(bottom..top).contains(&sp) {
+        return;
+    }
     critical_section::with(|_| {
         let mut p = bottom;
         while p + 4 <= sp - MARGIN {
