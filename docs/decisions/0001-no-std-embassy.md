@@ -13,7 +13,7 @@ Bare metal: `esp-hal`, `esp-rtos` (Embassy executor), `esp-radio` (WiFi, BLE), `
 A test build with everything enabled linked with a 28 KB main stack and ~118 KB heap. The real firmware:
 
 - `standard`: heap 94 KB (reclaimed bootloader RAM) + 48 KB, main stack ~57 KB.
-- `full`: the Bluetooth controller reserves 64 KB of main RAM at a fixed address; without a configured Bluetooth scale they join the heap (ADR 0008). Network buffers and the 7 KB history live on the heap, not in static task futures. Main stack ~27 KB.
+- `full`: the Bluetooth controller reserves 64 KB of main RAM at a fixed address; without a configured Bluetooth scale they join the heap (ADR 0008). Network buffers and the history (3.6 KB) live on the heap, not in static task futures. Main stack ~27 KB.
 
 ## Consequences
 

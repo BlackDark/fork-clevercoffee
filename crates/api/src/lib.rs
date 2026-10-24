@@ -174,7 +174,7 @@ pub fn write_history(h: &History, w: &mut Writer<impl Write>) -> fmt::Result {
     for (name, f) in [
         (
             "currentTemps",
-            (|p| p.temperature) as fn(&cc_core::history::Point) -> f32,
+            (|p| p.temperature) as fn(cc_core::history::Point) -> f32,
         ),
         ("targetTemps", |p| p.setpoint),
         ("heaterPowers", |p| p.heater_power),

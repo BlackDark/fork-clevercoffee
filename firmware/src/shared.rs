@@ -41,7 +41,7 @@ impl NetState {
 pub struct Shared {
     pub cfg: Config,
     pub machine: Machine,
-    /// 7 KB: on the heap.
+    /// 3.6 KB: on the heap.
     pub history: alloc::boxed::Box<History>,
     pub net: NetState,
     pub live: Live,

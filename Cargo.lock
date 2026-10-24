@@ -124,6 +124,7 @@ version = "2.0.0"
 dependencies = [
  "cc-pid",
  "heapless 0.9.3",
+ "libm",
  "postcard",
  "proptest",
  "serde",

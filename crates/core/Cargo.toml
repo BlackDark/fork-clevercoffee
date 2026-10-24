@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 cc-pid.workspace = true
 heapless = { workspace = true, features = ["serde"] }
+libm.workspace = true
 serde.workspace = true
 
 [dev-dependencies]

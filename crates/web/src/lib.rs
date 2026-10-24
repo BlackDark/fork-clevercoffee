@@ -888,7 +888,7 @@ fn text(s: &str) -> heapless::String<128> {
 }
 
 /// A heap copy of the history, so its body is rendered without holding the device's
-/// lock; `None` when the heap cannot spare 7 KB right now (a failed allocation would
+/// lock; `None` when the heap cannot spare 3.6 KB right now (a failed allocation would
 /// be a panic, which restarts the machine).
 fn history_copy<B: Backend>(b: &B) -> Option<alloc::vec::Vec<History>> {
     let mut h = alloc::vec::Vec::new();
