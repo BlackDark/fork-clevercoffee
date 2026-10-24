@@ -85,7 +85,7 @@ What the first run on a chip (2026-10-23) found; each has a fix and, where the l
 | "write to the stack guard" on the first big request | the router's stack frame was 22 KB of the 27 KB main stack |
 | Panic "memory allocation failed" under parallel downloads | WiFi driver buffers and per-request copies on a 94 KB heap |
 | `ERR_CONNECTION_REFUSED` for the logo or `/events`; the portal loads forever | no listen backlog; one worker on the access point; station scans every 5 s while the portal is open |
-| Every request to `cc-bench.local` takes 5 s on macOS | no AAAA answer from the mDNS responder; use the IP address for timing |
+| Every request to `cc-bench.local` takes 5 s on macOS | no AAAA answer from the mDNS responder (now an NSEC record says there is none; confirm on the bench) |
 | `/api/health` takes 1 s | no `Content-Length`; the client waited for the connection to close |
 | Firmware upload fails after 3 s | picoserve's 3 s limit for a whole request body |
 | Now and then a download ends with "connection reset" under parallel load | picoserve's 1 s write timeout aborts with a RST; one lost packet takes about that long. 5 s now |

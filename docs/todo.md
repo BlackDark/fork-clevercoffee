@@ -14,7 +14,6 @@ Ordered by value. Remove an item when it lands.
 - Report the `xtensa-lx-rt` `global_asm!` ordering upstream; drop `firmware/vendor/xtensa-lx-rt` once fixed.
 - smoltcp has no listen backlog; propose the SYN-drop (ADR 0008) or a backlog upstream, then drop `firmware/vendor/smoltcp`.
 - WiFi setup in the web UI: a "Connect to WiFi" card on the portal's home page with a network scan, instead of SSID and password under Configuration → System. Needs a scan endpoint.
-- mDNS: answer AAAA queries negatively (NSEC); macOS waits 5 s for one before it uses the A record.
 - Firmware upload runs at 35–45 KB/s (1 KB TCP receive window per worker); a larger window for the upload would halve the time.
 - The MQTT session drops during a firmware upload (flash stalls) and reconnects after it.
 
