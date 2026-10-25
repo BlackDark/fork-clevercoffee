@@ -18,6 +18,9 @@ use crate::wire::{
 };
 
 mod congestion;
+mod listener;
+
+pub use listener::{Listener, MAX_WAIT as LISTENER_MAX_WAIT, PendingConnection};
 
 macro_rules! tcp_trace {
     ($($arg:expr),*) => (net_log!(trace, $($arg),*));
@@ -547,6 +550,12 @@ pub struct Socket<'a> {
     /// If this is set, we will not send a SYN|ACK until this is unset.
     #[cfg(feature = "socket-tcp-pause-synack")]
     synack_paused: bool,
+
+    /// A request taken from a [`Listener`], answered at the next poll (CleverCoffee patch).
+    accepted: Option<PendingConnection>,
+    /// Opened by [`Socket::accept`]: a failed handshake closes the socket instead of
+    /// returning it to LISTEN, so its owner goes back to the listener's queue.
+    from_listener: bool,
 }
 
 const DEFAULT_MSS: usize = 536;
@@ -613,6 +622,9 @@ impl<'a> Socket<'a> {
 
             #[cfg(feature = "socket-tcp-pause-synack")]
             synack_paused: false,
+
+            accepted: None,
+            from_listener: false,
         }
     }
 
@@ -910,6 +922,8 @@ impl<'a> Socket<'a> {
         self.remote_last_ts = None;
         self.ack_delay_timer = AckDelayTimer::Idle;
         self.challenge_ack_timer = Instant::from_secs(0);
+        self.accepted = None;
+        self.from_listener = false;
 
         #[cfg(feature = "async")]
         {
@@ -953,6 +967,47 @@ impl<'a> Socket<'a> {
         self.tuple = None;
         self.set_state(State::Listen);
         Ok(())
+    }
+
+    /// Take over a connection request from a [`Listener`] (CleverCoffee patch).
+    ///
+    /// The socket must be closed. It listens on the request's local endpoint and, at the
+    /// next poll, processes the request's SYN as if it had just arrived: it answers with
+    /// a SYN-ACK and goes through the handshake on its own. Should the handshake fail,
+    /// the socket keeps listening on that endpoint, like after [`Self::listen`].
+    pub fn accept(&mut self, request: PendingConnection) -> Result<(), ListenError> {
+        if self.is_open() {
+            return Err(ListenError::InvalidState);
+        }
+        self.reset();
+        self.listen_endpoint = IpListenEndpoint {
+            addr: Some(request.local.addr),
+            port: request.local.port,
+        };
+        // Bound to this client from now on: until the replay, a listening socket would
+        // otherwise take any client's SYN and lose its own request.
+        self.tuple = Some(Tuple {
+            local: request.local,
+            remote: request.remote,
+        });
+        self.set_state(State::Listen);
+        self.accepted = Some(request);
+        self.from_listener = true;
+        Ok(())
+    }
+
+    /// Processes the SYN of an accepted request; returns what to send right away.
+    pub(crate) fn process_accepted(&mut self, cx: &mut Context) -> Option<(IpRepr, TcpRepr<'static>)> {
+        let request = self.accepted.take()?;
+        // The client's retransmitted SYN may have got here first.
+        if self.state != State::Listen {
+            return None;
+        }
+        let (ip_repr, tcp_repr) = request.syn();
+        if !self.accepts(cx, &ip_repr, &tcp_repr) {
+            return None;
+        }
+        self.process(cx, &ip_repr, &tcp_repr)
     }
 
     /// Connect to a given endpoint.
@@ -1823,7 +1878,9 @@ impl<'a> Socket<'a> {
             // Here we need to additionally check `listen_endpoint`, because we want to make sure
             // that SYN-RECEIVED was actually converted from the LISTEN state (another possible
             // reason is TCP simultaneous open).
-            (State::SynReceived, TcpControl::Rst) if self.listen_endpoint.port != 0 => {
+            (State::SynReceived, TcpControl::Rst)
+                if self.listen_endpoint.port != 0 && !self.from_listener =>
+            {
                 tcp_trace!("received RST");
                 self.tuple = None;
                 self.set_state(State::Listen);
@@ -2682,6 +2739,9 @@ impl<'a> Socket<'a> {
 
     #[allow(clippy::if_same_then_else)]
     pub(crate) fn poll_at(&self, cx: &mut Context) -> PollAt {
+        if self.accepted.is_some() {
+            return PollAt::Now;
+        }
         // The logic here mirrors the beginning of dispatch() closely.
         if self.tuple.is_none() {
             // No one to talk to, nothing to transmit.
@@ -8998,5 +9058,193 @@ mod test {
         s.send_slice(b"def").unwrap();
         recv_nothing!(s);
         assert_eq!(s.state, State::Closed);
+    }
+
+
+    // =========================================================================================//
+    // Tests for the listener (CleverCoffee patch)
+    // =========================================================================================//
+
+    fn syn_from(port: u16) -> (IpRepr, TcpRepr<'static>) {
+        let repr = TcpRepr {
+            src_port: port,
+            control: TcpControl::Syn,
+            seq_number: REMOTE_SEQ,
+            ack_number: None,
+            ..SEND_TEMPL
+        };
+        let ip_repr = IpReprIpvX(IpvXRepr {
+            src_addr: REMOTE_ADDR,
+            dst_addr: LOCAL_ADDR,
+            next_header: IpProtocol::Tcp,
+            payload_len: repr.buffer_len(),
+            hop_limit: 64,
+        });
+        (ip_repr, repr)
+    }
+
+    fn listener(backlog: usize) -> Listener<'static> {
+        let mut l = Listener::new(vec![None; backlog]);
+        l.listen(LISTEN_END).unwrap();
+        l
+    }
+
+    #[test]
+    fn test_listener_accepted_request_is_answered_like_a_listening_socket() {
+        let mut s = socket();
+        let mut l = listener(2);
+        let (ip_repr, syn) = syn_from(REMOTE_PORT);
+        assert!(l.accepts(&ip_repr, &syn));
+        l.process(&mut s.cx, &ip_repr, &syn);
+        assert_eq!(l.pending(), 1);
+
+        let request = l.accept(Instant::from_millis(0)).unwrap();
+        assert_eq!(request.remote_endpoint(), REMOTE_END);
+        assert_eq!(l.pending(), 0);
+        s.socket.accept(request).unwrap();
+        assert_eq!(s.socket.process_accepted(&mut s.cx), None);
+        assert_eq!(s.state, State::SynReceived);
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: Some(REMOTE_SEQ + 1),
+                max_seg_size: Some(BASE_MSS),
+                ..RECV_TEMPL
+            }]
+        );
+        // The handshake's last ACK may carry data; nothing gets lost.
+        send(
+            &mut s,
+            Instant::from_millis(0),
+            &TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"GET"[..],
+                ..SEND_TEMPL
+            },
+        );
+        assert_eq!(s.state, State::Established);
+        assert_eq!(s.recv_queue(), 3);
+    }
+
+    #[test]
+    fn test_listener_keeps_one_entry_per_client_and_drops_when_full() {
+        let mut s = socket();
+        let mut l = listener(2);
+        for port in [1000, 1000, 1001, 1002] {
+            let (ip_repr, syn) = syn_from(port);
+            l.process(&mut s.cx, &ip_repr, &syn);
+        }
+        // 1000 retransmitted (one entry), 1002 found the backlog full.
+        assert_eq!(l.pending(), 2);
+        assert_eq!(l.accept(Instant::from_millis(0)).unwrap().remote_endpoint().port, 1000);
+        assert_eq!(l.accept(Instant::from_millis(0)).unwrap().remote_endpoint().port, 1001);
+        assert_eq!(l.accept(Instant::from_millis(0)), None);
+    }
+
+    #[test]
+    fn test_listener_skips_requests_whose_client_gave_up() {
+        let mut s = socket();
+        let mut l = listener(3);
+        for (port, at) in [(1000, 0), (1001, 0), (1002, 2_000)] {
+            s.cx.set_now(Instant::from_millis(at));
+            let (ip_repr, syn) = syn_from(port);
+            l.process(&mut s.cx, &ip_repr, &syn);
+        }
+        // 1001 retransmits; 1000 does not.
+        s.cx.set_now(Instant::from_millis(2_500));
+        let (ip_repr, syn) = syn_from(1001);
+        l.process(&mut s.cx, &ip_repr, &syn);
+
+        let now = Instant::from_millis(3_500);
+        assert_eq!(l.accept(now).unwrap().remote_endpoint().port, 1001);
+        assert_eq!(l.accept(now).unwrap().remote_endpoint().port, 1002);
+        assert_eq!(l.accept(now), None);
+    }
+
+    // macOS retransmits after 1, 2, 4 s: a fixed limit dropped it during the 4 s pause.
+    #[test]
+    fn test_listener_keeps_a_client_that_backs_off() {
+        let mut s = socket();
+        let mut l = listener(1);
+        for at in [0, 1_000, 3_000] {
+            s.cx.set_now(Instant::from_millis(at));
+            let (ip_repr, syn) = syn_from(REMOTE_PORT);
+            l.process(&mut s.cx, &ip_repr, &syn);
+        }
+        assert!(l.accept(Instant::from_millis(6_500)).is_some());
+    }
+
+    // A client that dropped its half-open connection answers the SYN-ACK with a RST.
+    #[test]
+    fn test_accepted_socket_closes_on_rst() {
+        let mut s = socket();
+        let mut l = listener(1);
+        let (ip_repr, syn) = syn_from(REMOTE_PORT);
+        l.process(&mut s.cx, &ip_repr, &syn);
+        s.socket.accept(l.accept(Instant::from_millis(0)).unwrap()).unwrap();
+        s.socket.process_accepted(&mut s.cx);
+        assert_eq!(s.state, State::SynReceived);
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Rst,
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: None,
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state, State::Closed);
+    }
+
+    #[test]
+    fn test_listener_ignores_other_ports_and_non_syn() {
+        let l = listener(1);
+        let (ip_repr, syn) = syn_from(REMOTE_PORT);
+        assert!(!l.accepts(&ip_repr, &TcpRepr { dst_port: 81, ..syn }));
+        assert!(!l.accepts(&ip_repr, &TcpRepr { ack_number: Some(LOCAL_SEQ), ..syn }));
+        assert!(!l.accepts(&ip_repr, &TcpRepr { control: TcpControl::None, ..syn }));
+        assert!(!Listener::new(vec![None; 1]).accepts(&ip_repr, &syn), "not listening");
+    }
+
+    // Seen on the bench: between `accept` and the next poll the socket took another
+    // client's SYN, lost its own request, and a second socket got the same client.
+    #[test]
+    fn test_accepted_socket_takes_only_its_own_client() {
+        let mut s = socket();
+        let mut l = listener(2);
+        let (ip_repr, syn) = syn_from(REMOTE_PORT);
+        l.process(&mut s.cx, &ip_repr, &syn);
+        s.socket.accept(l.accept(Instant::from_millis(0)).unwrap()).unwrap();
+
+        let (other_ip, other_syn) = syn_from(REMOTE_PORT + 1);
+        assert!(!s.socket.accepts(&mut s.cx, &other_ip, &other_syn));
+        // The client's own retransmitted SYN may arrive before the replay.
+        assert!(s.socket.accepts(&mut s.cx, &ip_repr, &syn));
+        send!(s, syn);
+        assert_eq!(s.state, State::SynReceived);
+        assert_eq!(s.socket.process_accepted(&mut s.cx), None);
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: Some(REMOTE_SEQ + 1),
+                max_seg_size: Some(BASE_MSS),
+                ..RECV_TEMPL
+            }]
+        );
+    }
+
+    #[test]
+    fn test_accept_needs_a_closed_socket() {
+        let mut s = socket_listen();
+        let mut l = listener(1);
+        let (ip_repr, syn) = syn_from(REMOTE_PORT);
+        l.process(&mut s.cx, &ip_repr, &syn);
+        let request = l.accept(Instant::from_millis(0)).unwrap();
+        assert_eq!(s.socket.accept(request), Err(ListenError::InvalidState));
     }
 }

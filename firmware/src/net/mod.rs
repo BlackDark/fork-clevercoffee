@@ -16,6 +16,7 @@ pub mod mdns;
 use core::net::Ipv4Addr;
 
 use embassy_futures::select::{Either, select};
+use embassy_net::tcp::{PendingConnection, TcpListener};
 use embassy_net::{Ipv4Cidr, Runner, Stack, StackResources, StaticConfigV4};
 use embassy_time::{Duration, Instant, Timer};
 use esp_radio::wifi::{
@@ -38,7 +39,14 @@ pub const STATION_RETRY_WITH_AP: Duration = Duration::from_secs(60);
 pub struct Stacks {
     pub sta: Stack<'static>,
     pub ap: Stack<'static>,
+    /// Port 80 on each network: connection requests wait here for an HTTP worker.
+    pub sta_http: TcpListener<'static>,
+    pub ap_http: TcpListener<'static>,
 }
+
+/// Connection requests a network holds for the HTTP workers. A page load opens about
+/// eight connections, a second tab as many again.
+const HTTP_BACKLOG: usize = 8;
 
 /// What the WiFi task needs from the config, read once at boot.
 pub struct WifiSettings {
@@ -115,7 +123,16 @@ pub fn stacks(
         mk_static!(StackResources<8>, StackResources::new()),
         seed.rotate_left(17),
     );
-    (mk_static!(Stacks, Stacks { sta, ap }), sta_runner, ap_runner)
+    // One `mk_static!` per listener: each expands to its own static cell.
+    let sta_backlog = mk_static!([Option<PendingConnection>; HTTP_BACKLOG], [None; HTTP_BACKLOG]);
+    let ap_backlog = mk_static!([Option<PendingConnection>; HTTP_BACKLOG], [None; HTTP_BACKLOG]);
+    let stacks = Stacks {
+        sta,
+        ap,
+        sta_http: TcpListener::new(sta, sta_backlog, 80).expect("port 80 is valid"),
+        ap_http: TcpListener::new(ap, ap_backlog, 80).expect("port 80 is valid"),
+    };
+    (mk_static!(Stacks, stacks), sta_runner, ap_runner)
 }
 
 #[embassy_executor::task(pool_size = 2)]

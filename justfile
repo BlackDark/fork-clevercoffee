@@ -24,7 +24,7 @@ setup:
 check: host-check firmware-lint ui-check
 
 # Host crates: format, clippy, tests.
-host-check: fmt-check lint test
+host-check: fmt-check lint test vendor-test
 
 # --- host ---------------------------------------------------------------------------
 
@@ -44,6 +44,10 @@ lint:
 # Host tests (core logic, API, MQTT, drivers, display layout, HTTP end to end).
 test:
     cargo test --workspace --all-features
+
+# The vendored smoltcp's tests, the listen backlog's among them (ADR 0008), on the host.
+vendor-test:
+    cargo test -q --manifest-path firmware/vendor/smoltcp/Cargo.toml --target-dir target/vendor --lib
 
 # Renders every OLED screen to target/screens/index.html for layout review.
 screens:
@@ -73,7 +77,7 @@ vendor-check:
     #!/usr/bin/env bash
     set -euo pipefail
     cd firmware && {{esp_env}}
-    for crate in smoltcp xtensa-lx-rt; do
+    for crate in smoltcp embassy-net xtensa-lx-rt; do
       used=$(cargo tree --locked --features full --invert "$crate" --depth 0 2>&1 || true)
       if ! grep -q "(.*firmware/vendor/$crate)" <<<"$used"; then
         echo "vendored $crate is not used: $used" >&2
@@ -81,7 +85,7 @@ vendor-check:
         exit 1
       fi
     done
-    echo "vendored crates in use: smoltcp, xtensa-lx-rt"
+    echo "vendored crates in use: smoltcp, embassy-net, xtensa-lx-rt"
 
 # Builds the firmware; embeds ui/packages/frontend/dist (run `just ui` first).
 build p=profile:

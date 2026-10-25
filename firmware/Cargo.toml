@@ -102,6 +102,8 @@ opt-level = "s"
 [patch.crates-io]
 xtensa-lx-rt = { path = "vendor/xtensa-lx-rt" }
 # smoltcp answers a SYN with RST when no socket listens; the web UI opens more
-# connections than there are HTTP workers. The vendored copy drops such a SYN so the
-# client retries (ADR 0008). Remove when smoltcp gets a listen backlog.
+# connections than there are HTTP workers. The vendored copies add a listen backlog:
+# `tcp::Listener` in smoltcp, `TcpListener` in embassy-net (ADR 0008). Remove when
+# upstream has one.
 smoltcp = { path = "vendor/smoltcp" }
+embassy-net = { path = "vendor/embassy-net" }

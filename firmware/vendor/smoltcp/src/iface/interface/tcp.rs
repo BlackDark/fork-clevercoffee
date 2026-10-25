@@ -40,22 +40,16 @@ impl InterfaceInner {
             }
         }
 
-        // CleverCoffee patch: a connection request to a port we serve while every
-        // listening socket is busy is dropped, not refused. The client retransmits its
-        // SYN (after about 1 s) and gets the next free socket: a listen backlog without
-        // a socket's worth of RAM per waiting client. A RST would fail the request.
-        if tcp_repr.control == TcpControl::Syn
-            && tcp_repr.ack_number.is_none()
-            && sockets
-                .items()
-                .filter_map(|i| Socket::downcast(&i.socket))
-                .any(|s| {
-                    s.listen_endpoint().port == tcp_repr.dst_port
-                        || s.local_endpoint().map(|e| e.port) == Some(tcp_repr.dst_port)
-                })
+        // CleverCoffee patch: no socket took it; a listener on the endpoint queues a
+        // connection request instead of it being refused (ADR 0008).
+        for listener in sockets
+            .items_mut()
+            .filter_map(|i| crate::socket::tcp::Listener::downcast_mut(&mut i.socket))
         {
-            net_debug!("tcp: all sockets on port {} busy, SYN dropped", tcp_repr.dst_port);
-            return None;
+            if listener.accepts(&ip_repr, &tcp_repr) {
+                listener.process(self, &ip_repr, &tcp_repr);
+                return None;
+            }
         }
 
         if tcp_repr.control == TcpControl::Rst

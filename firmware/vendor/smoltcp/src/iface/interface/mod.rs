@@ -770,13 +770,23 @@ impl Interface {
                     })
                 }
                 #[cfg(feature = "socket-tcp")]
-                Socket::Tcp(socket) => socket.dispatch(&mut self.inner, |inner, (ip, tcp)| {
-                    respond(
-                        inner,
+                Socket::Tcp(socket) => match socket.process_accepted(&mut self.inner) {
+                    // A reply to the replayed SYN goes out first (CleverCoffee patch).
+                    Some((ip, tcp)) => respond(
+                        &mut self.inner,
                         PacketMeta::default(),
                         Packet::new(ip, IpPayload::Tcp(tcp)),
-                    )
-                }),
+                    ),
+                    None => socket.dispatch(&mut self.inner, |inner, (ip, tcp)| {
+                        respond(
+                            inner,
+                            PacketMeta::default(),
+                            Packet::new(ip, IpPayload::Tcp(tcp)),
+                        )
+                    }),
+                },
+                #[cfg(feature = "socket-tcp")]
+                Socket::TcpListener(_) => Ok(()),
                 #[cfg(feature = "socket-dhcpv4")]
                 Socket::Dhcpv4(socket) => {
                     socket.dispatch(&mut self.inner, |inner, (ip, udp, dhcp)| {

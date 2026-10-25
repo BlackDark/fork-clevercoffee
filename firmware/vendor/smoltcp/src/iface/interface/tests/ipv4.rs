@@ -1548,3 +1548,56 @@ fn test_ipv4_fragment_size() {
         );
     }
 }
+
+#[rstest]
+#[case(Medium::Ip)]
+#[cfg(all(feature = "socket-tcp", feature = "medium-ip"))]
+/// A SYN that no socket takes is refused, unless a listener queues it (CleverCoffee patch).
+fn test_tcp_listener_queues_instead_of_refusing(#[case] medium: Medium) {
+    use crate::socket::tcp;
+    use crate::wire::{TcpPacket, TcpRepr};
+
+    let (mut iface, mut sockets, _) = setup(medium);
+    let src_addr = Ipv4Address::new(192, 168, 1, 2);
+    let dst_addr = Ipv4Address::new(192, 168, 1, 1);
+    let tcp_repr = TcpRepr {
+        src_port: 49500,
+        dst_port: 80,
+        control: TcpControl::Syn,
+        seq_number: TcpSeqNumber(1),
+        ack_number: None,
+        window_len: 1024,
+        window_scale: None,
+        max_seg_size: Some(1460),
+        sack_permitted: false,
+        sack_ranges: [None, None, None],
+        timestamp: None,
+        payload: &[],
+    };
+    let ip_repr = IpRepr::Ipv4(Ipv4Repr {
+        src_addr,
+        dst_addr,
+        next_header: IpProtocol::Tcp,
+        hop_limit: 64,
+        payload_len: tcp_repr.header_len(),
+    });
+    let mut bytes = vec![0u8; tcp_repr.header_len()];
+    tcp_repr.emit(
+        &mut TcpPacket::new_unchecked(&mut bytes),
+        &src_addr.into(),
+        &dst_addr.into(),
+        &ChecksumCapabilities::default(),
+    );
+
+    let refused = iface.inner.process_tcp(&mut sockets, false, ip_repr.clone(), &bytes);
+    assert!(
+        matches!(refused, Some(ref p) if matches!(p.payload(), IpPayload::Tcp(t) if t.control == TcpControl::Rst)),
+        "{refused:?}"
+    );
+
+    let mut listener = tcp::Listener::new(vec![None; 2]);
+    listener.listen(80).unwrap();
+    let handle = sockets.add(listener);
+    assert_eq!(iface.inner.process_tcp(&mut sockets, false, ip_repr, &bytes), None);
+    assert_eq!(sockets.get::<tcp::Listener>(handle).pending(), 1);
+}

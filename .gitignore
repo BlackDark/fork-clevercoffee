@@ -5,3 +5,6 @@ mise.local.toml
 **/.DS_Store
 **/.vscode
 **/.idea
+
+# Written by `just vendor-test`; the vendored crates build inside the firmware workspace.
+firmware/vendor/*/Cargo.lock

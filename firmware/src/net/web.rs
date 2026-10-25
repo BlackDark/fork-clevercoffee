@@ -6,7 +6,7 @@ use cc_core::{Command, Config, Event, Reply, Status};
 use cc_web::{Asset, Backend, OtaError, OtaStatus};
 use embassy_futures::select::{Either, select};
 use embassy_net::Stack;
-use embassy_net::tcp::TcpSocket;
+use embassy_net::tcp::{AcceptError, TcpListener, TcpSocket};
 use embassy_time::{Duration, Timer};
 
 use crate::shared::{self, RestartKind};
@@ -177,15 +177,15 @@ const RX_BUF: usize = 2048;
 const TX_BUF: usize = 1536;
 const HTTP_BUF: usize = 2048;
 
-/// The network to serve next: the home network if its link is up, else the access
-/// point, else whichever comes up first.
-async fn pick(stacks: &super::Stacks) -> Stack<'static> {
+/// The network to serve next and its port-80 listener: the home network if its link is
+/// up, else the access point, else whichever comes up first.
+async fn pick(stacks: &'static super::Stacks) -> (Stack<'static>, &'static TcpListener<'static>) {
     loop {
         if stacks.sta.is_link_up() {
-            return stacks.sta;
+            return (stacks.sta, &stacks.sta_http);
         }
         if stacks.ap.is_link_up() {
-            return stacks.ap;
+            return (stacks.ap, &stacks.ap_http);
         }
         let _ = select(stacks.sta.wait_link_up(), stacks.ap.wait_link_up()).await;
     }
@@ -202,12 +202,17 @@ pub async fn task(id: usize, stacks: &'static super::Stacks, streams: &'static c
     let mut tx = alloc::vec![0; TX_BUF];
     let mut http = alloc::vec![0; HTTP_BUF];
     loop {
-        let stack = pick(stacks).await;
+        let (stack, listener) = pick(stacks).await;
         let mut socket = TcpSocket::new(stack, &mut rx, &mut tx);
+        // A client that vanishes mid-handshake would hold the worker in SYN-RECEIVED; the
+        // SYN-ACK is retransmitted after 1 s, so 3 s covers a lost one.
+        socket.set_timeout(Some(Duration::from_secs(3)));
         // Waiting on a network that goes away (the home network drops, the fallback
         // opens the access point) would hold this worker forever.
-        match select(socket.accept(80), stack.wait_link_down()).await {
+        match select(listener.accept(&mut socket), stack.wait_link_down()).await {
             Either::First(Ok(())) => {}
+            // The client gave up during the handshake.
+            Either::First(Err(AcceptError::ConnectionReset)) => continue,
             Either::First(Err(e)) => {
                 warn!("http {id}: accept: {e:?}");
                 continue;
