@@ -7,6 +7,7 @@ Ordered by value. Remove an item when it lands.
 - Heap and stack with a Bluetooth scale connected (`full`, two home-network workers); the other images are in docs/firmware.md. Then move part of `full`'s main stack (22 KB never used without a scale) to the heap.
 - Control-loop worst case with `system.timing_debug.enabled` during a BLE scale connect (a firmware upload: 50 ms, docs/firmware.md).
 - TSIC: confirm edge timing under WiFi load (parity error rate in the log). The bench has a DS18B20: no read errors under HTTP and MQTT load; during a firmware upload enough CRC errors for a brief SENSOR_ERROR (the relays are off then anyway).
+- DS18B20 on the bench: about 2 % of readings fail their CRC at idle (34 per 10 min over a 4 h soak, evenly spread; none were logged on 2026-10-23). Check the 4.7 kΩ pull-up and wire length, then the bit timing under the network load of the listener build.
 - Fallback while brewing: the restart after the home network returns must wait for the shot (host-tested; on the bench only the idle case ran: down 2 min → portal, back → restart 55 s later, station only).
 
 ## Found on the bench, not fixed yet

@@ -100,7 +100,7 @@ Measured on the bench (DevKitC v4, 2026-10-25), with MQTT and Home Assistant dis
 | `full`, no Bluetooth scale | 123 KB | 54 KB | 19.6 of 35 KB |
 | `full` with the Bluetooth RAM reserved (as with a scale; 2026-10-23, before ADR 0008, 4 workers) | 44 KB | 7 KB, then a panic | |
 
-The deepest stack use is at boot (settings, flash, WiFi start), not under load. A firmware upload runs at about 40 KB/s (38–45 s for 1.5 MB). HTTP (ADR 0008): the 21 KB parameter list in 0.25 s, eight connections at once in 0.3–0.6 s with two tabs open.
+Soak (`full`, 2026-10-25): 4 h 20 min without a restart, two UI tabs open, MQTT connected throughout, `just bench` every 3 min for the first 30 min (all passed); free heap steady at 68–69 KB, `minFreeHeap` 53.8 KB. The deepest stack use is at boot (settings, flash, WiFi start), not under load. A firmware upload runs at about 40 KB/s (38–45 s for 1.5 MB). HTTP (ADR 0008): the 21 KB parameter list in 0.25 s, eight connections at once in 0.3–0.6 s with two tabs open.
 
 `tools/bench` fails below 12 KB of heap or 4 KB of stack. A Bluetooth scale has not been measured connected (docs/todo.md).
 
