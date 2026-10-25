@@ -1117,3 +1117,26 @@ when the last two table rows in 13.5 become runnable. That step is not an agent 
 **Do not push a parameter you are unsure of.** A refused write stays refused
 (HTTP 400). An already-unsafe blob repairs implicated keys on boot. Measured
 2026-10-08: §13.1 above.
+
+## UI command acceptance and parameter hints
+
+- [ ] On a bench, click **Reset counter** on Home. The request to
+      `/api/maintenance/reset-backflush-counter` returns HTTP 202 with
+      `{"accepted":true}`; the UI shows a success notification, no schema error,
+      and refetches status so the shot count updates.
+- [ ] Hover or focus a parameter's **i** button: its help appears without
+      expanding the card. Unavailable parameters show a blue **Disabled** badge;
+      hover or focus it to read the unmet dependency instead of a disabled input.
+
+- [ ] Change an enum such as Brew Mode from Automatic to Manual (`0`), back,
+      and again using the keyboard. The trigger label remains visible after
+      closing the menu and navigating away/back. Check the themed popup in
+      light/dark mode and Escape focus return. Discard the draft afterward.
+
+- [ ] Configuration restore rejects files over 8 KB before sending a request.
+      A plain-text 413 or 500 response retains its HTTP status in the UI error;
+      malformed successful responses report an upload-response error instead of
+      a JSON/schema parser exception.
+- [ ] Select an OTA file, change the update type, and verify the displayed file
+      selection clears along with the pending upload. Re-selecting the same file
+      enables upload again.

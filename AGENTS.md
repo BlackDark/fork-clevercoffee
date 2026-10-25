@@ -376,3 +376,21 @@ Practical consequences:
   or `check-doc-links.py` checks it. This is the failure `CLN-1` and `CLN-2` in
   [`AUDIT.md`](AUDIT.md) record after the fact.
 - `CONTRIBUTING.md` carries the same rule for human contributors.
+
+## 4. Web frontend
+
+**AG-UI-1.** `ui/packages/frontend` uses Svelte 5 runes and plain Vite;
+TanStack Svelte Query owns server state and mutations, uPlot owns charts, and
+Zod Mini validates API data. Use official shadcn-svelte registry components wherever available.
+Keep custom code for application layout, device behavior, and uPlot charts. Hash routes keep the client independent of
+server route registration. Preserve neutral light/dark surfaces, blue accents, the logo, and header navigation.
+Collapse navigation into a burger menu below 768px; do not introduce a sidebar.
+There is no 50 KB size limit.
+
+**AG-UI-2.** `pnpm --dir ui check` runs Biome for TS/CSS, Prettier for Svelte
+markup, `svelte-check --fail-on-warnings`, and Vitest. Also run the frontend build
+and Playwright E2E suite before committing UI behavior changes. TypeScript 6 is
+retained for Svelte tooling compatibility; the native TypeScript 7 checker runs
+via the pinned `@typescript/native` alias and `svelte-check --tsgo`. The optional
+`check:types:ts6` script uses the TypeScript 6 engine. Browser tests use the mock API and cannot
+establish behavior on the physical machine.

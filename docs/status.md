@@ -1,6 +1,6 @@
 # Status
 
-**Dated 2026-10-09. Owner: Eduard Marbach** (`mail@eduard-marbach.de`), who also
+**Dated 2026-10-21. Owner: Eduard Marbach** (`mail@eduard-marbach.de`), who also
 owns the wired machine. Re-verify with `git log --oneline -1` and `just gate`
 before trusting a line below.
 
@@ -22,6 +22,117 @@ evidence. A status claim anywhere else is unverified until you have run
 Every line below is a **pointer**, not a claim: a commit, a test, or a
 measurement. If you cannot follow the pointer, the line is wrong and so is this
 page.
+
+---
+
+## PR review corrections — 2026-10-25
+
+Owner: Codex. The still-applicable findings in
+[PR #124](https://github.com/BlackDark/fork-clevercoffee/pull/124) are covered by
+[Chart.test.ts](../ui/packages/frontend/src/components/Chart.test.ts),
+[ParameterInput.test.ts](../ui/packages/frontend/src/components/ParameterInput.test.ts),
+[parameter-save.test.ts](../ui/packages/frontend/src/lib/parameter-save.test.ts),
+and [frontend.spec.ts](../ui/packages/frontend/e2e/frontend.spec.ts).
+The regressions cover single chart construction and caught theme-rebuild errors,
+empty numeric edits, visible accessible labels, absent numeric bounds, OTA file
+selection resets, the 8 KB restore boundary, and useful HTTP/upload errors.
+
+Local `pnpm --dir ui check`, the TypeScript 6 compatibility command, and the
+mock-backed Playwright suite passed. Stable `just check`, device lint/rustdoc,
+the release build, and the size check passed. The built image measured
+1,691,744 B against a 1,835,008 B slot. This review follow-up was not flashed;
+the hardware observations below belong to the earlier committed build.
+
+## Frontend migration follow-up — 2026-10-25
+
+Owner: Codex. Validation and hardware observations in this section were
+recorded for [574534fc](https://github.com/BlackDark/fork-clevercoffee/commit/574534fc).
+Official shadcn-svelte registry sources were imported with CLI
+1.7.1 (Nova style); [components.json](../ui/packages/frontend/components.json)
+records their configuration. Pages use the registry Button, Input, Label, Card,
+Badge, Alert, Progress, Tabs, Dialog, Select, Switch, Tooltip, and Sonner
+components. The custom toast store and control CSS were removed; custom CSS is
+limited to application layout, typography, and theme accents. uPlot still owns
+the graphs. AG-UI-1 records the component preference.
+
+The added packages supply the registry's class merging/variants, animation
+styles, shared state styles, and Sonner notifications. Bits UI was updated to
+2.20.2 for the current registry; new dependencies are exactly pinned in
+[package.json](../ui/packages/frontend/package.json).
+
+`pnpm --dir ui check`, the production build, and the mock-backed Playwright
+suite passed. The draft-navigation regression also passed repeated runs.
+[frontend.spec.ts](../ui/packages/frontend/e2e/frontend.spec.ts) covers visible
+checked switches, enum labels after repeated pointer/keyboard edits and route
+changes, zero values, tooltip focus, secret masking, notifications, mobile
+navigation, card placement, and the device's HTTP 202 counter-reset contract.
+Local browser inspection covered the dashboard and System page; the registry's
+shared Tailwind state styles are imported so checked/active states render.
+The subsequent layout regression verifies direct-child warning icons beside
+the description on desktop/mobile, icons on all System action buttons, and
+shared main-container bounds for Home, System, and About. About's card uses
+the full content width. System/About were also visually inspected locally. The final System layout
+was also inspected in a fresh device-served tab after flashing.
+
+Stable `just check` and the `esp` device lint, rustdoc, release build, and size
+check passed. The release image measured 1,691,632 B against a 1,835,008 B slot.
+
+Both app slots were flashed on bench ESP32 `ec:62:60:76:b5:3c`. `/ui/` and its
+JS/CSS assets returned 200 and matched the tested local build byte-for-byte.
+Status reported state 20, PID enabled, temperature 20.12 °C, and tank full; all
+six bench-profile settings persisted. A fresh device tab rendered live
+telemetry and the registry controls; Reset counter produced Sonner's success
+notification without a schema error. The user's existing tab/draft was left
+untouched.
+
+## Frontend layout correction — 2026-10-21
+
+Owner: Codex. Implementation and validation record: [9e747c04](https://github.com/BlackDark/fork-clevercoffee/commit/9e747c04).
+Restored the original neutral light/dark palette, logo, header
+navigation, two-panel machine overview, and cyan/purple/amber uPlot colors.
+Navigation collapses below 768px into a burger menu; route selection, Escape,
+and outside clicks close it. The theme follows the system until a selection is
+saved. No sidebar remains.
+
+`pnpm --dir ui check`, the production build, TypeScript 6 compatibility check,
+and the mock-backed Playwright suite passed. The navigation regression in
+[frontend.spec.ts](../ui/packages/frontend/e2e/frontend.spec.ts) covers collapse,
+route selection, Escape focus return, and desktop header placement. Refreshed
+screenshots are linked from the [README](../README.md). The clean production
+asset set totals 105,685 bytes (95,083 bytes gzip JavaScript), measured by summing
+`dist` files and verifying each gzip archive. Local browser execution
+used the Chromium executable override described below. No firmware or hardware
+verification was performed.
+
+---
+
+## Frontend migration — 2026-10-20
+
+Owner: Codex. Frontend-only verification against the bundled mock API:
+`pnpm --dir ui check`, the frontend production build, and
+`pnpm --dir ui --filter @clevercoffee/frontend test:e2e` passed. The browser
+suite is [frontend.spec.ts](../ui/packages/frontend/e2e/frontend.spec.ts).
+Local browser execution used Chromium 153 through
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` because the Playwright browser download
+returned an invalid archive in the execution environment.
+
+The embedded asset set measures 106,363 bytes versus 211,182 bytes for the
+React baseline built from `fc3efdc6`: gzip HTML/JS/CSS plus `logo.png`, measured
+by summing the files in `dist`. Gzip files were also decompressed to verify the
+archives. Screenshots are linked from the [README](../README.md).
+The tooling follow-up retains TypeScript 6.0.3 for Svelte's compiler API and
+uses TypeScript 7.0.2 through the `@typescript/native` alias and `--tsgo`.
+The native check, TypeScript 6 fallback, frontend check, and production build
+passed. A temporary invalid Svelte prop was rejected by the native checker and
+the probe was removed. Each native check clears `.svelte-check` to prevent
+stale diagnostics for deleted components. The packaged asset size is unchanged.
+
+The navigation E2E checks also pass with explicit destination-screen waits and
+category-scoped links, covering the navigation timing difference observed in
+GitHub CI.
+
+The Rust gate, firmware build, and physical-device behavior were not tested;
+the user explicitly scoped this migration to the frontend.
 
 ---
 
