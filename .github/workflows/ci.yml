@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  rust:
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/rust.yml
+
+  frontend:
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/frontend.yml
+
+  check:
+    if: always()
+    needs: [rust, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

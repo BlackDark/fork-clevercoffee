@@ -1,24 +1,7 @@
 name: Frontend
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "ui/**"
-      - ".github/workflows/frontend.yml"
-  # BARE, with no `branches:` filter.
-  #
-  # This used to say `branches: [main]`, and PR #96 targeted `rewrite/rust`,
-  # so the long-lived rewrite branch's jobs never ran on it -- while
-  # rust.yml's own header claimed they did. Enumerating branches is the bug: a
-  # new long-lived branch needs a second edit here, and forgetting it re-opens
-  # the hole silently. A bare filter is correct by construction and needs no
-  # maintenance.
-  pull_request:
-    paths:
-      - "ui/**"
-      - ".github/workflows/frontend.yml"
+  workflow_call:
 
 concurrency:
   group: frontend-${{ github.ref }}

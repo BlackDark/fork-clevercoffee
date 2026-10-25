@@ -40,38 +40,7 @@ name: Rust firmware
 # ===========================================================================
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "crates/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - ".cargo/**"
-      - ".mise.toml"
-      - "justfile"
-      - "just/**"
-      - "scripts/**"
-      - "ui/**"
-      - ".github/workflows/rust.yml"
-      - "components_esp32.lock"
-      - "rust/**"
-  pull_request:
-    paths:
-      - "crates/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - ".cargo/**"
-      - ".mise.toml"
-      - "justfile"
-      - "just/**"
-      - "scripts/**"
-      - "ui/**"
-      - ".github/workflows/rust.yml"
-      - "components_esp32.lock"
-      - "rust/**"
+  workflow_call:
 
 concurrency:
   group: rust-${{ github.ref }}
