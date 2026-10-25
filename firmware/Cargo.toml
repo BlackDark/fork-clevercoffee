@@ -54,7 +54,9 @@ esp-hal = { version = "=1.2.2", features = ["log-04", "unstable"] }
 esp-rtos = { version = "=0.4.0", features = ["esp-radio", "esp-alloc", "embassy", "log-04"] }
 esp-radio = { version = "=1.0.0-beta.1", features = ["wifi", "esp-alloc", "unstable", "log-04"] }
 esp-bootloader-esp-idf = { version = "=0.6.0", features = ["log-04"] }
-esp-alloc = "=0.11.0"
+# internal-heap-stats: the allocator records its high-water mark; sampling every 10 s
+# missed the peaks of parallel downloads.
+esp-alloc = { version = "=0.11.0", features = ["internal-heap-stats"] }
 esp-println = { version = "=0.18.0", features = ["log-04"] }
 esp-backtrace = { version = "=0.20.0", features = ["panic-handler", "println", "custom-pre-backtrace"] }
 esp-storage = { version = "=0.10.0", features = ["embedded-storage"] }

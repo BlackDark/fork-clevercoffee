@@ -339,8 +339,9 @@ async fn main(spawner: Spawner) -> ! {
 
     let mut stack_low = u32::MAX;
     loop {
+        // The allocator's own high-water mark: a 10 s sample missed short peaks.
         let stats = esp_alloc::HEAP.stats();
-        let free = (stats.size - stats.current_usage) as u32;
+        let free = stats.size.saturating_sub(stats.max_usage) as u32;
         if free < shared::MIN_FREE_HEAP.fetch_min(free, core::sync::atomic::Ordering::Relaxed) {
             info!("heap: {free} bytes free (lowest so far)");
         }
