@@ -1,36 +1,11 @@
-//! The one place that writes hardware.
+//! Apply effects in order through the sole actuator interface.
 //!
-//! # The rule
+//! The exhaustive [`Effect`] match forces each new effect to define its hardware
+//! behavior. State code must not call actuators directly.
 //!
-//! `Effect` is a description. Something has to turn descriptions into GPIO writes, and this
-//! module is the only thing allowed to. There is exactly one function that does it --
-//! [`apply`] -- and it is a `match` over [`Effect`] with no wildcard arm, so a new effect
-//! cannot be added without someone deciding what it does to the hardware.
-//!
-//! Nothing else in this crate may call an actuator, and `tests/state_flow_integration.rs`
-//! greps the crate for actuator call sites to keep that true. Without that check, "a state
-//! cannot poke a relay" would be a convention rather than a property.
-//!
-//! # Three traits, and why
-//!
-//! * [`Actuators`] is safety-critical. **No method has a default body**, so a new actuator
-//!   method is a compile error in every implementation rather than a silently-skipped call.
-//! * [`MachineChannels`] is the machine's own bookkeeping: everything whose loss is a *defect*
-//!   rather than a missing log line -- the shot counter, the reboot. **No method has a default
-//!   body either**, and that is the point of the split. A default body on a method whose
-//!   absence changes what the machine *does* is a lie the type system tells at every call
-//!   site: a side channel that forgets one would still compile, drop the write, and show up
-//!   only as a status field that never moves.
-//! * [`Diagnostics`] is observability -- the state-transition log, the flag mirrors, the
-//!   watchdog line. It is reached through one optional accessor so that "this side channel has
-//!   no diagnostics" is a single `None` instead of a body per method, and it does keep default
-//!   bodies: a gap in a log is visible in the log's absence, which is the property
-//!   [`MachineChannels`] cannot afford.
-//!
-//! The dividing line is therefore not "important" versus "unimportant". It is **whether the
-//! reducer has already applied the change to [`Machine`][`crate::machine::Machine`]**. If it
-//! has, the channel is told about it and dropping the call loses a line of telemetry. If it
-//! has not, dropping the call loses the change -- and that is [`MachineChannels`].
+//! [`Actuators`] and [`MachineChannels`] have no default methods: dropping either
+//! call can lose behavior the reducer has not applied. Optional [`Diagnostics`]
+//! may use defaults because its absence loses only observations.
 use cc_domain::state::MachineState;
 
 use crate::effect::Effect;

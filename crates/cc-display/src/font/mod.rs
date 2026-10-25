@@ -140,7 +140,7 @@ fn as_i8(v: u8) -> i8 {
     // Wrapping, not truncating: the conversion is a reinterpretation, and the
     // alternative (`i8::try_from` + clamp) would silently turn `y_offset` 254
     // into 127 and move every row.
-    #[allow(
+    #[expect(
         clippy::cast_possible_wrap,
         reason = "reinterpreting u8 as i8 is the intent; u8g2.h:247-256 declares these fields int8_t"
     )]
@@ -808,7 +808,7 @@ pub fn fub30() -> Font {
 pub(crate) fn latin1_of(c: char) -> u16 {
     let v = c as u32;
     if v <= 0xff {
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
             reason = "the value is checked to be <= 0xFF above"
         )]
@@ -827,7 +827,7 @@ pub(crate) fn latin1_of(c: char) -> u16 {
 pub(crate) fn code_point_of(c: char) -> u16 {
     let v = c as u32;
     if v <= 0xffff {
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
             reason = "the value is checked to be <= 0xFFFF above"
         )]

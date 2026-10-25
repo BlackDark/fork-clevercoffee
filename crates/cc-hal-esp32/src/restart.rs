@@ -1,44 +1,9 @@
-//! The reboot path, and the console drain that has to happen before it.
+//! Drain console output before resetting the chip.
 //!
-//! # Why this file exists
-//!
-//! `esp_restart()` does **not** flush UART0. It cuts the clocks and resets; the
-//! bytes still sitting in the UART's TX FIFO, and anything a caller left in a
-//! software buffer, are dropped on the floor. On this board that cost two lines
-//! of console exactly when an operator most needs them: the two lines printed
-//! immediately before `POST /api/restart` resets the machine.
-//!
-//! This only means anything because something is actually writing UART0. That
-//! is the `EspIdfLogger` inside `crate::telnet`'s `Fanout` — the firmware's
-//! installed logger writes every record to the console before it copies it into
-//! the telnet ring (`crate::telnet::init_log`), so the drain below is flushing
-//! the lines the operator would otherwise have lost. A firmware whose log path
-//! reached only the ring would drain an empty UART and this module would be
-//! theatre.
-//!
-//! That was a shipped device bug with a unit test that had never been run.
-//! [`drain_console`] is the fix, [`restart_now`] is the only reboot call site,
-//! and
-//! `firmware_tests::the_console_reaches_the_wire_before_a_reboot` in the
-//! `cc-device-tests` binary is the end-to-end proof: it writes two markers
-//! immediately before calling [`restart_now`], and the host runner fails the
-//! test unless **both** arrive on the wire. That proof runs in a binary that
-//! installs `esp_idf_svc::log::init_from_env()` rather than the firmware's
-//! [`init_log`](crate::telnet::init_log), so it proves the drain, not the
-//! composition above it.
-//!
-//! # Why it lives here and not in `cc-firmware`
-//!
-//! Because `cc-firmware` cannot be tested at all — it is a `[[bin]]` with
-//! `harness = false`, and a binary's unit tests are not built for a target it
-//! cannot run on. This crate is where every other device-side concern lives and
-//! where the `#[cfg_attr(test, test)]` unit tests actually are.
-//!
-//! # What is *not* promised
-//!
-//! Nothing here can guarantee delivery of a line the caller never wrote, and
-//! nothing flushes the *relays*: `esp_restart()` resets the chip, which is what
-//! drops the GPIO outputs. This module flushes bytes, not actuators.
+//! `esp_restart()` drops buffered UART bytes. [`drain_console`] flushes software and
+//! hardware queues; [`restart_now`] is the shared reboot path. The end-to-end
+//! device test proves the drain using its own logger, not the firmware's fanout.
+//! This flushes console bytes; it makes no actuator-shutdown guarantee.
 
 use esp_idf_svc::sys::{
     fflush, uart_is_driver_installed, uart_port_t_UART_NUM_0, uart_wait_tx_done, TickType_t,

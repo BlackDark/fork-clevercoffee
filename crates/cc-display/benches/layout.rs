@@ -1,37 +1,7 @@
-//! Rendering a frame must not touch the heap.
+//! Measure heap allocations per frame; timing is reported only for scale.
 //!
-//! # Why this exists
-//!
-//! A 2026-10 review found `just bench` named two bench targets — `reducers` and
-//! `layout` — and **neither existed**, so the recipe failed with
-//! `no bench target named 'reducers'`. A documented-but-nonexistent gate is
-//! worse than none, because everyone reading the recipe assumes it ran. This is
-//! the `layout` one.
-//!
-//! What it measures is the thing that matters on a device with ~320 KB of RAM:
-//! **heap allocations per frame.** `cc-display` is `no_std` with no `alloc` in
-//! the device build, so a nonzero count here means a device build would not link
-//! at all — which makes this a real invariant, not a micro-optimisation.
-//!
-//! The timing figure is reported for scale only. At 100 ms per refresh
-//! (`display_task::REFRESH_MS`) a frame has an enormous budget on the LX6; the
-//! cost that would actually hurt is the allocation. The four per-tick
-//! allocations in `cc-machine` were found by exactly this method.
-//!
-//! Number formatting goes through `fixed_str::String<24>` (`cc-display`'s
-//! `fmt.rs`), hand-matched to C's `printf` rounding and checked against an
-//! 80,000-line reference generated from real U8g2. That is why the count is
-//! zero: the display crate formats into stack buffers because a display cannot
-//! afford a heap.
-//!
-//! # Running it
-//!
-//! ```sh
-//! just bench
-//! ```
-
-#[path = "alloc.rs"]
-mod alloc;
+//! The device renderer has no allocator. `tests/frame_allocations.rs` gates the
+//! same invariant with the same counter. Run with `just bench`.
 
 use std::time::Instant;
 
@@ -39,7 +9,7 @@ use cc_display::display::Display;
 use cc_display::model::{BrewTimerState, Config, DisplayInput};
 use cc_display::templates::{self, TemplateId};
 
-use alloc::{measured_per, nanos_per, per, Counting};
+use cc_alloc_count::{measured_per, nanos_per, per, Counting};
 
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
@@ -106,12 +76,8 @@ fn main() {
     let mut display = Display::new();
     render_once(&mut display, &input, &config, TemplateId::Standard);
 
-    let mark = alloc::counters();
+    let mark = cc_alloc_count::counters();
     let started = Instant::now();
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "TEMPLATES.len() is 6, a literal, so the truncation is exact"
-    )]
     let rounds = REPORTED_FRAMES / TEMPLATES.len() as u64;
     for _ in 0..rounds {
         for template in TEMPLATES {
@@ -120,7 +86,7 @@ fn main() {
     }
     let elapsed = started.elapsed();
     let frames = rounds * TEMPLATES.len() as u64;
-    let (allocs, bytes) = alloc::delta_since(mark);
+    let (allocs, bytes) = cc_alloc_count::delta_since(mark);
 
     println!(
         "display frame: {frames} frames across {} templates",

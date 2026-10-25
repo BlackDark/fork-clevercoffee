@@ -1,42 +1,8 @@
-//! The two status LEDs the firmware actually drives, as GPIO writes.
+//! GPIO transport for [`cc_display::leds::LedOutput`].
 //!
-//! This module exists because the LED parameters were writable and had no effect:
-//! nothing drove a pin.
-//!
-//! # This is the whole of the hardware half
-//!
-//! The decision of *which* LED should be lit is [`cc_display::leds::LedOutput`],
-//! which is pure and host-tested. This module owns the pin and nothing else:
-//! given three booleans, it writes two GPIOs. That split is what makes the rule
-//! reachable by `just test` without a board.
-//!
-//! # No relay, and why that is a decision rather than an omission
-//!
-//! An LED is a few milliamps, and there is no driver chip on this board.
-//! Introducing a relay driver here would add a flyback diode, a coil and a
-//! failure mode to switch a diode, and would make this module the second thing in
-//! the firmware that can hold a mains-adjacent handle — which `actuators.rs`'s
-//! module doc is at some length about preventing.
-//!
-//! # The `inverted` handling
-//!
-//! `inverted` inverts the **pin**, not the request: the comparison is
-//! `state != inverted`, so an inverted LED asked to go off drives the pin high.
-//! "Disabled" is absence rather than a flag — [`Leds::apply`] drives only the
-//! LEDs that were configured, so a disabled LED has no pin and there is nothing to
-//! guard.
-//!
-//! The flag comes from `hardware.leds.*.inverted`, which the operator sets for a
-//! common-anode LED. It is **not** derived from the relay trigger config the way
-//! the three relays' polarity is.
-//!
-//! # Why there are two LEDs and not three
-//!
-//! The steam LED's pin is GPIO1, which this firmware gives to UART0's TXD for the
-//! Wi-Fi provisioning console, and `Peripherals::take()` will not hand a pin to two
-//! owners. The full reasoning, including what moving it to GPIO32 would cost, is in
-//! [`crate::pins`] and in [`pins.md`](../../../docs/hardware/pins.md); this is the
-//! recorded decision.
+//! Inversion applies to pin level, independently of relay polarity. Disabled LEDs
+//! have no pin. Steam's GPIO1 belongs to UART0, leaving two driven status LEDs;
+//! see [`crate::pins`] and [pins.md](../../../docs/hardware/pins.md).
 
 use esp_idf_hal::gpio::{Level, PinDriver};
 use log::warn;

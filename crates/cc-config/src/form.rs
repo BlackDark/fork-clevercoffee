@@ -1,49 +1,12 @@
-//! The `application/x-www-form-urlencoded` body parser, used by
-//! `POST /api/parameters`.
+//! Form decoding for `POST /api/parameters`, shared by query and body pairs.
 //!
-//! # Why this is in `cc-config` and not `cc-domain`
+//! Query pairs precede body pairs. ESP-IDF keeps the query inside the request URI;
+//! `split_once('?')` suffices, without FFI. `GET /api/parameters` ignores `filter`.
 //!
-//! It is the sibling of [`crate::json`]: both are "the configuration arriving
-//! over HTTP in some encoding", one a nested JSON document for
-//! `/api/config/upload` and one a form-encoded body for `/api/parameters`.
-//! `cc-domain` is `no_std` **and** `no alloc`, and a form parser has to
-//! allocate: percent-decoding produces new bytes, and there is no way to hand
-//! back a decoded `&str` that borrows from a body that did not contain it.
-//!
-//! # Why the REST API reads bodies *and* query strings
-//!
-//! A parameter write can arrive either way, and the two encodings are identical,
-//! so one parser serves both. `POST /api/parameters` walks the query string and
-//! the body **together**, with the query arguments first, so `?pid.enabled=1` is a
-//! parameter write and not a filter.
-//!
-//! That matters because it is easy to get wrong: `EspHttpConnection::uri()`
-//! (`esp-idf-svc` `src/http/server.rs`) returns a `uri` that still contains the
-//! query. ESP-IDF does not split it off: `httpd_req_t` has no query member
-//! (`esp_http_server.h:373-400`), the query lives *inside* `uri`, and
-//! `esp_http_server` reads it back out with `r->uri + res->field_data[UF_QUERY].off`.
-//! So the query string is reachable with no `esp-idf-sys` FFI call, which is why
-//! `cc_hal_esp32::web::query_of` is a `split_once('?')` rather than a binding.
-//!
-//! **The consequence:** `GET /api/parameters?filter=all` ignores its query
-//! string and returns the full set. The endpoint has no filter to apply, so
-//! `?filter=all` is documentation of intent rather than a parameter.
-//!
-//! # The parsing rules, and where they come from
-//!
-//! `application/x-www-form-urlencoded` is
-//! [WHATWG's "urlencoded" parser](https://url.spec.whatwg.org/#application/x-www-form-urlencoded):
-//!
-//! * fields separated by `&` (a lone `&` yields an empty field, which is
-//!   skipped rather than reported as an error — a browser sends
-//!   `a=1&&b=2` often enough);
-//! * `name=value` on the first `=` only, so a value containing `=` survives;
-//! * `+` is a space, and `%XX` is a byte — the form encoding is not UTF-8 by
-//!   itself, it is bytes that happen to be UTF-8;
-//! * a name or a value that is not valid UTF-8 is **rejected**, not replaced.
-//!   `String::from_utf8_lossy` would turn a mangled parameter name into a
-//!   different parameter name, and this firmware's parameters are looked up by
-//!   name.
+//! The [WHATWG parser](https://url.spec.whatwg.org/#application/x-www-form-urlencoded)
+//! splits on `&` and the first `=`, skips empty fields, and decodes `+` and `%XX`.
+//! Invalid UTF-8 is rejected: lossy decoding could change a parameter's name.
+//! Decoded strings are allocated because they cannot borrow transformed bytes.
 
 use alloc::borrow::ToOwned;
 use alloc::string::String;
@@ -137,7 +100,7 @@ mod tests {
     // typecheck, and `assert_eq!(x.len(), 0)` would print a count instead of
     // the contents. A `String` emptiness assertion elsewhere in this crate is
     // still linted -- those are written `assert_ne!(x, "")`.
-    #![allow(
+    #![expect(
         clippy::assert_is_empty,
         reason = "the assertions are on collections, so the suggested \
                   assert_eq!(x, \"\") does not typecheck"
@@ -243,7 +206,7 @@ mod tests {
 
     #[test]
     fn a_paste_of_many_fields_parses_into_many_fields() {
-        // The read limit is the *caller's* (`cc_hal_esp32::web::drain_body`,
+        // The read limit is the *caller's* (`cc_net_esp32::web::drain_body`,
         // 256 bytes), and this asserts the parser is not a second limit: every
         // field in a 4 KB paste comes back, so a caller that forgets to bound
         // its read gets a big Vec rather than a truncated one. That is the

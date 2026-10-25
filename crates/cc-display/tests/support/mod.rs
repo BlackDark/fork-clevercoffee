@@ -1,23 +1,13 @@
-//! Golden-image and PPM support. Host-only (`std`).
+//! Host-only image output and golden comparison.
 //!
-//! `cc-display` itself is `no_std` with no `alloc`, so nothing that needs a
-//! heap lives in `src/`. The PPM writer and the golden comparator are here
-//! instead, and are pulled in by `tests/` only.
-//!
-//! # Why P4 and not P6
-//!
-//! Binary P4 packs eight pixels per byte, MSB first, **1 = white**. That is the
-//! *transpose* of the framebuffer's own page layout and of the SSD1306 wire
-//! format, and deliberately so: a golden image should be in the orientation a
-//! human or an image-diff tool sees, not the orientation the panel is clocked
-//! in. The 1 = white polarity is because PPM has no concept of an inverted
-//! display, where a lit OLED pixel is a *zero* bit.
+//! P4 stores horizontal MSB-first pixels in human-viewable orientation, unlike
+//! the panel's vertical page layout. Preserve this comparator's polarity convention.
 
 // Every integration test binary is its own crate, and each uses a different
 // subset of this module: the PPM/golden helpers are only reached once the golden
 // tests exist, the measurement tables only by the parity tests. Without this,
 // every binary reports the other's helpers as dead code.
-#![allow(
+#![expect(
     dead_code,
     reason = "shared by several test binaries; each uses a subset"
 )]

@@ -1,46 +1,12 @@
-//! The on-target unit test runner for `cc-hal-esp32`. **Never the firmware.**
+//! On-target unit-test runner; never flash as operational firmware.
 //!
-//! # What this binary is
+//! Xtensa uses panic-abort, so libtest cannot catch failures. The panic hook reports
+//! the active case and restarts; NVS stores the resume index, and the host script
+//! reconstructs results across boots. `just test-audit` checks registry coverage.
 //!
-//! The 67 `#[test]` functions in `cc-hal-esp32` were type-checked by
-//! `just lint-esp32` and executed by **nothing**. `cargo test` cannot reach that
-//! crate — it names `esp_idf_hal`, so it does not build for a host target, and
-//! `just test` lists only the portable crates. Two real device bugs shipped
-//! through that gap: a Wi-Fi provisioning password window that lasted zero
-//! milliseconds, and console lines lost across `esp_restart()`.
-//!
-//! This binary closes the gap. `main` runs the registered cases in
-//! [`cc_hal_esp32::device_tests::CASES`], one line of result per case over
-//! UART0, and `scripts/device-test-audit.py` (`just test-audit`) fails the build
-//! if the registry and the `#[test]` markers ever disagree.
-//!
-//! # Why the harness is hand-rolled rather than `cargo test` over the link
-//!
-//! `cargo test` for this target would build libtest, and libtest reports a
-//! failure by **catching** a panic. The `esp` toolchain builds this target with
-//! `panic = "abort"` — `unwinding` is not supported on Xtensa LX6 here, and
-//! `-Zbuild-std=std,panic_unwind` does not link (verified: `can't find crate for
-//! panic_abort`). So a failing `assert!` aborts the chip instead of unwinding.
-//!
-//! The runner is built around that fact rather than fighting it:
-//!
-//! * a `std::panic` hook reports the failing case, then calls
-//!   [`cc_hal_esp32::restart::restart_now`];
-//! * the resume index lives in NVS, so the next boot continues after the case
-//!   that died instead of looping on it forever;
-//! * `scripts/device-tests.py` reconstructs the outcome from the line stream, so
-//!   the pass/fail accounting never depends on a boot that did not finish.
-//!
-//! # The one thing this binary must never do
-//!
-//! **Drive an actuator.** It runs on the real machine, not an emulator. It
-//! configures the pump, valve and heater pins exactly as the firmware's own
-//! startup does — output, inactive level, read back, and refuse to continue if
-//! any of them reads active — and it never calls anything that opens the heater
-//! gate. No test in `cc-hal-esp32` touches a peripheral; they are pure logic,
-//! and the registry is the audited list of them. The boot log carries a
-//! `CCTEST actuator ... INACTIVE` line and the host runner fails the run if it
-//! is absent.
+//! Never actuate hardware: drive pump, valve, and heater inactive and read them back
+//! before tests. Keep the heater gate closed. The host runner requires each
+//! `CCTEST actuator ... INACTIVE` marker.
 
 use std::error::Error;
 use std::io::Write as _;
@@ -129,7 +95,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     esp_idf_svc::log::init_from_env();
     info!("CleverCoffee on-target unit test runner");
 
-    let cases = cc_hal_esp32::device_tests::CASES;
+    let cases: Vec<&Case> = cc_hal_esp32::device_tests::CASES
+        .iter()
+        .chain(cc_net_esp32::device_tests::CASES)
+        .collect();
     // + the two reboot cases below.
     let total = cases.len() + 2;
 
@@ -148,9 +117,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     ]);
 
     let mut ran = 0usize;
-    for case in cases.iter().enumerate().skip(start) {
-        let index = case.0;
-        run_case(checkpoint.as_ref(), index, case.1);
+    for (index, case) in cases.iter().copied().enumerate().skip(start) {
+        run_case(checkpoint.as_ref(), index, case);
         ran += 1;
     }
     // Both reboot cases, in order: the unflushed one first, because the drained
@@ -424,26 +392,11 @@ fn install_panic_hook() {
     }));
 }
 
-/// Where this boot starts in [`cc_hal_esp32::device_tests::CASES`].
+/// Select the resume index from reset reason and NVS.
 ///
-/// Two inputs and nothing else:
-///
-/// * the **reset reason**, which distinguishes "the host started a run" — a
-///   power-on reset from the DTR/RTS pulse — from "the chip died mid-run";
-/// * the resume index in NVS, which says *which* case was running when it did.
-///
-/// The rule is **fresh unless the reset came from the chip itself**: anything
-/// other than `ESP_RST_POWERON` or `ESP_RST_EXT` resumes. Narrowing that to
-/// `ESP_RST_SW` looks right and is wrong. `esp_restart()` sets the reset-state
-/// register so `esp_reset_reason()` reports `SW`, but `abort()` reaches
-/// `esp_restart_noos()`, which does not — verified on the device, where the one
-/// case that took the chip down with a 192 KB allocation printed `rst:0xc` on
-/// the console and was *not* seen as `SW`, so the suite restarted from zero
-/// instead of resuming. One failure became an endless loop.
-///
-/// The alternative — a marker the host writes over the serial link — would make
-/// the device's behaviour depend on a line arriving, and a run whose reset
-/// raced the host's write would skip a case silently.
+/// Power-on and external resets start fresh; every chip-originated reset resumes.
+/// Do not restrict resume to `ESP_RST_SW`: abort can call `esp_restart_noos`
+/// without setting that reason, causing a failing case to restart the suite forever.
 #[allow(
     unsafe_code,
     reason = "One register read: `esp_reset_reason()` is `esp_reset_reason_t \

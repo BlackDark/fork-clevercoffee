@@ -1,31 +1,9 @@
-//! The 1-Wire bus, bit-banged on one GPIO.
+//! GPIO transport for [`cc_protocol::sensor::onewire::OneWireBus`].
 //!
-//! # This is the only file that knows a pin exists
-//!
-//! [`GpioOneWire`] implements [`cc_protocol::sensor::onewire::OneWireBus`] and
-//! nothing else. Every decision — the CRC, the command sequence, the bit order,
-//! the scratchpad decode, the accept/reject rule — is in `cc-protocol` and is
-//! host-tested there. What is left here is: pull the pin low, wait, release,
-//! read the line. The numbers it waits for are the datasheet's
-//! ([`cc_protocol::sensor::onewire::timing`]).
-//!
-//! # Open drain, and why the pull-up is external
-//!
-//! 1-Wire is a single open-drain wire: every device pulls it low or releases
-//! it, and a pull-up holds it high. The pin is therefore configured
-//! [`OutputMode`]-open-drain ([`PinDriver::input_output_od`]), so the
-//! firmware can pull the bus down or let go of it, but can never drive it
-//! high. Driving it high would be a bus conflict the moment two devices
-//! disagree, and on this bus there is a sensor and a pull-up.
-//!
-//! The pull-up itself is a 4.7 kΩ resistor to 3V3 on the DS18B20 module, not
-//! an internal one. `esp-idf-hal`'s open-drain mode still honours an internal
-//! pull if asked, and this port asks for [`Pull::Floating`]: an internal
-//! ~45 kΩ pull is roughly ten times too weak for a 1-Wire bus's rise time, and
-//! relying on it would produce a driver that works on the bench and fails over
-//! a long cable. [`GpioOneWire::reset`] spins on the line going high, which is
-//! the same assumption: an external pull-up holds the bus high when no device is
-//! driving it.
+//! Use open drain: drive low or release, never high against another device.
+//! The DS18B20 module supplies a 4.7 kΩ pull-up to 3V3; keep [`Pull::Floating`].
+//! The internal ~45 kΩ pull is too weak for reliable rise times on long cables.
+//! Protocol decisions and datasheet timing live in `cc-protocol`.
 
 use cc_protocol::sensor::onewire::{self, OneWireBus};
 use esp_idf_hal::delay::Ets;

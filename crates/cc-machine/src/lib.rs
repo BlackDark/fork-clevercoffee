@@ -1,59 +1,9 @@
-//! Orchestration: the 18-state machine as a pure Elm-style reducer.
+//! Pure reducer: `reduce(machine, context, event) -> (machine, effects)`.
 //!
-//! # The shape
-//!
-//! ```text
-//! reduce(machine, ctx, event) -> (machine', effects)
-//! ```
-//!
-//! Pure: no I/O, no clock, no sleeping, no globals, no global configuration accessor. That is
-//! what makes the exhaustive `state x event` table a host test and the control loop
-//! host-benchmarkable.
-//!
-//! # What this crate is *not*
-//!
-//! The control decision is one function of three values, not one long update function that
-//! reaches into every subsystem in a fixed order whose order is untested. A control-loop
-//! iteration is these steps:
-//!
-//! | step | where it is here |
-//! | --- | --- |
-//! | sensor update | [`Event::SensorUpdated`] -- a value, not a read |
-//! | handlers, standby | [`Event::ButtonPressed`] / [`Event::ButtonReleased`] / [`Event::Command`], plus `standby_update` in the tick |
-//! | state machine | [`states::update`], [`states::check_specific`] |
-//! | handler tail, **S5 valve check** | `handlers::pump_timeouts` then the valve check, at the end of the tick |
-//! | process control | `process_control` at the end of the tick |
-//! | network, web, display | **not here** -- slow consumers behind bounded queues |
-//!
-//! The last row is not "deferred to a later task". Those subsystems are not part of control
-//! safety, and keeping them off the control path is the point.
-//!
-//! # One loop, one `Tick`
-//!
-//! The reducer processes **one** event and returns. A control-loop iteration is therefore a
-//! *sequence* of `reduce` calls, ending in [`Event::Tick`]:
-//!
-//! ```text
-//! for ev in inbox.drain()        { (m, fx) = reduce(&m, &ctx, ev);   apply(fx) }
-//! (m, fx) = reduce(&m, &ctx, Event::Tick { now: clock() }); apply(fx)
-//! ```
-//!
-//! The switch edges come before the state machine, so a brew switch press sets `brew_start`
-//! and the `Tick` in the *same* iteration consumes it. A press that arrives after the `Tick`
-//! waits one iteration, which is the resolution a sampled control loop can give.
-//!
-//! # At most one transition per tick
-//!
-//! [`reduce`] computes **one** target and applies it once. A machine that needs to go
-//! `PID_NORMAL` -> `BREW_PREINFUSION` -> `BREW_RUNNING` takes two iterations, and each
-//! transition's exit and entry run in full.
-//!
-//! # Purity, and how it is enforced
-//!
-//! [`reduce`] takes `&Machine` and returns `(Machine, Effects)`. There is no interior
-//! mutability anywhere in [`Machine`], no `static mut`, and no `unwrap`/`expect` outside tests.
-//! `tests/purity.rs` clones the input, reduces, and asserts the input is byte-identical
-//! afterwards.
+//! Drain input events before the final [`Event::Tick`] so a press can take effect
+//! in the same iteration. One tick makes at most one transition; exit and entry
+//! hooks run fully before state updates and the final valve fail-safe.
+//! Slow network and display work belongs outside the reducer.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -84,7 +34,7 @@ pub use backflush::{
 };
 pub use cc_safety::steam_flow_allowed;
 pub use cc_safety::water_flow_allowed;
-pub use context::Context;
+pub use context::{safety_config, Context};
 pub use effect::{Effect, Effects, PumpWatchdog, MAX_EFFECTS_PER_EVENT};
 pub use event::{Command, Event, Sensors, SwitchId};
 pub use guards::{should_pid_be_enabled, Guard};
@@ -97,31 +47,12 @@ pub use maintenance::{
     SHOT_COUNT_BYTES,
 };
 
-/// The whole control decision, as a pure function.
+/// Pure control decision; leaves the input unchanged and transitions at most once.
 ///
-/// # The contract
-///
-/// * `machine` is **not** mutated. The returned value is the new machine.
-/// * No effect is emitted twice and none is dropped: the applier applies the
-///   vector front to back and the tests assert on exact sequences.
-/// * At most one transition per call.
-/// * Total: every [`Event`] is defined for every [`MachineState`]. The
-///   exhaustive table in `tests/exhaustive_state_event.rs` proves it.
-///
-/// # What is *not* here, on purpose
-///
-/// * No clock. [`Event::Tick`] carries the reading.
-/// * No sleeping. The two one-second pauses around a reboot belong to
-///   [`MachineChannels::on_request_reboot`], which is the only code in the firmware allowed to
-///   block.
-/// * No restart. [`Effect::RequestReboot`] asks; the applier does.
-/// * No `Vec` in the input. [`Event`] and [`Command`] are `Copy` and fixed-size so they can
-///   cross a task boundary through `hal::task::queue::Queue<Command, 32>`.
-///
-/// The returned [`Effects`] is a fixed-capacity `heapless::Vec`, not an `alloc::vec::Vec`:
-/// this function runs four to five times per 10 ms control tick, and one heap allocation per
-/// call was 400 allocations a second in the loop that also runs the heater deadman. See
-/// [`effect::Effects`].
+/// Every state/event pair is defined. Effects retain their order in fixed-capacity
+/// [`Effects`]; callers must apply them front to back. Time arrives through
+/// [`Event::Tick`], reboot through [`Effect::RequestReboot`], and blocking work
+/// belongs to the shell.
 #[must_use]
 pub fn reduce(machine: &Machine, ctx: &Context<'_>, ev: Event) -> (Machine, Effects) {
     // An uninitialised machine must not act on a stale emergency request, so every event is

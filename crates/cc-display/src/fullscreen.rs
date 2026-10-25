@@ -1,19 +1,7 @@
-//! The four modes that take over the whole panel: the brew timer, the manual
-//! flush, the hot-water timer, and the offline splash. They are checked before
-//! the system screens, so a machine that is simultaneously, say, in a
-//! backflush *and* flushing shows the flush — which is the behaviour that makes
-//! the backflush's own screen reachable at all.
+//! Fullscreen modes take precedence over shared system screens.
 //!
-//! # The Upright template's coordinates are the surprising part
-//!
-//! The brew-timer screen draws its cup at `(12, 12)` in the Upright template and
-//! its digits at `(5, 70)` / `(5, 100)` — y = 70 and y = 100 are off the bottom of
-//! a 64-row panel, and are only inside it because the Upright template renders in
-//! the *portrait* space, where the height is 128. The brew-time readout takes its
-//! `(x, y)` from the caller for the same reason. This is reproduced exactly: the
-//! coordinates are logical, the rotation transform is applied on the way into the
-//! buffer, and `tests/golden.rs` asserts the frames are inside 128x64 *after* the
-//! transform.
+//! Upright draws in a 64x128 logical space before rotation; y=70 and y=100 are
+//! valid there. Do not clip them against the physical panel's 64-row height.
 
 use crate::bitmaps_data as bm;
 use crate::display::Display;

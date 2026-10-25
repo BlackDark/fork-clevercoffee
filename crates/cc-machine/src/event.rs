@@ -1,13 +1,7 @@
-//! What can happen to the machine, and what the outside world can ask for.
+//! Explicit inputs to the reducer; no shared service or clock reads.
 //!
-//! An [`Event`] is the *only* way anything enters the reducer. There is no other door: no
-//! handle, no singleton, no global configuration accessor. That is the mechanism behind the
-//! rule that adding a feature means adding an `Event` variant and a `reduce` arm.
-//!
-//! Every variant is `Copy` and fixed-size, because cross-task messages travel over
-//! `hal::task::queue::Queue<Command, 32>` and that queue is bounded by `T: Copy`. A `String`,
-//! a `Vec` or a `Box` in [`Command`] would make the event type unusable across the task
-//! boundary, and the compiler refuses it rather than a comment warning about it.
+//! Events stay fixed-size and `Copy` for the bounded cross-task queue. Owned
+//! strings, vectors, and boxes cannot cross that queue in [`Command`].
 use cc_domain::units::{Celsius, Millis};
 
 /// A sampled sensor reading.

@@ -1,25 +1,7 @@
-//! The machine's memory: everything the states need and the reducer owns.
+//! Reducer-owned memory, without interior mutability.
 //!
-//! # Why one struct and not seventeen objects
-//!
-//! The behaviour needs eleven request flags, four switch levels, a brew timer, a PID mode, an
-//! output, a three-field standby countdown, a shot counter and a per-error start time. Split
-//! across as many owner objects, the cross-field invariants -- the heater gate reads `state`,
-//! the configuration and `pid.brew_disabled` *together* -- would sit behind as many accessors.
-//!
-//! The per-error start time is the case that shows why a reducer needs the struct. A state
-//! object in a class hierarchy gets a fresh start time for free, because a transition
-//! constructs a **new instance**. There is no instance to be fresh here, so "a new start time
-//! on every entry" has to be modelled explicitly:
-//! [`Machine::error_since`](crate::machine::Machine::error_since) is that field, and
-//! `states::on_entry` is the only thing that writes it.
-//!
-//! # Immutability
-//!
-//! [`reduce`](crate::reduce) takes `&Machine` and returns a new one. Nothing here has interior
-//! mutability, so "the reducer does not mutate its input" is a property of the signature
-//! rather than a property a test has to verify -- and `tests/purity.rs` verifies it anyway, by
-//! clone-and-compare.
+//! [`Machine::error_since`] resets on every error-state entry; retaining a single
+//! struct must not retain a previous entry's recovery deadline.
 
 use cc_domain::state::MachineState;
 use cc_domain::units::{Celsius, Millis};
@@ -35,7 +17,10 @@ use crate::event::Sensors;
 // Eleven booleans, because the two *group* operations that matter -- drain everything, drain
 // only the stops -- are about the group. Modelling eleven independent states instead would
 // invent structure the firmware does not have.
-#[allow(clippy::struct_excessive_bools)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "the drain operations act on the request flags as a group"
+)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Requests {
     /// Start a brew.
@@ -199,23 +184,10 @@ impl Requests {
         normal_operation: false,
     };
 
-    /// Drain every flag except `standby`.
+    /// Discard stale action requests while preserving `standby`.
     ///
-    /// # The drain, and its cost
-    ///
-    /// Used on entry to `PID_DISABLED` and in its update while the PID stays off. It is S11's
-    /// cure, and it has a cost: a request that arrived *while* the machine was already in
-    /// `PID_DISABLED` is thrown away rather than honoured on the next enable. That trade is
-    /// deliberate -- a stale action request must not fire the moment the PID comes back -- and
-    /// it is why `standby` is the one flag spared.
-    ///
-    /// **`standby` is not an action request.** It is the only flag here that asks the machine
-    /// to *go somewhere* rather than to start doing something, and the state it names re-arms
-    /// nothing on entry. Draining it would make `POST /api/sleep` unreachable from
-    /// `PID_DISABLED`: this drain runs before the transition check, so the request would be
-    /// destroyed before anything read it.
-    ///
-    /// The other ten flags are cleared unconditionally.
+    /// PID-disabled states must not replay actions on enable. Sleep is different:
+    /// clearing it before transition checks would make `/api/sleep` unreachable.
     pub fn clear_all(&mut self) {
         let standby = self.standby;
         *self = Self::CLEAR;
@@ -258,7 +230,10 @@ impl Requests {
 /// the PID state and the steam state read the water switch while they update.
 // Four switch levels plus two latched long-press flags. The levels are not a state machine:
 // any of the sixteen combinations is reachable.
-#[allow(clippy::struct_excessive_bools)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "every combination of switch levels is reachable"
+)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SwitchLevels {
     /// `hardware.switches.brew`. `true` is HIGH, i.e. "activated".
@@ -456,7 +431,10 @@ impl StandbyTimer {
 // Four booleans among twenty-two fields. Nesting them into sub-structs would obscure exactly
 // the cross-field invariants the guards read: the emergency check reads `safety`, and the
 // heater gate reads `state`, the configuration and `pid.brew_disabled` together.
-#[allow(clippy::struct_excessive_bools)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "sub-structs would obscure the cross-field invariants the guards read"
+)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Machine {
     /// The current state.

@@ -1,83 +1,23 @@
-//! The PID controller the heater output is computed with, and the defects in the
-//! arithmetic it reproduces on purpose.
+//! PID arithmetic with frozen reference vectors in `tests/pid_parity.rs`.
 //!
-//! # Parity
+//! Preserve `f64` operation order: tuning depends on it. Values are owned, time is
+//! injected, all fields are initialized, and rejected negative tunings return `false`.
+//! Construction retains the reference's `now - sample_time` initialization,
+//! which determines when the first compute is due.
 //!
-//! Every arithmetic step below is a step of the reference implementation, in the same
-//! order, in `f64` -- because the reference uses `double`. Nothing is "improved": the
-//! algorithm is reproduced, including its defects, because a controller that behaves
-//! differently is a controller that boils differently.
+//! # Intentional arithmetic behavior
 //!
-//! Parity is measured, not asserted by inspection. A fixed four-scenario input sequence
-//! was replayed against the reference implementation, and the expected outputs in
-//! `src/pid_parity.rs` -- compiled only under `cfg(test)` -- are that run's output. The
-//! program and the reference library it compiled are not in this tree, so the vectors are
-//! frozen evidence rather than regenerable output; `src/pid_parity.rs` records what that
-//! means.
+//! * The reference's integer `sample_time / 1000` makes sub-second derivatives divide
+//!   by zero. This controller uses positive real elapsed time through
+//!   [`Controller::derivative_seconds_at`]. At the shipped 1000 ms interval,
+//!   reference agreement is bit-exact on punctual steps; late steps intentionally differ.
+//! * State is initialized to zero, avoiding the reference's dependence on entering
+//!   automatic mode before its uninitialized fields are read.
+//! * Anti-windup accumulates only when the previous output is strictly inside
+//!   `(out_min + 0.01, out_max - 0.01)`. At output zero the first integral stays zero.
 //!
-//! # Deliberate differences from the reference
-//!
-//! * **D1 -- the three values are owned, not aliased.** The reference takes three raw
-//!   pointers to caller-owned variables and reads its own output back for the anti-windup
-//!   test. Keeping the values in the controller is the same arithmetic with no dangling
-//!   pointer and no second writer; the shell assigns `input`, `setpoint` and `output`
-//!   directly.
-//! * **D2 -- the clock is an argument.** The reference's constructor reads a global clock;
-//!   [`Controller::new`] takes `now: Millis` and is a pure function of its arguments. The
-//!   reference's `clock - sample_time` is reproduced exactly, and it is what decides when
-//!   the first compute produces an output.
-//! * **D3 -- every field is initialised.** Seven of the reference's members have no
-//!   initialiser. That is unobservable in this firmware's usage -- entering automatic mode
-//!   initialises the state before the first compute -- but a Rust struct cannot be
-//!   partially uninitialised, and zero is the safe value. See D-PID-2 below.
-//! * **D4 -- a rejected tuning is reported.** The reference discards a call whose gains
-//!   include a negative one; [`Controller::set_tunings`] returns `bool`. A rejected tuning
-//!   is a configuration error and the caller deserves to know. The firmware's own callers
-//!   ignore the result, which is why surfacing it is safe.
-//!
-//! # Reproduced upstream defects
-//!
-//! These are **bugs in the reference implementation**, reproduced on purpose so that
-//! parity is exact. They are not endorsed; each is a recorded divergence rather than
-//! something fixed silently.
-//!
-//! * **D-PID-1 -- integer division in the `P_ON_E` derivative divisor. FIXED.** The
-//!   reference computes `difference / (sample_time / 1000)` where `sample_time` is an
-//!   integer, so `/ 1000` **truncates**. Any sample time below 1000 ms therefore yields a
-//!   zero divisor, the derivative is `±inf`, and the whole output becomes `NaN` -- which
-//!   the reference's own output clamp cannot catch, because a chain of
-//!   `if (x > max) ... else if (x < min)` lets `NaN` through.
-//!
-//!   The machine escapes this **only by coincidence**: the sample time is set to exactly
-//!   the 1000 ms chopper window, so `1000 / 1000 == 1`. Nothing enforces that, and any
-//!   change to the way the heater is driven is exactly the kind of change that would move
-//!   the window.
-//!
-//!   **This controller divides by the real elapsed time instead**
-//!   ([`Controller::derivative_seconds_at`]), so the divisor is positive for every window
-//!   and no configuration can produce a `NaN`. The trap stays visible:
-//!   [`Controller::derivative_seconds`] is the nominal term, and this paragraph is the
-//!   reason.
-//!
-//!   Parity at the shipped window is unaffected and is *measured*: the agreement
-//!   scenarios (A, B and C) match the reference's bit patterns on every step, maximum
-//!   |delta| **0.0**. This controller can only differ when a step arrives *late*, where
-//!   the reference divides by the nominal 1.0 s and this one divides by the interval that
-//!   actually elapsed -- a deliberate, bounded difference.
-//!
-//! * **D-PID-2 -- the constructor does not initialise the controller state.** The
-//!   integrator, the last input, the filtered input and its difference, the last error and
-//!   the last P and D terms have no initialiser in the reference. Correctness depends
-//!   entirely on entering automatic mode first, which initialises them. Construct the
-//!   controller, leave it in [`Mode::Manual`], and call `compute()` for ever and nothing
-//!   happens -- harmless -- but a future edit that made `compute()` run in manual mode
-//!   would read uninitialised memory.
-//!
-//! * **D-PID-3 -- the anti-windup gate has a dead band.** The integrator accumulates only
-//!   while the previous output is strictly inside `(out_min + 0.01, out_max - 0.01)`. With
-//!   the production limits `(0, 1000)`, an output of exactly `0.0` does **not** accumulate,
-//!   so the first compute after start-up has a zero integrator however large the error is.
-//!   That is the shipped behaviour, and a parity vector pins it.
+//! The reference generator is not in this tree; the vectors are frozen evidence,
+//! not locally regenerable fixtures.
 
 use crate::units::Millis;
 
@@ -253,43 +193,12 @@ impl Controller {
         this
     }
 
-    /// The `P_ON_E` derivative divisor for a sample that lands **exactly** on the window.
+    /// Nominal `P_ON_E` derivative divisor for a sample exactly on its window.
     ///
-    /// This is `sample_time / 1000` computed in `f64`. The reference computes the same
-    /// expression in integer arithmetic, and the *shape* of it is kept here so the two are
-    /// recognisably the same term. The `f64` division is the whole of deliberate
-    /// divergence D-PID-1.
-    ///
-    /// # D-PID-1, closed
-    ///
-    /// The reference evaluates `difference / (sample_time / 1000)` with an integer
-    /// `sample_time`, so `/ 1000` **truncates**: any sample time below 1000 ms makes the
-    /// divisor zero, the derivative `±inf`, and the whole output `NaN` -- and the
-    /// reference's own clamp cannot catch that, because `if (x > max) ... else if (x <
-    /// min)` lets a `NaN` through untouched. The machine escapes this **by coincidence**:
-    /// the sample time is set to exactly the 1000 ms chopper window, so
-    /// `1000 / 1000 == 1`, and nothing enforces that.
-    ///
-    /// Here the divisor is [`Self::derivative_seconds_at`] with the **actual elapsed
-    /// time**, so it is strictly positive for every window and no `set_sample_time` can
-    /// manufacture a `NaN`. The trap stays *visible*, though: [`Self::derivative_seconds`]
-    /// is the nominal term, this function is the nominal divisor, and the module
-    /// documentation carries the reasoning twice on purpose.
-    ///
-    /// # Parity
-    ///
-    /// At the shipped 1000 ms window, and for any step that lands exactly on it, this is
-    /// `1.0` and so is the reference's, so the term is bit-identical. That is measured,
-    /// not asserted: see
-    /// `crate::pid_parity::scenario_a_production_pon_e_matches_the_reference_library` and
-    /// its siblings, which compare bit patterns on every step of the agreement scenarios
-    /// -- a maximum |delta| of **0.0** across A, B and C.
-    ///
-    /// The one place this controller can differ at a 1000 ms window is a step that arrives
-    /// *late*: the reference divides by the nominal 1.0 s whatever the real interval was,
-    /// and this divides by the real one. That is the point of the fix; it is bounded by the
-    /// scheduling jitter, and it is quantified by
-    /// `crate::pid_parity::scenario_e_a_late_step_uses_the_real_interval`.
+    /// Use floating division: integer milliseconds divided by 1000 truncate to zero
+    /// for sub-second windows. Compute uses [`Self::derivative_seconds_at`] instead
+    /// so late samples divide by actual elapsed time. Punctual 1000 ms samples retain
+    /// bit-exact reference parity; late samples intentionally differ.
     #[must_use]
     pub fn derivative_seconds(&self) -> f64 {
         f64::from(self.sample_time.raw()) / 1000.0

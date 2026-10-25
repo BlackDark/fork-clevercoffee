@@ -114,7 +114,7 @@ the user explicitly scoped this migration to the frontend.
   how a live skill note went on citing a deleted script with every gate green.
 - **The API spec is now checked against the routes.** `scripts/check-openapi.py`
   diffs `docs/api/openapi.yaml` against the `ROUTES` table in
-  `cc-hal-esp32/src/web.rs` in both directions and runs in `just check` and CI
+  `cc-net-esp32/src/web.rs` in both directions and runs in `just check` and CI
   (`AG-REPO-31`). The spec had drifted: it covered 24 of 28 routes and omitted
   `/api/sleep`, `/api/wake` and `/events`, which are exactly the three carrying
   deliberate behaviour differences. All 28 are now present.
@@ -132,12 +132,12 @@ the user explicitly scoped this migration to the frontend.
   `cc-display`. Measured after the fix: **0 of 80** under the same load.
   `crates/cc-display/tests/frame_allocations.rs`,
   `crates/cc-machine/tests/tick_allocations.rs`, and the shared
-  `benches/alloc.rs` in each crate, which is what the numbers above come from.
+  `crates/cc-alloc-count`, which is what the numbers above come from.
 - **98 parameters are writable over HTTP and survive a reboot.**
   `cc_config::schema::PARAM_COUNT` is 98 (`schema.rs:92`) and pinned by
   `assert_eq!(SCHEMA.len(), PARAM_COUNT)` (`schema.rs:1858`), by
   `crates/cc-config/tests/config_schema.rs:43` and by
-  `crates/cc-web/src/help/tests.rs:91`.
+  `crates/cc-net/src/web/help/tests.rs:91`.
 - **A machine flashed from the C++ says why its Wi-Fi is gone.** On a boot where
   this firmware's own store is empty, it opens the C++'s `config` namespace
   read-only, takes one key name, and — if there was one — prints a single `warn`
@@ -148,11 +148,11 @@ the user explicitly scoped this migration to the frontend.
   `cc_hal_esp32::nvs::probe_predecessor` (the check). Nothing is read but a key
   name; nothing is written. The line reaching a telnet reader untruncated is
   pinned by
-  `cc_web::telnet::tests::the_predecessor_boot_lines_are_not_truncated_on_the_wire`,
+  `cc_net::web::telnet::tests::the_predecessor_boot_lines_are_not_truncated_on_the_wire`,
   against the real formatter rather than a copied byte count.
   **Verified by test and by reading the code; the line has not been seen on a
   board.**
-- **The web UI is served from flash and renders.** `cc-hal-esp32/build.rs` embeds
+- **The web UI is served from flash and renders.** `cc-net-esp32/build.rs` embeds
   the gzip bundle with `include_bytes!`, which is why a 199,270 B bundle costs
   0 B of RAM. A deep link to a client-side route (`/ui/config/behavior`) boots the
   configuration page with its live parameters, verified in Chrome on the device.
@@ -244,8 +244,8 @@ recorded below.
   powered, wired machine, while it owns its own control loop. The comparison
   harness that would have used it was removed with the rest of the C++ tooling.
   **An intentional difference means reviewed and reasoned, never measured.**
-- **`/api/ota/url` answers `501`.** The route is registered and says why:
-  `cc-hal-esp32/src/web.rs:1917-1934`. The two upload endpoints and
+- **`/api/ota/url` answers `501`.** The route is registered and says why, in
+  `Web::start` (`cc-net-esp32/src/web.rs`). The two upload endpoints and
   `/api/ota/status` **are** implemented and stricter than the C++'s. The URL
   route needs an HTTP client and a second long-lived task, for something a
   browser upload already reaches.
@@ -288,7 +288,14 @@ recorded below.
 - **The steam LED is unwired.** GPIO1 is the UART console TX. GPIO32 is the scale data line. Whether another pin is worth a solder joint is Potential. [`attention.md`](attention.md).
 - **The Acaia BLE scale is out of scope.** It was measured and does not fit; it
   needs a decision (R3-18).
-  The HX711 **is** implemented, and no scale is fitted to the board.
+  The HX711 **is** implemented, and no scale is fitted to the board. Since
+  `2ad8d15` a calibration request reads `hardware.sensors.scale.known_weight`
+  live rather than the boot-time value; unverified on hardware for that reason.
+- **A Wi-Fi bring-up error no longer aborts boot.** An `EspError` from
+  `Sta::new` or `connect` used to end `bring_up` before HTTP, telnet, the
+  provisioning console and the control task started; it now means offline mode,
+  as an association timeout already did. Not exercised on hardware: no fault was
+  injected.
 - **`just flash <port>` now writes both app slots, so it always wins** — the
   defect it fixes (#16) is that it used to write only `app0` while `otadata` kept
   selecting whichever slot the last update chose, so on a board that had taken an
@@ -356,8 +363,7 @@ be filed and they are not fixed by the next green gate.
    therefore does not fail anything today. Treat "intentional" as *reviewed and
    reasoned*, not *measured*.
 3. **`FrameSlot` is verified by review, not by test.** It lives in `cc-firmware`,
-   which `cc-hal-esp32` cannot depend on, so the device-test registry cannot
-   reach it. Its fix is verified by caller audit and review.
+   which the device-test registries cannot reach. Its fix is verified by caller audit and review.
 4. **`main.rs`'s weight wiring is verified by review, not by test**, for the same
    reason. The two behaviours it restores are pinned host-side.
 5. **Hardware timing has never been measured** — the contactor's minimum on/off
@@ -383,16 +389,16 @@ be filed and they are not fixed by the next green gate.
    all 98 parameters matched the pre-plant snapshot; repeat POST answered `400`.
    [`operations/runbook.md` §13.1](operations/runbook.md).
    **Reversal: reinstate `actuators.set_inhibit` in
-   `crates/cc-firmware/src/main.rs` with pump and valve held.**
+   `crates/cc-firmware/src/bring_up.rs` with pump and valve held.**
 7. **The TSIC-306 arm of the F1 fix does not latch on total silence.** No TSIC is
    fitted and that arm has never run.
 8. **Two pump watchdogs are armed that the C++ leaves inert.** Correct call, and
    a behaviour change: a 5-minute brew the C++ ran indefinitely now stops.
 9. **The Wi-Fi telemetry defect was invisible to the test suite.** The device case
-   `web.rs:3277` asserts that a control-task publish leaves the radio fields
+   `web::the_radio_fields_survive_a_machine_publish` asserts that a control-task publish leaves the radio fields
    alone — but it asserts it about a **helper defined in the test module**, not
    about the call site in `main.rs`, which is where the bug lived. The invariant
-   is only observable at `/api/status` on real hardware, and `cc-hal-esp32` cannot
+   is only observable at `/api/status` on real hardware, and `cc-net-esp32` cannot
    depend on `cc-firmware` to reach it. Treat every device case that reconstructs
    the production call in a test helper as coverage of the *contract*, not of the
    *code*.

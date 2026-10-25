@@ -1,83 +1,20 @@
-//! The actuator facade: single owner of the pump, the valve relay and the
-//! heater.
+//! Sole facade for pump, shared valve relay, and heater duty.
 //!
-//! `cc_machine::Actuators` is the object owning the relay pins and the four
-//! booleans the rest of the firmware consults. It is the **only** code in the
-//! firmware permitted to change an actuator pin, and the only place the
-//! interlocks are checked.
+//! Effects reach pins through the applier; the heater ISR owns the physical pin.
+//! Interlocks are checked inside methods so callers cannot bypass them:
 //!
-//! [`cc_machine::applier::apply`] is the only caller. A new state cannot
-//! accidentally poke a relay, because it has no way to reach one — it can only
-//! return an `Effect`.
-//! That holds only if this type is the sole exit. The opposite arrangement is
-//! what lets a cached "heater enabled" flag drift away from the pin: an ISR that
-//! drives the relay directly bypasses the facade. Here the heater pin belongs to
-//! the 10 ms ISR and the facade decides the duty it chops to, so the drift has
-//! nowhere to happen.
+//! * Emergency shutdown latches; ordinary safe shutdown does not. The safety reducer
+//!   owns the latch and supplies its value each tick through [`Actuators::set_latched`].
+//! * An empty tank blocks both pump and water valve.
+//! * Steam and water share one relay. Both open paths enforce their safety whitelist;
+//!   closing one valve must preserve the other's request.
 //!
-//! # Three properties, and why each is inside the methods
+//! Set the cached state after reducing and before applying effects, including MQTT
+//! effects. Otherwise a valid transition's valve opening is judged against the old state.
 //!
-//! ## 1. The emergency latch
-//!
-//! `emergency_shutdown` **latches**; `safe_hardware_shutdown` does not. After the
-//! first, `enable_pump` / `open_water_valve` / `set_heater_duty` are **refused**
-//! until the latch clears. That is S2, and the guard is inside the method rather
-//! than at the call site: thirteen call sites exist and a new one must not be
-//! able to forget.
-//!
-//! The latch itself is **not owned here**. `cc_safety::reduce` owns it, in
-//! `Machine::safety`, and this type is told what it is ([`Actuators::set_latched`])
-//! once per tick. Two copies of one latch updated in step, and not always, is the
-//! failure this avoids.
-//!
-//! ## 2. The water tank interlock
-//!
-//! Checked inside [`Actuators::enable_pump`] and
-//! [`Actuators::open_water_valve`], from the flag the shell sets from the float
-//! switch. The tank condition gates both, not just the pump: a brew state
-//! entered with an empty tank otherwise opens the water valve against a dry
-//! reservoir.
-//!
-//! ## 3. The two valve whitelists
-//!
-//! [`Actuators::open_steam_valve`] applies
-//! [`cc_safety::steam_flow_allowed`] even though the reducer never emits the
-//! effect. Steam and water share **one relay** (GPIO17), so an ungated steam
-//! valve is an ungated *water* valve; see
-//! [pins.md](../../../docs/hardware/pins.md).
-//!
-//! [`Actuators::open_water_valve`] applies
-//! [`cc_safety::water_flow_allowed`] for the same reason. The two `may_open_*`
-//! methods are deliberately symmetric: both consult a whitelist, so the facade
-//! is a second line of defence on its own rather than only when the effect list
-//! happens to end in a close.
-//!
-//! **Which means the cached state has to be the one the effects were produced
-//! from.** The shell calls [`Actuators::set_state`] after the tick and before the
-//! `apply` (`cc-firmware/src/main.rs`), and again before the MQTT path's own
-//! `apply`; telling it before the tick leaves the cache holding the state that
-//! tick left, and an `OpenWaterValve` emitted *because of* the transition into
-//! `BREW_PREINFUSION` would then be judged against `PID_NORMAL` and refused.
-//!
-//! # The valve is one pin and four commands
-//!
-//! `ValveState` has four values rather than a `bool` because steam and water
-//! share the relay, so the pin's state is a function of *both* valves and closing
-//! one must not close the other. A pair of booleans written to the same pin is a
-//! race with itself.
-//!
-//! # The `test_only` inhibit
-//!
-//! [`Inhibit`] exists so a bring-up build can refuse to energise a relay without
-//! removing the code path that would. **Not** a safety mechanism: a safety
-//! mechanism is a [`cc_safety::Verdict`], and this type consults one. An inhibit
-//! set here would silently defeat a test that was supposed to prove the actuator
-//! *can* be driven, which is why [`Actuators::inhibit`] is a field the firmware
-//! sets once at boot and logs, never something an effect can change.
-//!
-//! The refusal is counted and logged rather than silent, because "the pump did
-//! not run" and "the pump was inhibited" are different facts and the second has
-//! to be visible on the console.
+//! [`Inhibit`] is a logged, counted bring-up override, not a safety mechanism. Set it
+//! once at boot; effects must not change it or silently invalidate actuator tests.
+//! See [pins.md](../../../docs/hardware/pins.md).
 use cc_domain::heater::HeaterGate;
 use cc_domain::state::MachineState;
 use cc_domain::units::{Duty, Millis};
@@ -230,7 +167,7 @@ impl ValveState {
 /// rules can be tested on the device by `just test-esp32` without a
 /// `PinDriver`, a relay, or a machine that could be damaged by getting an answer
 /// wrong. The tests are `actuators::tests::*` and they are registered in
-/// [`crate::device_tests::CASES`].
+/// `crate::device_tests::CASES`.
 ///
 /// It is a value rather than three fields on [`Actuators`] for the same reason
 /// `cc_safety::Telemetry` is: the thing being decided is "may this actuator be
@@ -835,7 +772,7 @@ impl FirmwareSide {
 
     /// A side channel that starts from a counter read out of NVS.
     ///
-    /// The stored value seeds [`Self::last_persisted_shots`] so that the first
+    /// The stored value seeds `Self::last_persisted_shots` so that the first
     /// tick does not write a count that is already stored, and so that a reset of
     /// an already-zero counter is recognised as a no-op.
     ///
@@ -895,7 +832,7 @@ impl MachineChannels for FirmwareSide {
     /// Qualifying and incrementing are the reducer's —
     /// `Machine::shots_since_backflush` has already moved if `counted` — so this
     /// is the write, and it is a flag rather than a write for the reason on
-    /// [`FirmwareSide::shots_to_persist`].
+    /// `FirmwareSide::shots_to_persist`.
     fn on_record_brew(&mut self, counted: bool, shots_since_backflush: i32) {
         if counted {
             info!("maintenance: counted brew, shots since backflush = {shots_since_backflush}");
@@ -970,9 +907,11 @@ const fn if_enabled(enabled: bool) -> &'static str {
 #[cfg(any(test, feature = "device-tests"))]
 #[cfg_attr(feature = "device-tests", doc(hidden))]
 pub mod tests {
-    // Justification: these cases test this module's private decisions, which is
-    // why they live beside them; see `crate::task::tests` for the same note.
-    #![allow(clippy::wildcard_imports)]
+    #![allow(
+        clippy::wildcard_imports,
+        reason = "the tests exercise the parent's private items, and the `cfg(test)` \
+                  exception does not cover the device-tests build"
+    )]
 
     use super::{Polarity, RelayPolarities};
     use cc_domain::hardware::RelayTriggerType;

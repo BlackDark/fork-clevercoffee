@@ -1,13 +1,5 @@
-//! The display's strings, one struct per language.
-//!
-//! The strings are `&'static str` constants reachable only through a
-//! [`Language`] value, so a missing string is a compile error rather than a null
-//! pointer at draw time, and no code can reassign one.
-//!
-//! Only the strings the display layer actually draws are here. The radio
-//! provisioning screens (reconnect, connect-to-WiFi, no-WiFi) and the
-//! scale-calibration messages are drawn by code that is *not* in the display
-//! layer, so their strings belong with that code.
+//! Static translated display strings. Provisioning and calibration text stays
+//! with the code that renders those screens.
 
 use crate::model::Language;
 

@@ -1,21 +1,8 @@
-//! The four writers to the configuration blob, and the one reader of the scale
-//! event queue.
+//! Configuration persistence owned by the control task.
 //!
-//! # What is in here and why
-//!
-//! * [`push_into_machine`] — `apply` writes the `Config`, but `pid.enabled` and
-//!   `brew.setpoint` are *also* cached inside `cc_machine::Machine`, so a write
-//!   has to be pushed across explicitly.
-//! * [`persist_setpoint`], [`persist_pid_enabled`] and [`persist_config`] — the
-//!   three writes to the blob store, which the control task solely owns
-//!   (`BlobConfigStore::load` and `save` both take `&mut self`).
-//! * [`drain_scale`] — the scale's *events*, drained every tick and persisted,
-//!   because dropping a completed tare loses an operator's action.
-//!
-//! The call sites decide the behaviour: `push_into_machine` and the three `persist`
-//! calls run inside the control tick, and `drain_scale` runs at step 7b, *after* the
-//! applier, because its NVS commit must not sit between the reducer's decision and the
-//! pins.
+//! Parameter writes must also update the machine's cached PID flag and setpoint.
+//! Drain completed scale events after applying effects: NVS commits must not delay
+//! the pins after the reducer has decided their state.
 
 use cc_machine::Event;
 use log::{error, info, warn};
@@ -23,37 +10,11 @@ use log::{error, info, warn};
 use crate::control;
 use crate::mqtt_link;
 
-/// Push a written configuration into the **running** machine.
+/// Update the running machine after HTTP or MQTT configuration writes.
 ///
-/// # Why this is a function and not four lines in the handler
-///
-/// Because there are two writers into the same task — `POST /api/parameters` and an
-/// inbound `mqtt set` — and two spellings of the same step drift apart. The reducer owns
-/// its own `Config` copy rather than reading a shared one on every tick, so a write has
-/// to be pushed into it explicitly.
-///
-/// # What it is
-///
-/// `apply` writes the `Config` value and the value reaches NVS, so it survives a
-/// reboot — but two parameters are *also* cached in `cc_machine::Machine`, and nothing
-/// else copies them across:
-///
-/// * `pid.enabled` is the case a human hit: `Machine::pid.mode_enabled` is the
-///   flag `should_pid_be_enabled` consults, and it is only ever set by
-///   `SetUserPidEnabled`. Without the push, `POST /api/parameters pid.enabled=1`
-///   persists the preference and does nothing to the machine until a reboot, while the
-///   handler answers `200 {"success":true}` throughout.
-/// * `brew.setpoint` is cached by `Control::set_setpoint`, and `brew.setpoint` is
-///   what `effective_setpoint` reads on every tick — so a write to it has to be
-///   pushed too, or the display and the PID keep targeting the old temperature.
-///
-/// `before` is `(pid.enabled, brew.setpoint)` **read before** the apply, which is
-/// the only way to tell whether either actually moved.
-///
-/// `written` is the `(key, value)` pairs the apply consumed, and it is here for one
-/// reason: the PID's **gains** are not cached in the machine at all, so a write to
-/// `pid.regular.kp` reaches the running PID only if the controller is told to re-choose
-/// them. See [`touches_pid_gains`].
+/// `before` holds the pre-write PID flag and setpoint; both are also cached in the
+/// machine. `written` identifies gain changes requiring retuning. Persisting alone
+/// would leave those values inactive until reboot.
 pub(crate) fn push_into_machine(
     control: &mut control::Control,
     config: &cc_config::Config,
@@ -95,17 +56,14 @@ pub(crate) fn push_into_machine(
 }
 
 /// Keys the violation implicates, or `None` when the configuration is safe.
-///
-/// Lives here because this crate maps `Config` to `SafetyConfig`. `cc-config`
-/// and `cc-safety` stay peers.
 fn validate_for_repair(config: &cc_config::Config) -> Option<&'static [&'static str]> {
-    cc_safety::validate_config(&crate::control::safety_config(config))
+    cc_safety::validate_config(&cc_machine::safety_config(config))
         .err()
         .map(cc_safety::ConfigViolation::implicated_keys)
 }
 
 /// Revert the keys an unsafe configuration implicates. See
-/// [`cc_config::repair_unsafe`].
+/// [`cc_config::config::repair_unsafe`].
 pub fn repair_unsafe(config: &mut cc_config::Config) -> cc_config::config::Repair {
     cc_config::config::repair_unsafe(config, validate_for_repair)
 }
@@ -208,7 +166,7 @@ pub(crate) fn persist_config(
 ///
 /// Events — a completed tare, a new factor — are the opposite of a reading: dropping one
 /// loses an operator's action, so they come over a queue that is drained every tick. **The
-/// weight is not one of them**: it is [`crate::scale_weight`], a reading, taken at step 4
+/// weight is not one of them**: it is `control_task::scale_weight`, a reading, taken at step 4
 /// with the temperature and the pressure, because the only consumer of the number,
 /// `Sensors::brew_weight`, is read by the same tick that decides on it.
 ///

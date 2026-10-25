@@ -1,26 +1,8 @@
-//! The eighteen states: what each one does on entry, on exit, on update, and when it wants to
-//! transition.
+//! Exhaustive state entry, update, exit, and transition hooks.
 //!
-//! Four functions, one per hook, each a `match` over [`MachineState`] with **no wildcard arm**.
-//! That is the mechanism: adding a 19th state fails to compile here, in [`crate::guards`], and
-//! in `cc_safety::water_flow_allowed` until someone has decided what its entry, exit, update
-//! and transitions are.
-//!
-//! # ADR-0003's contract, in three lines per state
-//!
-//! | | rule | where |
-//! | --- | --- | --- |
-//! | energise | enable hardware on entry | [`on_entry`] |
-//! | reinforce | re-assert it on update | [`update`] |
-//! | release | disable it on exit | [`on_exit`] |
-//!
-//! # What does not follow those three lines
-//!
-//! * **The two error states have no exit release.** They never energise anything, so there is
-//!   nothing to release.
-//! * **Reinforcing is not redundant.** The valve fail-safes run after [`update`] in the same
-//!   tick, so a state that asserts "valve open" and a check that asserts "valve closed" are
-//!   both applied, and the whitelist decides.
+//! Follow ADR-0003: energise on entry, reinforce on update, release on exit.
+//! Error states never energise outputs and need no exit release. Reinforcement
+//! must agree with the valve whitelist because fail-safes run later in the tick.
 
 use cc_domain::state::MachineState;
 
@@ -92,10 +74,10 @@ fn check_backflush_mode_disabled(machine: &mut Machine, ctx: &Context<'_>) -> Op
 ///
 /// The caller has already set [`Machine::entry_at`], so
 /// [`state_elapsed_ms`](Machine::state_elapsed_ms) is 0 here.
-#[allow(clippy::match_same_arms)]
-// Justification: the eighteen arms are kept separate on purpose. Several states do the same
-// thing, but each is a different state's contract, and a change to one must not silently
-// change another. Merging them would make ADR-0003's table untestable per row.
+#[expect(
+    clippy::match_same_arms,
+    reason = "each arm is a different state's contract; merging arms couples them"
+)]
 #[must_use]
 pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     let mut fx = Effects::new();
@@ -247,10 +229,10 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
 /// ADR-0003: **every state that activates the pump or a valve must deactivate them on exit**,
 /// because the next state's entry may not run if an error interrupts the transition
 /// (AG-REPO-21).
-#[allow(clippy::match_same_arms)]
-// Justification: the eighteen arms are kept separate on purpose. Several states do the same
-// thing, but each is a different state's contract, and a change to one must not silently
-// change another. Merging them would make ADR-0003's table untestable per row.
+#[expect(
+    clippy::match_same_arms,
+    reason = "each arm is a different state's contract; merging arms couples them"
+)]
 #[must_use]
 pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     let mut fx = Effects::new();
@@ -356,10 +338,10 @@ pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) ->
 /// off. A fail-safe may do that between ticks, and the valve check runs after this in the same
 /// tick, so a state that asserts "valve open" and a check that asserts "valve closed" are
 /// both applied and the *whitelist* decides -- not which call came last.
-#[allow(clippy::match_same_arms)]
-// Justification: the eighteen arms are kept separate on purpose. Several states do the same
-// thing, but each is a different state's contract, and a change to one must not silently
-// change another. Merging them would make ADR-0003's table untestable per row.
+#[expect(
+    clippy::match_same_arms,
+    reason = "each arm is a different state's contract; merging arms couples them"
+)]
 #[must_use]
 pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     let mut fx = Effects::new();
@@ -446,26 +428,10 @@ pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> 
         // to keep running, which is why this state's standby timeout has to keep working.
         MachineState::WaterTankEmpty => {}
 
-        // Re-runs the full emergency shutdown **every tick**, not just on entry: the latch
-        // lives in the actuator facade, and something could re-energise a relay between ticks.
-        //
-        // It also drains on every tick, which the entry drain alone cannot do: a request that
-        // arrives *during* the latch is set after entry has run, and without this it survives to
-        // the recovery tick. Measured on a bench ESP32 on 2026-10-07 -- the machine tripped,
-        // refused the press with `enablePump REFUSED - latched 1`, and then began that same brew
-        // with nobody pressing anything once the probe cooled below the threshold.
-        //
-        // The drain is **unguarded**, and that is deliberate. Guarding it on the latch looks
-        // right and is not: the exit test is `cc_safety::can_clear(temperature)`, and
-        // `cc_safety::reduce` clears the latch earlier in the *same* control period, so on the
-        // recovery tick the latch is already false, a guard would skip the drain, and a request
-        // that arrived in that window would survive into `PID_NORMAL` and start a brew. One tick
-        // wide, and the whole point of the drain is to close exactly that tick.
-        //
-        // Nothing downstream of this state wants a preserved request, and the "never drain
-        // wake-up signals" rule is scoped to `STANDBY`, which is untouched;
-        // [`Requests::clear_all`](crate::machine::Requests::clear_all) deliberately spares
-        // `standby`.
+        // Reassert shutdown and drain action requests every tick, including recovery.
+        // The safety reducer can clear the latch earlier in this same period, so guarding
+        // the drain on that latch would let a last-moment brew request survive recovery.
+        // `clear_all` deliberately preserves the standby request.
         MachineState::EmergencyStop => {
             fx.push(Effect::EmergencyShutdown);
             machine.pid.runtime_enabled = false;
@@ -496,10 +462,10 @@ pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> 
 /// the current state is still a self-transition, which the caller discards. The flags a state
 /// acts on are cleared here, before the answer is returned, so even a discarded transition
 /// consumes its flag.
-#[allow(clippy::too_many_lines)]
-// Justification: the eighteen arms are the specification, and the order in which each state
-// tests its conditions decides which flag wins when several are set. Splitting them across
-// private helpers would hide that order.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the eighteen arms are the specification, and their order decides which flag wins"
+)]
 #[must_use]
 pub fn check_specific(
     state: MachineState,
@@ -637,10 +603,10 @@ pub fn check_specific(
                     return Some(MachineState::BrewFinished);
                 }
                 let target_weight = ctx.config.brew.by_weight.target_weight;
-                #[allow(clippy::cast_possible_truncation)]
-                // Justification: the configured target is a `double` and the reading is an
-                // `f32`, so the comparison truncates. The target is displayed to one decimal,
-                // which is coarser than the truncation, so the difference cannot be seen.
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "the f64 target is compared at f32 precision, finer than its one-decimal display"
+                )]
                 let target_weight_f32 = target_weight as f32;
                 if ctx.config.brew.by_weight.enabled
                     && target_weight > 0.0
@@ -887,12 +853,14 @@ fn preinfusion_ms(ctx: &Context<'_>) -> f64 {
 ///
 /// An absurdly large duration lands on `u32::MAX`, which reads as "already elapsed" at every
 /// comparison, and a `NaN` lands on 0.
-#[allow(clippy::cast_possible_truncation)]
-// Justification: the truncation to whole milliseconds is the intended result; a fractional
-// millisecond has no representation here.
-#[allow(clippy::cast_sign_loss)]
-// Justification: `secs_to_u32` checks `seconds > 0.0` before calling this, so the value cast is
-// known to be non-negative.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "truncation to whole milliseconds is the intended result"
+)]
+#[expect(
+    clippy::cast_sign_loss,
+    reason = "the caller checks `seconds > 0.0` first"
+)]
 fn saturating_millis(seconds: f64) -> u32 {
     (seconds * 1000.0) as u32
 }

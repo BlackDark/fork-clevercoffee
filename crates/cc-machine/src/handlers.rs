@@ -1,25 +1,8 @@
-//! The four switch handlers, as pure edge-to-flag functions.
+//! Switch edges update request flags; hardware remains behind effects.
 //!
-//! # Why a handler is a function here
-//!
-//! A handler's whole observable contract is "given an edge, the current state and the
-//! configuration, which flags does it set?". That is a pure function, and it is one here: the
-//! previous switch reading is [`Machine::switches`], the configuration arrives through a
-//! [`Context`] field, and the flags it sets are [`Machine::requests`]. Hardware stays out of
-//! reach, which is what makes every one of these decisions a host test.
-//!
-//! # What this module deliberately does *not* do
-//!
-//! It does not touch an actuator. [`pump_timeouts`] is the only handler that produces a
-//! hardware effect, and it produces an `Effect` like everything else: the applier is still the
-//! only thing that writes a pin.
-//!
-//! # The permission layer
-//!
-//! Each handler checks, in order: the switch is enabled, the state permits the handler, and the
-//! switch exists. `brew_switch` and `hot_water_switch` both refuse in `WATER_TANK_EMPTY`.
-//! "The switch exists" needs no representation in Rust: a switch that does not exist produces
-//! no event at all.
+//! Handlers check configuration and state permissions. Missing switches generate
+//! no event. Brew and hot-water requests are denied with an empty tank;
+//! [`pump_timeouts`] emits effects through the same applier as state updates.
 use cc_domain::hardware::SwitchType;
 use cc_domain::state::MachineState;
 

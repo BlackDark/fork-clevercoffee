@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Run the on-target unit test suite and turn the serial log into an exit code.
 
-Why this exists: `cc-hal-esp32`'s 67 `#[test]` functions used to be type-checked
-by `just lint-esp32` and executed by nothing, because the crate does not build
-for a host target. Two real device bugs shipped through that gap. This script is
-the other half of the harness in `crates/cc-device-tests`: it resets the board,
-reads UART0, and decides pass or fail.
+The device crates' tests do not build for a host target, so they run only on
+the board. This script is the host half of the harness in
+`crates/cc-device-tests`: it resets the board, reads UART0, and decides pass or
+fail.
 
 The device is built with `panic = "abort"`, which the Xtensa target cannot
 avoid (`unwinding` is unsupported here; `-Zbuild-std=std,panic_unwind` does not

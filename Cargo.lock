@@ -172,6 +172,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-alloc-count"
+version = "0.1.0"
+
+[[package]]
 name = "cc-config"
 version = "0.1.0"
 dependencies = [
@@ -185,6 +189,7 @@ name = "cc-device-tests"
 version = "0.1.0"
 dependencies = [
  "cc-hal-esp32",
+ "cc-net-esp32",
  "embuild",
  "esp-idf-hal",
  "esp-idf-svc",
@@ -195,6 +200,7 @@ dependencies = [
 name = "cc-display"
 version = "0.1.0"
 dependencies = [
+ "cc-alloc-count",
  "cc-domain",
 ]
 
@@ -214,10 +220,10 @@ dependencies = [
  "cc-domain",
  "cc-hal-esp32",
  "cc-machine",
- "cc-netpolicy",
+ "cc-net",
+ "cc-net-esp32",
  "cc-protocol",
  "cc-safety",
- "cc-web",
  "embuild",
  "esp-idf-hal",
  "esp-idf-svc",
@@ -233,18 +239,15 @@ dependencies = [
  "cc-display",
  "cc-domain",
  "cc-machine",
- "cc-mqtt",
- "cc-netpolicy",
+ "cc-net",
  "cc-protocol",
  "cc-safety",
- "cc-web",
  "display-interface",
  "esp-idf-hal",
  "esp-idf-svc",
  "esp-idf-sys",
  "heapless",
  "log",
- "serde_json",
  "ssd1306",
 ]
 
@@ -252,6 +255,7 @@ dependencies = [
 name = "cc-machine"
 version = "0.1.0"
 dependencies = [
+ "cc-alloc-count",
  "cc-config",
  "cc-domain",
  "cc-safety",
@@ -259,19 +263,31 @@ dependencies = [
 ]
 
 [[package]]
-name = "cc-mqtt"
+name = "cc-net"
 version = "0.1.0"
 dependencies = [
  "cc-config",
  "cc-domain",
- "cc-netpolicy",
  "heapless",
  "log",
+ "serde_json",
 ]
 
 [[package]]
-name = "cc-netpolicy"
+name = "cc-net-esp32"
 version = "0.1.0"
+dependencies = [
+ "cc-config",
+ "cc-domain",
+ "cc-hal-esp32",
+ "cc-machine",
+ "cc-net",
+ "esp-idf-hal",
+ "esp-idf-svc",
+ "esp-idf-sys",
+ "heapless",
+ "log",
+]
 
 [[package]]
 name = "cc-parity"
@@ -298,18 +314,6 @@ name = "cc-safety"
 version = "0.1.0"
 dependencies = [
  "cc-domain",
-]
-
-[[package]]
-name = "cc-web"
-version = "0.1.0"
-dependencies = [
- "cc-config",
- "cc-domain",
- "cc-protocol",
- "heapless",
- "log",
- "serde_json",
 ]
 
 [[package]]

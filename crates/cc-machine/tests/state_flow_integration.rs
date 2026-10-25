@@ -1,16 +1,4 @@
-//! End-to-end flows: a whole brew, a manual flush, an emergency, and a standby round trip,
-//! checked at every step against the effects the hardware would see.
-//!
-//! # Driving the reducer rather than the states
-//!
-//! Each step is one `Event::Tick`, which is what the machine's control loop sends, so a test sees
-//! the whole tick: the guard, the exit half, the entry half and the update, in that order. That is
-//! stronger than checking one hook at a time, and it is why [`brew_abort_during_preinfusion`] can
-//! assert that the valve is closed by the end of the tick rather than only that the exit hook left
-//! it alone. Where a test is about a single hook, its comment says so.
-//!
-//! The steps walk one brew from `PID_NORMAL` through pre-infusion, pause, running and finished,
-//! then the same machine through an emergency stop and its recovery.
+//! Whole-tick flows check guard, exit, entry, update, and final fail-safe ordering.
 
 mod common;
 

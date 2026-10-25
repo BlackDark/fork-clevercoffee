@@ -1,14 +1,8 @@
-//! The power switch: sleep, wake, and the long-press reboot.
+//! Power-switch asymmetry and long-press reboot.
 //!
-//! The two halves of the switch are asymmetric, and that asymmetry is the thing most worth
-//! pinning: [`power_on`](cc_machine::handlers) acts only in `STANDBY` and `PID_DISABLED`, while
-//! `power_off` acts in every state except `STANDBY`. A momentary press therefore powers the
-//! machine off mid-brew, while a *toggle* switched on mid-brew does nothing -- a toggle cannot
-//! be pressed again, so the only way back is to switch it off.
-//!
-//! The other half is the long-press reboot: four conditions, all required, evaluated on every
-//! tick rather than on the press edge, because a hold lasts about a second and by then the edge
-//! is history.
+//! Power-on acts only from standby or PID-disabled; power-off acts outside standby.
+//! A momentary press can power off mid-brew; a toggle switched on there does nothing.
+//! Require all four reboot conditions on every tick, not only the press edge.
 
 mod common;
 

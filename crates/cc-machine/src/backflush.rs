@@ -1,8 +1,4 @@
-//! The backflush mode and cycle logic: two pure decisions and the flags they change.
-//!
-//! Small and dependency-free on purpose. The state *transitions* are in [`crate::states`];
-//! only these two decisions were ever out of them, so they live here where they can be
-//! host-tested as arithmetic rather than driven through a machine.
+//! Pure backflush decisions; state transitions remain in [`crate::states`].
 
 /// What applying a backflush-mode request does.
 ///
@@ -96,7 +92,10 @@ pub const fn resolve_cycle_advance(
 // Four of the six fields are booleans, and the point of the struct is that one decision sets
 // them *together*. Splitting them into a state machine would model a transition that cannot
 // happen: `on` and `enter_requested` are not independent, and nothing wants them to be.
-#[allow(clippy::struct_excessive_bools)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "one decision sets the flags together; they are not a state machine"
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModeChangeOutcome {
     /// The effect that was applied.

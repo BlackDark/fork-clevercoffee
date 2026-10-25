@@ -21,6 +21,9 @@ cc-safety.workspace = true
 # `esp_idf_*` crate, which a portable crate must not do.
 heapless.workspace = true
 
+[dev-dependencies]
+cc-alloc-count.workspace = true
+
 [lints]
 workspace = true
 

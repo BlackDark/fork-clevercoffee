@@ -108,7 +108,7 @@ jobs:
           just env-file
           just doctor
 
-      # `cc-hal-esp32/build.rs` panics without `ui/packages/frontend/dist`, so
+      # `cc-net-esp32/build.rs` panics without `ui/packages/frontend/dist`, so
       # the UI is not optional here (AG-RUST-6).
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
         with:

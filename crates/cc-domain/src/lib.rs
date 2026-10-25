@@ -1,60 +1,39 @@
-//! Pure domain vocabulary for the Clever Coffee firmware: units, enums, the 18 machine
-//! states, error codes, the PID controller, and the compile-time policy whitelists.
+//! Shared units, machine vocabulary, PID arithmetic, and heater policy.
 //!
-//! # Where this sits in the layering
-//!
-//! ```text
-//!   cc-domain ──> cc-protocol ──> cc-hal-esp32
-//!     │
-//!     ├──> cc-safety ──> cc-machine ──┐
-//!     └──> cc-config, cc-display ─────┴─> cc-hal-esp32
-//! ```
-//!
-//! **This is the crate at the bottom, and it stays small.** It is the vocabulary
-//! the rest of the firmware speaks: a temperature has a type, the machine is in
-//! one of eighteen states, an error has a code, and a PID has a mode. Nothing
-//! here decodes a byte, drives a pin, or holds a ring of samples -- those are
-//! `cc-protocol` (protocols over bytes) and `cc-netpolicy` (link, publish and retry
-//! policy). The four change for different reasons: a vocabulary, a wire format, a link
-//! policy and a control policy.
-//!
-//! # Rules
-//!
-//! * `no_std`, no `alloc`, and **no dependency is on by default**.
-//!   The single optional dependency is `serde`, off unless a crate that already
-//!   depends on it turns it on, and it exists for one reason: `Secret<T>`'s
-//!   transparent `Serialize`/`Deserialize` impls, which `cc-config` needs to
-//!   round-trip the four credential fields. See [`secret`].
-//! * This crate must never name `esp_idf_svc`, `esp_idf_hal` or `esp_idf_sys`.
-//!   A CI grep enforces that.
-//! * Every unit is a newtype, never a bare `f32`. Mixing millimetres with
-//!   inches is the class of bug the type system is here to prevent.
+//! Keep byte protocols in `cc-protocol` and the network tier in `cc-net`.
+//! This crate has no default dependencies or allocation. Optional `serde` supports
+//! [`secret`] serialization without coupling provisioning to configuration.
 
 #![no_std]
-#![forbid(unsafe_code)] // already denied workspace-wide; restated for clarity
+#![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
-/// Add a `from_raw` constructor to an enum whose discriminants are contiguous
-/// `i8` values starting at 0.
+/// Declare an `i8`-backed option enum together with its `from_raw` constructor.
 ///
 /// The schema in `cc-config` stores enumerations as their integer discriminant and needs
-/// to turn one back into the enum. Doing that with a single macro keeps the mapping next to
-/// the declaration, where a reviewer can check it, and means adding a variant is a one-line
-/// change rather than an edit in two crates.
+/// to turn one back into the enum. Wrapping the declaration means each discriminant is
+/// written once, on its variant, and `from_raw` cannot disagree with it.
 ///
-/// **Why it lives here and is not `#[macro_export]`ed.** It is one macro, used by
+/// **Why it lives here and is not `#[macro_export]`ed.** It is used only by
 /// [`hardware`], [`process`] and [`system`]. `macro_rules` scoping is **textual**, so a
 /// definition at the crate root is visible to every module declared *after* it, and that is
-/// the crate-private export. `#[macro_export]` would also work and would be wrong: it
-/// publishes `cc_domain::from_raw` as public API of a `no_std` domain crate, and
-/// `missing_docs` would then demand docs on a macro that is an implementation detail of
-/// three of its own modules.
+/// the crate-private export. `#[macro_export]` would publish `cc_domain::from_raw` as
+/// public API of a `no_std` domain crate.
 ///
-/// **It must stay above the `pub mod` lines below.** Moving it into a submodule
-/// and importing it is the other idiom, and it does not work here: `use
-/// crate::…` cannot name a `macro_rules` macro that has not been exported.
+/// **It must stay above the `pub mod` lines below.** `use crate::…` cannot name a
+/// `macro_rules` macro that has not been exported.
 macro_rules! from_raw {
-    ($name:ident, { $($variant:ident => $value:literal),* $(,)? }) => {
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $name:ident {
+            $( $(#[$variant_meta:meta])* $variant:ident = $value:literal, )*
+        }
+    ) => {
+        $(#[$meta])*
+        $vis enum $name {
+            $( $(#[$variant_meta])* $variant = $value, )*
+        }
+
         impl $name {
             /// Recover the variant from its wire representation.
             ///
@@ -111,8 +90,26 @@ pub const BENCH_UNSAFE_TEMPERATURES: bool = option_env!("CC_BENCH_UNSAFE_TEMPERA
 #[cfg(test)]
 extern crate alloc;
 
-#[cfg(test)]
-mod pid_parity;
-
 pub use error::ErrorCode;
 pub use state::MachineState;
+
+#[cfg(test)]
+mod tests {
+    use crate::hardware::ScaleType;
+    use crate::system::LogLevel;
+
+    #[test]
+    fn from_raw_inverts_the_discriminant_and_rejects_the_rest() {
+        for v in [
+            ScaleType::Hx711Dual,
+            ScaleType::Hx711Single,
+            ScaleType::Bluetooth,
+        ] {
+            assert_eq!(ScaleType::from_raw(v as i8), Some(v));
+        }
+        assert_eq!(ScaleType::from_raw(3), None);
+        assert_eq!(ScaleType::from_raw(-1), None);
+        assert_eq!(LogLevel::from_raw(6), Some(LogLevel::Silent));
+        assert_eq!(LogLevel::from_raw(7), None);
+    }
+}

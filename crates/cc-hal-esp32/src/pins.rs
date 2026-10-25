@@ -1,31 +1,8 @@
-//! The board's pin map — the one copy, checked twice.
+//! Pin map matching [pins.md](../../../docs/hardware/pins.md).
 //!
-//! The map and the traps in it are documented in
-//! [`pins.md`](../../../docs/hardware/pins.md); this module is the copy the
-//! firmware compiles against, and the two must agree.
-//!
-//! # What is checked, and where
-//!
-//! **Legal pins — at compile time.** [`assert_valid`] is a `const fn`, called by
-//! a `const _` item in this module, so a pin this chip does not have, a pin in
-//! the SPI-flash bank, an input driven as an output, or a wire claimed twice is a
-//! *build failure*.
-//!
-//! **The numbers agree with the wiring — at boot.** [`assert_wiring`] is a
-//! runtime check, and it is runtime because of a limit of `esp-idf-hal` 0.47, not
-//! a choice: a pin's number is reachable only through
-//! [`esp_idf_hal::gpio::Pin::pin`], which is a `fn` and not a `const fn`, and the
-//! reverse direction — turning a number into the concrete `Gpio17` field of
-//! `Peripherals` — needs `AnyIOPin::steal`, which is `unsafe`, which this
-//! workspace denies. So the drift that actually bites ("someone rewires GPIO17 to
-//! GPIO19 and the log still says 17") is caught once, at bring-up, with a panic
-//! that names the pin.
-//!
-//! # There is no `Board` trait
-//!
-//! This machine is one board and one pin map, so a trait with one implementation
-//! would be a `PinMap` const plus a name. The property that was missing is the
-//! *validation*, and that is what this module adds.
+//! `assert_valid` rejects illegal, flash-reserved, duplicate, or output-incompatible
+//! pins at compile time. [`assert_wiring`] checks actual pins at boot because the
+//! HAL's pin-number accessor is not `const`. A single board needs no `Board` trait.
 
 use esp_idf_hal::gpio::Pin;
 use esp_idf_hal::peripherals::Peripherals;

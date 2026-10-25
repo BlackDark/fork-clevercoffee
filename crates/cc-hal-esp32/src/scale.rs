@@ -1,50 +1,11 @@
-//! The HX711, on two data pins and one shared clock, sampled on its own task.
+//! HX711 GPIO transport and dedicated sampler.
 //!
-//! # What this file is
-//!
-//! The device half of [`cc_protocol::sensor::hx711`]. Every decision — how many
-//! clocks, which bit is the sign, what the tare subtracts, when the cell counts
-//! as absent — is in the domain crate and host-tested there. What is left here
-//! is three pins, a delay, a queue and a task.
-//!
-//! # 🔴 Why the sampling is a task and not a call from the control tick
-//!
-//! One 24-bit read is 25 clock writes plus 25 pin reads, and the HX711 needs
-//! the *whole* sequence uninterruptible: the datasheet (§5.2) says an
-//! interrupt longer than 60 µs while SCK is high can drive the amplifier into
-//! power-down, so [`GpioHx711::in_critical_section`] masks interrupts for the
-//! duration.
-//!
-//! So the cost of a read is not the register accesses — it is that the CPU
-//! cannot do anything else for the duration. Doing that inside the 10 ms
-//! control tick means the tick's worst case grows by a whole read, for a
-//! sensor that is **optional**: `hardware.sensors.scale.enabled` defaults to
-//! `false`. A machine with no scale must not pay for one, and a machine with
-//! one must not have its control loop perturbed by it. A dedicated task at a
-//! priority above the control task's makes the perturbation bounded and
-//! measurable rather than structural.
-//!
-//! The task runs at [`SAMPLER_PRIO`], above the control task's 5 and above
-//! `esp-mqtt`'s 4, so a network task cannot preempt the control loop.
-//!
-//! # Nothing here waits without a deadline
-//!
-//! [`GpioHx711::data_high`] is a *query*. The sampler polls it, and
-//! [`cc_protocol::sensor::hx711::SignalWatchdog`] turns "the line has been high
-//! for longer than one conversion" into a fault. A shorted or absent data line
-//! therefore produces a fault within
-//! [`cc_protocol::sensor::hx711::SIGNAL_TIMEOUT`] and the sampler keeps
-//! running, which is the acceptance criterion.
-//!
-//! # The clock is shared, the data lines are not
-//!
-//! GPIO33 is the clock, shared by both cells. GPIO32 and GPIO25 are the two
-//! data lines ([pins.md](../../../docs/hardware/pins.md)). A shared SCK
-//! cannot clock two amplifiers' data lines independently, so the sampler tells
-//! the bus which cell is next ([`GpioHx711::select`]) and the domain's
-//! [`Scale`](cc_protocol::sensor::hx711::Scale) alternates. That costs each cell
-//! half the sample rate, which is inherent to the wiring and is documented
-//! there.
+//! A full read must mask interrupts: SCK high for over 60 µs powers the amplifier
+//! down (datasheet §5.2). Keep that read outside the 10 ms control tick; the optional
+//! sampler runs at [`SAMPLER_PRIO`].
+//! Ready polling is bounded by [`cc_protocol::sensor::hx711::SignalWatchdog`].
+//! Both cells share GPIO33 for SCK and use separate data lines (32 and 25), so
+//! alternating cells halves each sample rate; see [pins.md](../../../docs/hardware/pins.md).
 
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -108,7 +69,7 @@ const _: () = assert!(
 /// The task's own frame is a `Scale` — two `Cell`s, each holding a 34-entry
 /// `u32` dataset — plus the read path's locals, so the deepest chain is a few
 /// hundred bytes. 4 KiB is the smallest stack in this firmware that is not
-/// obviously wrong, matching [`crate::web`]'s SSE broadcaster.
+/// obviously wrong, matching the web server's SSE broadcaster.
 pub const SAMPLER_STACK_BYTES: usize = 4096;
 
 /// How long the sampler sleeps when a read found nothing ready.
@@ -518,7 +479,7 @@ pub enum SamplerEvent {
 
 /// The control → sampler queue depth.
 ///
-/// 4, drop-newest, for the same reason [`crate::task::CommandQueue`] is: a full
+/// 4, drop-newest, for the same reason `cc_net_esp32::handoff::CommandQueue` is: a full
 /// queue means the sampler is behind, which is a condition to shed rather than
 /// to report. Every command is idempotent, so dropping one loses an operator
 /// action and nothing else.
@@ -592,7 +553,7 @@ impl Sampler {
         // every method takes `&self`, because the FreeRTOS queue is internally
         // synchronised. So the handle and the task share one through an `Arc`
         // rather than each holding a copy — the same shape as
-        // `crate::task::CommandQueue`, which is handed to the HTTP layer as an
+        // `cc_net_esp32::handoff::CommandQueue`, which is handed to the HTTP layer as an
         // `Arc` for exactly this reason.
         let commands = Arc::new(HalQueue::new(COMMAND_DEPTH));
         let events = Arc::new(HalQueue::new(EVENT_DEPTH));
@@ -970,14 +931,11 @@ fn take_test_pins() -> Option<(Gpio32<'static>, Gpio33<'static>)> {
 #[cfg(any(test, feature = "device-tests"))]
 #[cfg_attr(feature = "device-tests", doc(hidden))]
 pub mod tests {
-    // A unit-test module globs its parent on purpose: the cases are exercising
-    // the parent's private helpers, which is the point of keeping them in the
-    // same file. `clippy::wildcard_imports` normally makes an exception for
-    // `use super::*` inside a `#[cfg(test)]` module, and this module is
-    // `#[cfg(any(test, feature = "device-tests"))]` -- the on-target runner
-    // compiles it outside a test build -- so the exception no longer applies and
-    // the allowance is made explicitly here instead of in a list that would rot.
-    #![allow(clippy::wildcard_imports)]
+    #![allow(
+        clippy::wildcard_imports,
+        reason = "the tests exercise the parent's private items, and the `cfg(test)` \
+                  exception does not cover the device-tests build"
+    )]
 
     use super::*;
 

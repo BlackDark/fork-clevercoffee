@@ -1,43 +1,11 @@
-//! The monotonic clock.
+//! Monotonic ESP-IDF clock through `esp_timer_get_time()`.
 //!
-//! # The one `unsafe` here, and why
+//! The FFI has no caller preconditions and is documented for any task or ISR;
+//! local safety notes justify the call. A `GPTimer` alternative adds a wrapping
+//! counter, and this target's `Instant` has no documented clock.
 //!
-//! `esp_timer_get_time()` is
-//! declared:
-//!
-//! ```c
-//! /// @brief Get time in microseconds. This function may be called from
-//! /// any ISR or task with the following restrictions:
-//! /// ...
-//! int64_t esp_timer_get_time(void);
-//! ```
-//!
-//! Its own documentation says it may be called from any task or ISR, takes no
-//! arguments, allocates nothing, takes no lock that could deadlock, and has no
-//! precondition to uphold. It is a read of the APB-backed timer register plus a
-//! software accumulator. **The `unsafe` is the FFI boundary, not a contract
-//! this crate can break.**
-//!
-//! The alternatives were checked and are all worse:
-//!
-//! * a C shim is the same `unsafe` in a different file;
-//! * a `GPTimer` read is also `unsafe` FFI and gives a 24-bit wrapping count
-//!   that has to be differenced by hand — strictly more code for strictly less
-//!   precision;
-//! * `std::time::Instant` is not usable: `esp-idf-sys` 0.38.1 ships no `std`
-//!   shim of its own (`src/` has `alloc.rs`, `stdio.rs`, `start.rs` and nothing
-//!   time-related) and this target's `std` does not document a clock.
-//!
-//! The heap gauges live in [`crate::heap`], which has the same exception for
-//! the same reason.
-//!
-//! # What the clock is *not* used for
-//!
-//! **Not in an ISR.** An FPU instruction in a level-1 ISR panics the original
-//! ESP32, because Xtensa does not save coprocessor state on an interrupt. These functions are
-//! integer-only and neither is called from an ISR — the heater's ISR owns its
-//! own counter — but the rule is worth restating where a clock lives, because a
-//! clock is exactly what a future ISR would reach for.
+//! These integer-only helpers are not called from ISRs. Keep floating-point code
+//! out of level-1 ISRs: Xtensa does not save coprocessor state there.
 
 /// Microseconds since boot, truncated to 31 bits.
 ///
@@ -68,7 +36,7 @@ pub fn now_us() -> u32 {
 
 /// Milliseconds since boot.
 ///
-/// Every `cc_netpolicy::resilience` and `cc_netpolicy::wifi` entry point takes
+/// Every `cc_net::resilience` and `cc_net::wifi` entry point takes
 /// one of these as its `now_ms`.
 ///
 /// A full 32 bits wrap every 49.7 days. Every deadline in this firmware is
@@ -103,47 +71,19 @@ pub fn now_ms() -> u32 {
 #[cfg(any(test, feature = "device-tests"))]
 #[cfg_attr(feature = "device-tests", doc(hidden))]
 pub mod tests {
-    // A unit-test module globs its parent on purpose: the cases are exercising
-    // the parent's private helpers, which is the point of keeping them in the
-    // same file. `clippy::wildcard_imports` normally makes an exception for
-    // `use super::*` inside a `#[cfg(test)]` module, and this module is
-    // `#[cfg(any(test, feature = "device-tests"))]` -- the on-target runner
-    // compiles it outside a test build -- so the exception no longer applies and
-    // the allowance is made explicitly here instead of in eight import lists
-    // that would rot.
-    #![allow(clippy::wildcard_imports)]
+    #![allow(
+        clippy::wildcard_imports,
+        reason = "the tests exercise the parent's private items, and the `cfg(test)` \
+                  exception does not cover the device-tests build"
+    )]
 
     use super::*;
 
     #[cfg_attr(test, test)]
     pub fn the_clock_advances_and_never_goes_backwards() {
-        // A cheap proof that the FFI is wired at all. The thing that actually
-        // matters is that the two failure modes this exists to catch are
-        // caught:
-        //
-        // * a **wrong unit** — `esp_timer_get_time()` in microseconds read as
-        //   milliseconds — collapses the measured window to 0;
-        // * a **missing divide** by 1000 — blows it up by three orders of
-        //   magnitude.
-        //
-        // The band around the request is wide on purpose, because
-        // `FreeRtos::delay_ms(n)` does not sleep `n` milliseconds.
-        // `CONFIG_FREERTOS_HZ` is 100 on this target, so a delay is
-        // `ceil(n * 100 / 1000)` ticks of a **10 ms** grid and the task wakes on
-        // a tick edge. A 20 ms request is two ticks, so one tick of quantisation
-        // is 50 % of the measurement — and the first run of this suite on the
-        // device measured **12 ms** for a 20 ms request and failed on that.
-        //
-        // The clock is not the suspect. Cross-checked against the host's own
-        // clock over the 1.27 s boot, the device's `esp_timer_get_time()`
-        // stamps agree to **1.4 %**: 1.256 s of device time inside 1.274 s of
-        // host time. Whether `delay_ms` is systematically short, or that 12 ms
-        // was the tick grid landing unluckily, is an open question and is
-        // deliberately not asserted here.
-        //
-        // A 200 ms request is 20 ticks, so the quantisation is 5 % rather than
-        // 50 %, and the band below still admits a 0.6 factor while rejecting
-        // both failure modes by orders of magnitude.
+        // Reject unit errors and a missing /1000 conversion. Use a long delay and a
+        // wide band: the 100 Hz scheduler quantizes sleeps to 10 ms ticks. A 20 ms
+        // request has measured 12 ms; this test does not establish delay accuracy.
         const REQUEST_MS: u32 = 200;
         const LOW_MS: u32 = 100;
         const HIGH_MS: u32 = 600;

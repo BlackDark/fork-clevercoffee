@@ -1,36 +1,11 @@
-//! Every screen, in one PNG, so a human can look at all of them at once.
+//! Render a labelled contact sheet for visual layout review.
 //!
 //! ```text
 //! cargo run -p cc-display --example screens -- out.png
 //! ```
 //!
-//! # Why this exists
-//!
-//! The golden images answer "did this screen change?". They do not answer "does
-//! this screen look right", and three bugs on 2026-10-01 were only ever going to
-//! be found by a person looking at a panel: a `°C` that was off the edge, an
-//! uptime whose `m` was cut in half, a brew timer that never appeared. None of
-//! them failed an assertion.
-//!
-//! So this renders **every reachable screen on every template** into one
-//! contact sheet, labelled, in dependency-free PNG. The alternative — a PPM per
-//! screen plus an external converter — produces twenty files and needs
-//! `sips`/`ffmpeg`; one sheet with labels is the thing a person can actually
-//! use in a code review.
-//!
-//! # The PNG writer
-//!
-//! A hand-rolled one, ~90 lines, no crate: PNG's IDAT is a zlib stream, and
-//! zlib's *stored* (uncompressed) deflate blocks are legal. So the encoder is
-//! chunk framing + CRC32 + Adler-32, and the cost is that the file is larger
-//! than a compressed one. For a 128x64 monochrome screen that is irrelevant —
-//! and a screendump is not something to compress for its own sake.
-//!
-//! # What is on the sheet
-//!
-//! One tile per (template, case), which is the cross product a person actually
-//! wants to see: the same machine state on all six layouts. The labels say which
-//! is which, because a sheet of 80 identical-looking rectangles is useless.
+//! Goldens prove stability, not visual correctness. The dependency-free PNG writer
+//! uses legal uncompressed deflate blocks; larger output avoids an image-codec dependency.
 
 use std::io::Write as _;
 
@@ -160,7 +135,7 @@ fn render_boot(
 }
 
 /// The cases, in the order they are printed.
-#[allow(
+#[expect(
     clippy::too_many_lines,
     reason = "this IS the table of cases; splitting it hides which case is which, and the case names are the failure messages"
 )]
@@ -470,7 +445,7 @@ impl Sheet {
     }
 
     /// Copy a framebuffer in, flipping it (the panel is 0 = lit).
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_possible_wrap,
         reason = "the loops are bounded by TILE_W/TILE_H, which are 128 and 64"
@@ -522,7 +497,7 @@ impl Sheet {
     /// Greyscale rather than 1-bit indexed: the framebuffer is a byte per pixel
     /// and a `P3`/palette PNG would need a palette; greyscale keeps the encoder
     /// to chunk framing and two checksums.
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "the sheet is a few hundred pixels across; PNG's fields are u32"
     )]
@@ -552,7 +527,7 @@ impl Sheet {
 }
 
 /// One PNG chunk: length, type, data, CRC over type+data.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "a PNG chunk is u32-length by definition; the data is a framebuffer \
               row, so it is kilobytes at most"
@@ -568,7 +543,7 @@ fn chunk(out: &mut Vec<u8>, kind: [u8; 4], data: &[u8]) {
 }
 
 /// A zlib stream of stored (uncompressed) deflate blocks.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "the chunks are 0xffff bytes by construction, so the u16 is exact"
 )]
@@ -730,5 +705,4 @@ const DIGIT_PIXELS: [[(usize, usize); 9]; 10] = [
 
 /// Unused import guard: `Display` is only needed for `framebuffer()`, which the
 /// caller uses through the trait.
-#[allow(dead_code, reason = "the type is named in the blit signature")]
 type _Display = Display;

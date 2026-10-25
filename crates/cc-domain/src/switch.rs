@@ -1,38 +1,12 @@
-//! Switch debouncing and long-press detection, with an injected clock.
+//! Switch debounce and long-press detection with caller-supplied monotonic time.
 //!
-//! # Why the clock is injected
+//! Debounce raw electrical edges before inversion. The gate is strict `>`;
+//! exactly 20 ms is not settled. Always update the previous raw reading after
+//! checking the gate, or later edges compare against stale input.
 //!
-//! The time arrives as a [`Millis`] argument rather than from a clock this type reads.
-//! The property the debounce actually needs is **monotonicity**: a clock that jumps
-//! backwards when NTP steps the system clock would let a contact bounce straight through.
-//! An argument keeps that property -- the caller supplies a monotonic tick -- and it is
-//! also what makes the whole state machine host-testable against a synthetic clock, which
-//! a call to a global clock would not be.
-//!
-//! Every duration is a named constant, so a test can pin it.
-//!
-//! # Three details a "clean" rewrite gets wrong
-//!
-//! 1. **The debounce timer restarts on the *raw* pin level**, before the mode's
-//!    inversion, so a `NORMALLY_CLOSED` switch still debounces on the electrical edge and
-//!    not on the logical one.
-//! 2. **The debounce gate is a strict `>`**, not `>=`. A contact that settles at exactly
-//!    20 ms is *not* accepted until 21 ms.
-//! 3. **The previous raw reading is assigned unconditionally**, after the gate, because
-//!    detail 1 compares against it: assigning it inside the gate makes the debounce
-//!    compare a stale value and the switch stops responding entirely.
-//!
-//! # The water tank's initial state
-//!
-//! A tank switch is constructed with `initial_raw` set to its pin's rest level -- `HIGH`
-//! for a normally-open contact, which is what the pull-down holds when the tank is empty
-//! -- while its debounced state starts `LOW`. So **a water-tank switch reads "not pressed",
-//! i.e. tank empty, until the debounce settles on the first read.** The safety layer's own
-//! `water_tank_full` starts `true` ("assume full initially") so that a machine does not
-//! refuse to pump on its first tick. On a cold boot with a full tank the two together mean
-//! the tank reads empty for about 220 ms: the 20 ms debounce plus the 200 ms poll interval
-//! the tank input is read at. Both are preserved; see
-//! `s2_the_tank_starts_full_and_the_switch_starts_open`.
+//! Tank raw and logical seeds differ: the logical switch starts unpressed, while
+//! safety initially assumes a full tank. Preserve those independent seeds;
+//! debounce and polling can briefly expose an empty reading on a full cold boot.
 
 use crate::hardware::{SwitchMode, SwitchType};
 use crate::units::Millis;

@@ -1,34 +1,7 @@
-//! The exhaustive `state x event` table: every pair must reach a *named* outcome.
+//! Classify every state/event pair with an exhaustive, named outcome.
 //!
-//! # What "exhaustive" means here
-//!
-//! **18 states x 46 events = 828 pairs.** Every one is reduced, and every one must reach a *named*
-//! outcome. Four failure modes are what this file is built to catch:
-//!
-//! 1. **A panic.** Any `unwrap`, `expect`, arithmetic overflow, slice index or
-//!    `unreachable!()` that a state/event pair can reach fails the test. The
-//!    table is the only thing standing between those and the control loop.
-//! 2. **A loop.** The reducer is straight-line code, but the table also drives
-//!    each pair for 200 consecutive ticks and asserts the machine reaches a
-//!    fixed point or a cycle, so a "re-arm the flag every loop" bug shows up as a
-//!    non-converging state rather than as a hang.
-//! 3. **An unjustified `unreachable!()`.** The crate contains no `unreachable!`,
-//!    no `panic!` and no `unwrap` outside `#[cfg(test)]`; [`no_unreachable_outside_tests`]
-//!    asserts that by source inspection, because "total" is only meaningful if
-//!    it is total by construction.
-//! 4. **An effect list that overflows.** [`Effects`] is a fixed-capacity
-//!    `heapless::Vec`, and a full list drops rather than grows.
-//!    [`ceiling_is_never_reached`] drives every pair below and asserts nothing
-//!    was dropped — this file is the only place that can prove
-//!    [`MAX_EFFECTS_PER_EVENT`] is a real bound rather than a hopeful one.
-//!
-//! # What a "named outcome" is
-//!
-//! [`Outcome`] is a name, not a value: it is the classification this table
-//! asserts, and every arm is a documented rule rather than a catch-all. A pair
-//! that reached "something else" would have no arm to fall into, and the
-//! `match` has no wildcard — so adding an event without deciding what it does in
-//! every state is a compile error here too.
+//! Repeated ticks check convergence; source inspection rejects panic shortcuts.
+//! [`ceiling_is_never_reached`] checks the fixed effect capacity without hiding drops.
 
 mod common;
 
@@ -76,11 +49,10 @@ impl Outcome {
 ///
 /// Every arm is one rule of one state's own transition check, so the table can report *which* rule
 /// answered rather than only that the machine moved. There is deliberately no "other" arm.
-#[allow(dead_code)]
-// Justification: `Specific` is the table's naming scheme. Not every arm is
-// reachable from every machine flavour — the global guards shadow several — and
-// removing the unreachable arms would remove the per-state naming the table
-// exists to provide.
+#[expect(
+    dead_code,
+    reason = "`Specific` names every arm; no single machine flavour reaches them all"
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Specific {
     /// `INIT` routes to the configured PID state.
@@ -146,10 +118,10 @@ enum Specific {
 
 /// The full event set, named. The table is over *this* list, so a new
 /// [`Event`] variant cannot be added without a decision for all eighteen states.
-#[allow(clippy::too_many_lines)]
-// Justification: this is the *specification* of the table's axes — 46 events,
-// every one named. Splitting it would hide which events are in the table, which
-// is the only thing a reader needs from it.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the table's axes, every event named, are the specification"
+)]
 fn all_events() -> Vec<Event> {
     // Eleven sensor samples first, then the switch, command, tick, PID and safety
     // events. The implausible readings matter: `Celsius` is not validated at
@@ -331,9 +303,6 @@ type Build = fn(MachineState) -> Machine;
 /// One machine flavour: a name for the report and a constructor.
 type Flavour = (&'static str, Build);
 
-#[allow(clippy::type_complexity)]
-// Justification: `Flavour` is the alias this function returns; the lint is
-// complaining about the un-aliased spelling of its own return type.
 fn flavours() -> Vec<Flavour> {
     vec![
         ("adversarial", adversarial),

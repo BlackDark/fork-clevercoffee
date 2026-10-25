@@ -1,13 +1,6 @@
-//! Every glyph of every embedded font, against real U8g2.
+//! Compare glyph metrics with frozen U8g2 measurements before trusting goldens.
 //!
-//! This is the narrowest possible parity check and it is the one that has to
-//! pass before any golden image means anything: a single wrong RLE header, a
-//! single wrong signed-field decode or a single wrong first-code offset moves
-//! text sideways and shifts every row that was laid out around it.
-//!
-//! The widths are measured, not asserted from a comment: `tests/support/glyph_widths.rs`
-//! holds what real U8g2 measured, and the probe that produced it is not in the tree. A
-//! changed font set means re-measuring with that probe; see the file.
+//! Changed fonts require remeasurement; the original probe is not in this tree.
 
 mod support;
 

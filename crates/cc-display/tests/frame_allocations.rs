@@ -1,51 +1,13 @@
-//! Rendering a frame must not touch the heap.
+//! Gate allocations on the rendering thread with the `cc-alloc-count` allocator.
 //!
-//! This is the *gate*. `benches/layout.rs` reports the same number for a human
-//! to watch over time; this fails the build. Both include `benches/alloc.rs`, so
-//! the two cannot measure different things.
-//!
-//! Why it is an invariant and not a micro-optimisation: `cc-display` is
-//! `no_std` with **no `alloc` in the device build**, so a nonzero count here
-//! does not mean a slow frame — it means the firmware would not link. Number
-//! formatting goes through `fixed_str::String<24>` (`cc-display/src/fmt.rs`),
-//! hand-matched to C's `printf` rounding and checked against an 80,000-line
-//! reference generated from real U8g2. That is why the count is zero: a
-//! display cannot afford a heap.
-//!
-//! The same review noted that the display bench target this recipe named
-//! (`layout`) did not exist at all until now, so nothing was checking this.
-//!
-//! # Why this file is one `#[test]`, and why the counters are thread-local
-//!
-//! A `#[global_allocator]` is invoked for allocations anywhere in the process,
-//! and libtest runs the test body on one thread while the harness keeps working
-//! on the main thread. Counting the process attributed that harness work to the
-//! frame: under CPU load this gate failed **62 of 80** runs with `rendering 60
-//! frames allocated 4 times (900 bytes)`, and 0 of 30 idle.
-//!
-//! Instrumenting the allocator to print the thread id of every allocation
-//! inside the window showed the test body on `ThreadId(2)` and **all four
-//! allocations on `ThreadId(1)`**: 148/16 B from `test::term::termininfo`'s
-//! capability table, 608/8 B from `VecDeque<TimeoutEntry>::push_back` in
-//! `test::run_tests`, 48/8 B and 96/8 B from `run_test`'s thread spawn.
-//! `cc-display` allocated nothing.
-//!
-//! So `benches/alloc.rs` counts the **calling thread**. The assertion is
-//! unchanged and still exact: `templates::render` is single-threaded and runs
-//! entirely on the display task on the device, so the rendering thread is the
-//! only one that can allocate on a frame's behalf. The sibling gate documents
-//! the same hazard for itself and hit the same class of failure from a
-//! `Box::leak` in its own window; this fix is at the allocator, so it covers
-//! both that file and this one rather than working around it here.
-
-#[path = "../benches/alloc.rs"]
-mod alloc;
+//! Process-wide counting includes concurrent libtest work. Rendering is
+//! single-threaded, so thread-local counting still covers every frame allocation.
 
 use cc_display::display::Display;
 use cc_display::model::{BrewTimerState, Config, DisplayInput};
 use cc_display::templates::{self, TemplateId};
 
-use alloc::Counting;
+use cc_alloc_count::Counting;
 
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
@@ -110,18 +72,14 @@ fn a_frame_does_not_allocate() {
         &config,
     ));
 
-    let mark = alloc::counters();
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "TEMPLATES.len() is 6, a literal, so the truncation is exact"
-    )]
+    let mark = cc_alloc_count::counters();
     let rounds = FRAMES / TEMPLATES.len() as u64;
     for _ in 0..rounds {
         for template in TEMPLATES {
             std::hint::black_box(templates::render(template, &mut display, &input, &config));
         }
     }
-    let (allocs, bytes) = alloc::delta_since(mark);
+    let (allocs, bytes) = cc_alloc_count::delta_since(mark);
 
     assert_eq!(
         allocs, 0,

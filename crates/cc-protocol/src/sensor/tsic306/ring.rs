@@ -1,86 +1,17 @@
-//! A fixed-size, lock-free, single-producer/single-consumer edge ring.
+//! Single-producer/single-consumer edge ring; decode outside capture context.
 //!
-//! # This is the whole of what the interrupt does
+//! Each index has one writer. Release stores publish slots and indices; acquire
+//! loads make contents visible. Full detection uses wrapping index differences.
 //!
-//! The app note recommends a falling-edge ISR that measures `Tstrobe` and then
-//! *waits* for the next nine edges, sampling after each (app note §1.4): a
-//! bit-sampling ISR. This firmware's ISRs are constrained to "nothing beyond one
-//! GPIO write", so the two cannot both be
-//! satisfied. The constraint wins, and the work is split:
+//! Original ESP32 lacks `AtomicU64`, so [`AtomicU32`] packs level in bit 31 and
+//! microsecond timestamp in bits 0..30. The timestamp wraps every 35.8 minutes.
+//! An intra-burst wrap fails decoder timing bounds and drops a frame; it cannot
+//! yield a valid but incorrect temperature.
 //!
-//! | | where | what it does |
-//! | --- | --- | --- |
-//! | interrupt | ISR | read the pin, read the clock, store one `u64` in this ring, bump one index |
-//! | decode | a task | drain the ring, measure `Tstrobe`, assemble the frame, check parity, convert |
-//!
-//! The decode is a pure function of a list of edge timestamps, which is the
-//! property that makes the whole protocol host-testable: [`EdgeRing`] is fed
-//! from a test array in `cc-domain` and from a GPIO interrupt on the device,
-//! with nothing in between.
-//!
-//! # Safety and memory ordering, without `unsafe`
-//!
-//! The workspace denies `unsafe_code`, so this is built from atomics rather than
-//! from `UnsafeCell` + `static mut`:
-//!
-//! * `write` is written **only** by the producer (the sampler) and `read` **only**
-//!   by the consumer (the decode task). One writer each, so each index needs no
-//!   compare-and-swap — only a release store to publish.
-//! * A slot is written with a [`Ordering::Release`] store and read with an
-//!   [`Ordering::Acquire`] load, so a consumer that has seen index `w` is
-//!   guaranteed to see the slot's contents.
-//! * The indices are monotonic and never shrink, so a full ring is
-//!   `write.wrapping_sub(read) == CAP` and does not need a separate count. The
-//!   index arithmetic is `usize`, which is 32-bit on the target — and the wrap is
-//!   harmless for the reason in [`Edge::at_us`].
-//!
-//! # 🔴 One `AtomicU32` per slot, not an `AtomicU64`, and why that is forced
-//!
-//! An edge is a 32-bit timestamp and a level, so a slot could be an
-//! `AtomicU64` — 768 bytes for the ring, one 64-bit store per edge, and no
-//! possibility of a torn read. **The original ESP32 does not have
-//! `core::sync::atomic::AtomicU64`** (Xtensa is 32-bit and the type is not
-//! offered), so this uses [`AtomicU32`] with the level in bit 31 and the
-//! timestamp in bits 0..30. A test in this module pins that the original ESP32
-//! does not have it, so the packing cannot be "optimised" back to a `u64` by
-//! someone building for a 64-bit host.
-//!
-//! The cost is a 31-bit timestamp: **35.8 minutes** instead of 71.6, and a wrap
-//! every 35.8 minutes. That is harmless here and the argument is worth stating,
-//! because it is not obviously harmless:
-//!
-//! * every consumer of a timestamp is a `saturating_sub` between two edges of the
-//!   *same* transmission, which is at most 2.75 ms long;
-//! * a wrap inside a burst would therefore produce an interval of ~2100 seconds,
-//!   which is outside every tolerance window in [`crate::sensor::tsic306::protocol`]
-//!   and is **rejected**;
-//! * so a wrap costs at most one dropped frame every 35.8 minutes, and can never
-//!   produce a wrong temperature. A 32-bit unsigned microsecond counter that
-//!   wraps is a monotonic reset, and every check in the decoder is a bound.
-//!
-//! # Overflow behaviour, stated once and pinned by a test
-//!
-//! **Overflow discards the in-flight frame; it never wraps.**
-//!
-//! When the producer finds the ring full it does **not** overwrite a slot the
-//! consumer has not read. It increments the dropped-edge count and sets the sticky
-//! overrun flag, and the frame that was in progress is lost. The
-//! consumer sees the flag, resets its index to the producer's — which drops the
-//! partial frame — clears the flag, and reports
-//! `FrameError::RingOverrun` for that transmission.
-//!
-//! The alternative — overwriting the oldest edge — was rejected because the
-//! result would be a *plausible* temperature assembled from a waveform that never
-//! existed. On a temperature input that feeds emergency stop, "no reading" is a
-//! strictly better answer than "a reading that is wrong in an unpredictable
-//! direction".
-//!
-//! The capacity is chosen so overflow cannot happen in normal operation. A
-//! transmission is [`TRANSMISSION_BITS`](super::protocol::TRANSMISSION_BITS) (20)
-//! falling edges plus 20 rising edges = **40** edges, in 2.75 ms
-//! (21 windows x 125 µs, the stop bit included). [`CAPACITY`] is **96**, which is
-//! 2.4 transmissions: enough that the consumer has two whole transmission
-//! periods of slack, and small enough that the whole ring is 768 bytes.
+//! On overflow, never overwrite unread edges. Set the sticky overrun flag, discard
+//! the partial frame, and report `FrameError::RingOverrun`; combining unrelated
+//! edges could produce a plausible reading. [`CAPACITY`] holds more than two
+//! 40-edge transmissions before the consumer must drain it.
 
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
@@ -335,17 +266,8 @@ impl Default for EdgeBuffer {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::assertions_on_constants,
-    reason = "these tests assert protocol and transport constants against the \
-              datasheet/app note numbers on purpose: that is the claim, and the \
-              compiler is right that a run-time comparison of two constants is \
-              not a test"
-)]
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
     reason = "test-side narrowing of values the protocol bounds to 0..=2047"
 )]
 mod tests {
@@ -530,7 +452,6 @@ mod tests {
     fn a_whole_transmission_fits_without_a_single_refusal() {
         // 40 edges, the real count, into the real capacity.
         let ring = EdgeRing::<CAPACITY>::new();
-        #[allow(clippy::cast_possible_truncation, reason = "TRANSMISSION_BITS is 20")]
         let count = 2 * u32::from(protocol::TRANSMISSION_BITS);
         for at_us in 0..count {
             assert_eq!(ring.push(at_us, at_us % 2 == 1), Ok(()));

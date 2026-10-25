@@ -1,30 +1,8 @@
-//! The only way out of the reducer: what the machine wants done.
+//! Ordered hardware and side-channel requests from the reducer.
 //!
-//! # Why effects and not calls
-//!
-//! An [`Effect`] is a *description*. Nothing in the machine calls an actuator, so a new
-//! state cannot poke a relay even by accident: it has no way to reach one, and can only
-//! return an `Effect`. The bookkeeping that makes direct calls dangerous -- a valve flag
-//! that can drift from the pin it describes -- has nowhere to live here.
-//!
-//! [`reduce`](crate::reduce) returns a list, and `crate::applier::apply` is the single
-//! function that turns a list into actuator calls. A test asserts hardware by inspecting the
-//! list, and needs no mock object and no GPIO.
-//!
-//! # Order
-//!
-//! Order is part of the contract, not an implementation detail: the old state's exit runs
-//! before the new state's entry, the tick's own effects follow, and the S5 valve fail-safe
-//! runs *after* all of it. Two effects that write the same relay in the same tick resolve
-//! differently depending on order, so the applier applies the vector front to back and the
-//! tests assert on exact sequences, not sets.
-//!
-//! # The list does not allocate -- see [`Effects`]
-//!
-//! `Effect` is `Copy` and small; the *list* of them is what the control loop churned
-//! through. One allocation per [`reduce`](crate::reduce), four to five `reduce` calls per
-//! 10 ms tick, plus two more in the shell. See [`MAX_EFFECTS_PER_EVENT`] for the measurement
-//! and [`Effects::dropped`] for what happens if the ceiling is ever reached.
+//! Only the applier performs them. Order is observable: exit precedes entry, then
+//! tick effects, then the S5 valve fail-safe. Apply front to back.
+//! [`Effects`] has fixed capacity; see [`MAX_EFFECTS_PER_EVENT`] and [`Effects::dropped`].
 use core::fmt;
 use core::ops::Deref;
 
@@ -105,26 +83,11 @@ pub enum Effect {
         /// Whether steam mode is now on.
         enabled: bool,
     },
-    // NOTE: the brew timer and the backflush cycle counter are deliberately **not**
-    // effects. They are `Machine::brew` and `Machine::backflush`, and `reduce` hands the
-    // applier the new `Machine`, so the applier can already read them. An effect that
-    // restates a field the applier can read is a second source of truth waiting to disagree
-    // with the first.
-    /// Persist a counted shot.
+    /// Persist a shot already qualified by the reducer.
     ///
-    /// **The decision, not the facts.** The counter is
-    /// [`Machine::shots_since_backflush`](crate::machine::Machine::shots_since_backflush),
-    /// which only the reducer may write, so
-    /// [`crate::maintenance::record_brew_if_qualified`] has already run by the time this
-    /// effect is emitted and `counted` is its answer. The effect is therefore the
-    /// *durability* half -- the number to write down -- and nothing else.
-    ///
-    /// It carries `counted` rather than the three inputs it was derived from so that the
-    /// shell never re-derives it. With the inputs on the effect instead, the qualification
-    /// rule would be evaluated only by a side channel that had to be *wired* to it, and a
-    /// rule that has to be wired can be forgotten: the counter would sit at 0 for the life
-    /// of the firmware with nothing to fail. A rule evaluated once, where the value it
-    /// changes lives, cannot be forgotten that way.
+    /// `counted` carries the decision so the shell cannot repeat qualification or
+    /// forget to update the counter. Brew timing and backflush counts remain machine
+    /// fields rather than redundant effects.
     RecordBrew {
         /// Whether the shot qualified.
         counted: bool,

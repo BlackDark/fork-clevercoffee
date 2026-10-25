@@ -1,93 +1,18 @@
-//! The heater output: the 10 ms chopper, its ISR state machine, and the latching gate in
-//! front of it.
+//! Portable heater duty, ISR chopping, and the latching output gate.
 //!
-//! # Why this is in `cc-domain` and not in `cc-hal-esp32`
+//! [`chopper_tick_level`] compares millisecond duty with a counter advancing by
+//! [`CHOPPER_STEP_MS`] over [`WINDOW_MS`]. The 1000 ms window and 10 ms step give
+//! 1% resolution. The PID sample interval and output limits use that same window;
+//! changing the transport must not change the control law or invalidate tuning.
 //!
-//! Everything *about* the output is portable: what duty a PID output means, how a
-//! millisecond duty becomes a fraction, whether the output may be non-zero at all. Those
-//! are arithmetic and policy, they must be unit-tested on the host, and behind an
-//! `esp_idf_hal` type they would be untestable without a board. `cc-hal-esp32::heater`
-//! owns the pin and the timer and does nothing else.
+//! A constant intermediate duty makes at most two relay edges per second, despite
+//! 100 ISR entries. A 100 Hz carrier would make 200 edges without improving power
+//! delivery and would wear the contactor. Any alternative carrier must preserve the
+//! 1 Hz rate and at least the 10 ms resolution.
 //!
-//! # The chopper, which is the output
-//!
-//! The heater is chopped: a hardware timer fires every 10 ms, and each tick asserts a
-//! level from [`chopper_tick_level`]'s predicate --
-//!
-//! ```text
-//! off while pid_output <= counter, on otherwise
-//! counter advances by CHOPPER_STEP_MS, and wraps at WINDOW_MS
-//! ```
-//!
-//! with `WINDOW_MS` = 1000 and `CHOPPER_STEP_MS` = 10. The PID output is bounded by
-//! exactly the window, so **a PID output is a count of milliseconds of energisation per
-//! second**, resolved in 1 % steps.
-//!
-//! The window *is* the control law, not an implementation detail: the PID samples once per
-//! window and its output limits are the window. Changing how the on-time is delivered
-//! must not move either, or every tuning in the shipped configuration would be wrong.
-//! `cc-hal-esp32::heater` carries the ESP-IDF LEDC carrier as an unshipped alternative
-//! path; its arithmetic is parameterised on the window here so the two cannot drift.
-//!
-//! # Why a PWM carrier must be 1 Hz and not 100 Hz
-//!
-//! The ISR *fires* 100 times a second and re-asserts the same level almost every time;
-//! the **level** changes about **twice** a second. Walking the predicate for a constant
-//! `pid_output` over one window (counters `0, 10, …, 990`, then the wrap):
-//!
-//! | `pid_output` | entries | on-ticks | on-time | level over the window | level changes/s |
-//! | --- | --- | --- | --- | --- | --- |
-//! | 0 | 100 | 0 | 0.0 % | OFF throughout | **0** |
-//! | 50 | 100 | 5 | 5 % | ON 50 ms, then OFF 950 ms | **2** |
-//! | 500 | 100 | 50 | 50 % | ON 500 ms, then OFF 500 ms | **2** |
-//! | 950 | 100 | 95 | 95 % | ON 950 ms, then OFF 50 ms | **2** |
-//! | 1000 | 100 | 100 | 100 % | ON throughout | **0** |
-//!
-//! Two edges per second, not a hundred: one falling edge inside the window where the level
-//! drops, and one rising edge at the wrap. The predicate is monotone in the counter --
-//! `pid_output > counter` -- so a constant duty gives **at most one** falling edge per
-//! window, whatever the duty. [`chopper_transitions_per_second`] computes that from the
-//! predicate itself, and `the_carrier_switches_the_contactor_no_more_than_the_chopper_does`
-//! checks a carrier against it.
-//!
-//! A PWM carrier's cost is mechanical, not electrical, because the pin drives a
-//! **contactor**:
-//!
-//! * **at most 2 level changes per second** -- an `f` Hz square wave makes `2f`, so
-//!   `f <= 1 Hz`. [`CARRIER_HZ`] is 1, and it is written as `1_000 / WINDOW_MS` rather
-//!   than as a literal because one period per control window is the *only* frequency at
-//!   which a duty means what it means to the chopper.
-//! * **duty resolution at least as fine as the 10 ms step**, which is
-//!   `CHOPPER_STEP_MS / WINDOW_MS` = 1 % of the window. A 1 s period therefore needs
-//!   `max_duty >= 100` to express all 101 levels; [`CHOSEN_RESOLUTION_BITS`] gives
-//!   131 072.
-//!
-//! **A high carrier would be a hardware defect, not a fidelity gain.** At 100 Hz the same
-//! pin makes 200 level changes per second -- a hundred times the chopper's -- on a 2 kW
-//! boiler contactor whose life is counted in operations. Delivered *power* would match to
-//! within a rounding error; the *wear* would be two orders of magnitude worse.
-//!
-//! # ⚠ Still unverified: the contactor itself
-//!
-//! Matching the chopper's transition rate is necessary and **not sufficient**. Nobody has
-//! measured, and this repository does not guess:
-//!
-//! * **The contactor's minimum on-time and minimum off-time.** The chopper never pulses
-//!   the heater narrower than 10 ms, and neither does any other output path -- the
-//!   smallest duty [`duty_counts`] can be asked for is one whole step (see
-//!   `the_minimum_pulse_is_the_ten_millisecond_step`). Whether 10 ms is *itself* long
-//!   enough for the contactor is a datasheet question.
-//! * **Whether a hardware-PWM output is acceptable to the coil at all.** LEDC drives a
-//!   square wave into the same relay pin the chopper drives. A contactor coil is an
-//!   inductive load; whether the driver's rise/fall and any freewheeling path tolerate a
-//!   1 Hz square wave is exactly as unknown as it is for a 10 ms one, but the *frequency*
-//!   would be a new variable.
-//! * **The realised frequency and duty on the pin.** Everything above is arithmetic.
-//!   `ledc_timer_config`'s divider selection and the duty register have not been read back
-//!   from hardware.
-//!
-//! Until a person with a scope, a dummy load and the boiler **disconnected** measures it,
-//! the LEDC transport stays out of the firmware.
+//! Contactor minimum on/off times, coil compatibility, and realised pin duty remain
+//! unmeasured. Arithmetic tests cannot replace a scope and dummy load with the
+//! boiler disconnected; LEDC stays out of the firmware.
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use crate::units::{Duty, Millis};
@@ -163,12 +88,10 @@ pub const REPRODUCTION_TOLERANCE_MS: f64 = 0.01;
 /// `counter_ms` is one of `0, 10, …, 990`. This is the reference definition of the output
 /// and the specification [`chopper_on_ticks`] is tested against; the ISR uses its integer
 /// twin, [`chopper_tick_level_ms`].
-// Justification: `counter_ms` is a chopper counter, so it is at most `WINDOW_MS` (1000) and
-// every value in `0..=1000` is exactly representable in an `f32`.
-#[allow(clippy::cast_precision_loss)]
-// Justification: as above — the counter never exceeds 1000, which `f32` holds
-// exactly.
-#[allow(clippy::cast_sign_loss)]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "a chopper counter is at most WINDOW_MS (1000), exact in f32"
+)]
 #[must_use]
 pub fn chopper_tick_level(pid_output: Duty, counter_ms: u32) -> bool {
     // The level is the negation of `<=`: off at equality, not below it.
@@ -301,10 +224,11 @@ pub fn duty_counts(pid_output: Duty, max_duty: u32) -> u32 {
         // The cast is exact: `on_fraction` is in `0.0 ..= 1.0` and `max_duty` is
         // a `u32`, so `counts` is in `0.0 ..= f64::from(max_duty)` and the
         // truncation cannot lose anything.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        // Justification: as above — the value has just been clamped into
-        // `0.0 ..= f64::from(max_duty)`, a range every value of which is exactly
-        // representable in a `u32` and none of which is negative.
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "clamped to 0..=max_duty just above: non-negative and exact in u32"
+        )]
         {
             counts as u32
         }
@@ -404,10 +328,11 @@ fn round_half_away_from_zero(value: f64) -> f64 {
     if value.is_nan() || value <= 0.0 {
         return 0.0;
     }
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_precision_loss,
-        clippy::cast_sign_loss
+        clippy::cast_sign_loss,
+        reason = "the only caller passes a ratio of two u32s times a u32: non-negative and within u32"
     )]
     // Justification: `value` is in `0.0 ..= u32::MAX` by the only caller's
     // arithmetic — `on_fraction` is a ratio of two `u32`s and `max_duty` is a
@@ -613,10 +538,10 @@ mod tests {
 
     /// The quantisation, including the two edges a division gets wrong.
     #[test]
-    // Justification: the loop bounds are `n <= CHOPPER_STEPS` (100) and
-    // `ticks <= CHOPPER_STEPS`, so the product is at most 1000 and every value
-    // involved is exactly representable in an `f32`.
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "the product is at most 1000, exact in f32"
+    )]
     fn the_ten_millisecond_quantisation() {
         // Below one step: still a whole step, because the chopper turns the relay on
         // at counter 0 for any positive output.
@@ -666,9 +591,10 @@ mod tests {
     /// 131 072/100 = 1310.72 counts per 1 % step, so the worst-case
     /// reproduction error of a duty the chopper produces is half a count = **3.8 µs**.
     #[test]
-    // Justification: `ticks <= CHOPPER_STEPS` (100), so the product is at most
-    // 1000 and exactly representable in an `f32`.
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "the product is at most 1000, exact in f32"
+    )]
     fn duty_counts_at_the_chosen_resolution() {
         const MAX_DUTY: u32 = CHOSEN_MAX_DUTY;
 
@@ -783,9 +709,10 @@ mod tests {
     /// Separate from the test above because that one passes at whatever the
     /// measured error happens to be, and this one cannot: it is arithmetic.
     #[test]
-    // Justification: `ticks <= CHOPPER_STEPS` (100), so the product is at most
-    // 1000 and every value involved is exactly representable in an `f32`.
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "the product is at most 1000, exact in f32"
+    )]
     fn the_chosen_carrier_reproduces_the_chopper_on_time_at_the_analytic_bound() {
         let half_a_count_ms = 0.5 * f64::from(WINDOW_MS) / f64::from(CHOSEN_MAX_DUTY);
         assert!(
@@ -1062,19 +989,22 @@ pub fn duty_ms_from_fraction(fraction: f32, max_duty: u32) -> u32 {
     // Round to the *nearest* 10 ms step, not down. Truncating would make every
     // duty biased low by up to a whole step (10 ms of 1000, i.e. 1 %); rounding
     // bounds the error at half a step, which is 0.5 %.
-    #[allow(
-        clippy::cast_precision_loss,
-        reason = "max_duty is a duty resolution (131072), exactly an f32"
-    )]
     let scaled = f64::from(max_duty) * f64::from(fraction.clamp(0.0, 1.0));
     let exact_steps = scaled / f64::from(max_duty) * f64::from(CHOPPER_STEPS);
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "`min(CHOPPER_STEPS)` bounds the value to 0..=100"
+    )]
     let steps = if exact_steps <= 0.0 {
         0u32
     } else {
         // `floor(x + 0.5)` without a libm: `exact_steps` is in `0..=100`, well
         // inside the range where `f64` addition and subtraction are exact.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "`exact_steps` is in 0..=100, so the rounded value is non-negative and small"
+        )]
         let rounded = (exact_steps + 0.5) as u64;
         rounded.min(u64::from(CHOPPER_STEPS)) as u32
     };
@@ -1247,12 +1177,6 @@ impl IsrChopper {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::float_cmp,
-    clippy::cast_precision_loss,
-    reason = "the tests compare and convert exact 10 ms grid values, which is the \
-              assertion; an approximate comparison would hide what is being pinned"
-)]
 mod isr_tests {
     use super::*;
     use alloc::vec::Vec;
@@ -1384,7 +1308,7 @@ mod isr_tests {
                 .iter()
                 .filter(|level| **level)
                 .count();
-            #[allow(clippy::cast_possible_truncation, reason = "at most CHOPPER_STEPS")]
+            #[expect(clippy::cast_possible_truncation, reason = "at most CHOPPER_STEPS")]
             let on_ticks = on_ticks as u32;
             assert_eq!(on_ticks, chopper_on_ticks(duty), "pid_output {output} ms");
         }
@@ -1493,14 +1417,6 @@ mod isr_tests {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::float_cmp,
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "the tests convert and compare exact 10 ms grid values in f32, which \
-              is the assertion"
-)]
 mod transport_tests {
     use super::*;
 
@@ -1510,7 +1426,10 @@ mod transport_tests {
         let duty = Duty::new(f32::from(output));
         let counts = duty_counts(duty, CHOSEN_MAX_DUTY);
         duty_ms_from_fraction(
-            #[allow(clippy::cast_precision_loss)]
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "counts are at most CHOSEN_MAX_DUTY, exact in f32"
+            )]
             {
                 counts as f32 / CHOSEN_MAX_DUTY as f32
             },
@@ -1564,7 +1483,10 @@ mod transport_tests {
             let duty = Duty::new(f32::from(output));
             let counts = duty_counts(duty, CHOSEN_MAX_DUTY);
             let back = duty_ms_from_fraction(
-                #[allow(clippy::cast_precision_loss)]
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "counts are at most CHOSEN_MAX_DUTY, exact in f32"
+                )]
                 {
                     counts as f32 / CHOSEN_MAX_DUTY as f32
                 },
@@ -1583,7 +1505,10 @@ mod transport_tests {
             let duty = Duty::new(f32::from(output));
             let counts = duty_counts(duty, CHOSEN_MAX_DUTY);
             let back = duty_ms_from_fraction(
-                #[allow(clippy::cast_precision_loss)]
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "counts are at most CHOSEN_MAX_DUTY, exact in f32"
+                )]
                 {
                     counts as f32 / CHOSEN_MAX_DUTY as f32
                 },
@@ -1696,7 +1621,7 @@ impl AtomicChopper {
     /// inputs with a relaxed load, and a duty that is half-published would show
     /// up as one window of the wrong duty.
     pub fn set_duty(&self, duty: Duty) {
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
             reason = "a duty is 0..=WINDOW_MS, which is exactly a u32"
@@ -1765,11 +1690,6 @@ impl AtomicChopper {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::float_cmp,
-    reason = "the tests compare exact f32 values that the code under test produces \
-              by the same expression, which is the assertion"
-)]
 mod atomic_chopper_tests {
     use super::*;
     use alloc::vec::Vec;
@@ -1924,7 +1844,10 @@ mod atomic_chopper_tests {
                 // `duty` is at most `WINDOW_MS` (1000) and every value in
                 // `0..=1000` is exact in an `f32`, so this cast is lossless --
                 // the same justification the module's other widenings carry.
-                #[allow(clippy::cast_precision_loss)]
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "duty is at most WINDOW_MS (1000), exact in f32"
+                )]
                 let expected = chopper_tick_level(Duty::new(duty as f32), counter);
                 assert_eq!(
                     chopper_tick_level_ms(duty, counter),

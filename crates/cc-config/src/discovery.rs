@@ -1,31 +1,8 @@
-//! Home Assistant MQTT discovery payloads.
+//! Home Assistant discovery payloads derived from configuration and schema.
 //!
-//! # Why these live in `cc-config`
-//!
-//! A discovery payload is a JSON document whose *topics* are the
-//! configuration's own topics and whose *min/max* are the configuration's own
-//! parameter ranges. It is the one place where `cc-domain`'s vocabulary, the
-//! configuration schema and the wire format meet, and the only portable crate
-//! that has all three is this one: `cc-domain` has no `serde` by default and
-//! `cc-machine` has no JSON at all.
-//!
-//! Keeping it here also keeps it host-testable. A discovery payload is the one
-//! MQTT artifact whose *content* is the contract — Home Assistant silently
-//! ignores a malformed one and the machine looks like it has no entities — and
-//! "silently ignored" is not something a device test can catch.
-//!
-//! # What is published
-//!
-//! Sixteen entities unconditionally and thirteen more behind configuration flags,
-//! in five payload shapes: sensor, binary sensor, number, switch and button. Which
-//! of the conditional entities appear is decided by the configuration — whether a
-//! scale, a pressure sensor or a water tank is present, and which switch modes the
-//! machine uses. [`crate::discovery::all`] is the whole list.
-//!
-//! The per-entity `min`/`max`/`step` numbers are **not** hard-coded. The same
-//! bounds are already on [`crate::schema::SCHEMA`], so they are read from it by
-//! dotted key: shorter, and impossible to get out of step with the parameter they
-//! describe.
+//! Entity availability follows the fitted hardware and switch modes. Parameter
+//! bounds come from [`crate::schema::SCHEMA`] so discovery cannot drift from validation.
+//! Malformed payloads are silently ignored by Home Assistant.
 
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -329,7 +306,7 @@ pub const STEP_ONE: f64 = 1.0;
 /// 300 s pass picks up where this one stopped. The retention flag is on every one
 /// of them, without which Home Assistant would re-adopt the entities on every
 /// broker restart.
-#[allow(
+#[expect(
     clippy::too_many_lines,
     reason = "this IS the discovery table: 16 unconditional entities plus the \
               conditionals, in publication order. Splitting it would hide the one \
@@ -718,9 +695,8 @@ mod tests {
         // world-readable on a shared broker, so a payload carrying one would be
         // a leak with no local symptom.
         let mut config = Config::default();
-        config.mqtt.password = crate::secret::Secret::new(alloc::string::String::from("brokerpw"));
-        config.system.auth.password =
-            crate::secret::Secret::new(alloc::string::String::from("httppw"));
+        config.mqtt.password = crate::Secret::new(alloc::string::String::from("brokerpw"));
+        config.system.auth.password = crate::Secret::new(alloc::string::String::from("httppw"));
         for message in all(&config) {
             assert!(!message.payload.contains("brokerpw"), "{}", message.topic);
             assert!(!message.payload.contains("httppw"), "{}", message.topic);

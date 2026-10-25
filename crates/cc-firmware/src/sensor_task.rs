@@ -1,56 +1,18 @@
-//! (removed — see the note below)
+//! Why temperature polling remains on the control task.
 //!
-//! This module held the sensor task. It was removed after it was measured to be
-//! unsafe on this toolchain, and the measurement is the reason it is written down
-//! here rather than deleted without a word.
-//!
-//! # What was tried, and what the board said
-//!
-//! The control loop ran everything in one 400 ms task. The obvious fix — and the
-//! one this module implemented — is to give the pins their own task on their own
-//! cadences. Built, flashed, and bisected one variable at a time on hardware:
-//!
-//! | sensor task | display task | crashes |
-//! | --- | --- | --- |
-//! | not started | not started | **0** |
-//! | started, DS18B20 poll **disabled** | not started | **0** |
-//! | started, DS18B20 poll **enabled** | not started | 3–4 per boot |
-//! | not started | started | **0** |
-//! | started | started | 3–4 per boot |
-//!
-//! Every crash is one of two, both reproducible from the first sensor publish:
+//! Moving DS18B20 polling to a separate task caused 3–4 crashes per boot; disabling
+//! that polling or starting only the display task did not. Observed failures:
 //!
 //! ```text
 //! assert failed: xTaskRemoveFromEventList tasks.c:3894 (pxUnblockedTCB)
 //! Guru Meditation Error: Core  1 panic'ed (LoadProhibited). Exception was unhandled.
 //! ```
 //!
-//! The first is inside `xQueueGenericSend`/a critical-section release removing a
-//! blocked task from a list whose head has no owner. The second lands in
-//! `sys_arch_mbox_fetch` in the **lwIP tcpip thread** — a task that has nothing
-//! to do with the firmware, corrupted from outside.
+//! The latter landed in lwIP's `sys_arch_mbox_fetch`. On the original ESP32,
+//! `esp-idf-hal` 0.47.0 uses one process-global critical section in
+//! `interrupt::free`; scratchpad reads enter it once per GPIO write. The same
+//! polling runs without incident on the control task. The precise kernel failure
+//! mechanism is not established.
 //!
-//! # The mechanism, as far as the evidence goes
-//!
-//! On the original ESP32 [`esp_idf_hal::interrupt::free`] enters one
-//! process-global `static CS` via `xPortEnterCriticalTimeout`
-//! (`esp-idf-hal-0.47.0/src/interrupt.rs`). The display frame, telemetry, and
-//! the HX711 shift use it too. The display task's use was clean in the bisect
-//! above. esp-idf-hal's own comment on a second core:
-//!
-//! > *"the second core will then spinlock (busy-wait) in
-//! > `IsrCriticalSection::enter`, until the first CPU releases the critical
-//! > section"*
-//!
-//! A scratchpad read enters that lock once per GPIO write. The wait sits
-//! outside it (`onewire.rs` `pulse_low`). On one task, the control task, the same code
-//! runs without incident. On a second task this build asserts.
-//!
-//! It is reproducible, it is in the kernel rather than in this workspace, and it
-//! is not worth shipping a firmware that trips it. So the temperature probe stays
-//! on the control task, where it has run without incident, and the *display* -- which the
-//! bisect shows is safe -- moves out.
-//!
-//! Recheck 2027-01. On 2026-10-09 crate 0.47.0 was still the latest release and
-//! `free` still entered that one `CS`. The other path is RMT `OWDriver` in the
-//! same crate; its CRC helpers are still `todo`.
+//! Recheck in 2027-01 before moving the probe. On 2026-10-09 the HAL still used
+//! that shared lock, and the alternative RMT driver's CRC helpers were unfinished.

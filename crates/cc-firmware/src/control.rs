@@ -1,39 +1,8 @@
-//! The control loop's shell: the reducer, the PID, and the clock.
+//! Control tick: sense, decide, actuate, then publish to slow consumers.
 //!
-//! # What this is
-//!
-//! The tick, written out. Four steps, in this order:
-//!
-//! ```text
-//! SENSE   the shell reads hardware into plain values
-//! DECIDE  fold events through cc_machine::reduce
-//! ACT     cc_machine::apply -> cc_hal_esp32::Actuators
-//! NOTIFY  publish telemetry to the slow consumers
-//! ```
-//!
-//! Everything in DECIDE is a pure function in `cc-machine`, with a host test suite
-//! behind it. Everything in ACT is [`cc_hal_esp32::Actuators`], which is the only
-//! code in the firmware that can change an actuator pin. The shell's job is to
-//! be the *only* thing that knows both exist.
-//!
-//! # Why the PID lives here and not in the reducer
-//!
-//! `cc-domain`'s [`Controller`] is a **value**, and `cc-machine` takes its output
-//! as [`cc_machine::Event::PidOutput`] — a number the shell computed. So the
-//! division is deliberate: the reducer decides whether a duty may *reach* the
-//! heater, and the shell decides what the duty *is*.
-//!
-//! `apply_pid_output`'s own documentation records the one visible consequence:
-//! this firmware gates the emitted `SetHeaterDuty` rather than emitting the value
-//! and zeroing it microseconds later. Same machine state, strictly safer ordering.
-//!
-//! # The clock
-//!
-//! One clock, read once per tick, published to the reducer as
-//! [`cc_machine::Event::Tick`] and to the actuator facade as
-//! [`cc_hal_esp32::Actuators::set_now`]. The reducer never reads a clock and the
-//! facade's methods take none, so this is the only place the two can be made to
-//! agree.
+//! The shell computes PID duty; the reducer decides whether it may reach the heater.
+//! Read one clock value per tick and share it with both the reducer and actuator
+//! facade so their safety deadlines agree.
 
 use cc_config::Config;
 use cc_domain::pid::{Controller, ControllerDirection, Mode, ProportionalOn};
@@ -80,7 +49,7 @@ pub struct Control {
     /// **Except** after a tuning is written at runtime — see
     /// [`Self::retune_now`], which clears this so the next tick re-chooses.
     tuned_for: Option<MachineState>,
-    /// The S1-S5 configuration, from `cc-config`'s `safety_view()`.
+    /// The S1-S5 configuration, from `cc_machine::safety_config`.
     safety: SafetyConfig,
     /// The active setpoint, °C.
     ///
@@ -183,7 +152,7 @@ impl Control {
             // applies the mode whatever the configuration says.
             pid_mode_enabled,
             tuned_for: None,
-            safety: safety_config(config),
+            safety: cc_machine::safety_config(config),
             setpoint,
         };
         // The tunings are applied for the *initial* state, so the first `compute` of
@@ -593,7 +562,7 @@ pub(crate) fn effective_setpoint(config: &Config, steam_mode: bool) -> f64 {
 /// that is what the DS18B20's 0.0625 °C resolution needs. Over every range the schema
 /// allows — `brew.setpoint` 20..=110, `brew.temp_offset` 0..=20, `steam.setpoint`
 /// 100..=140, `safety.emergency_temp` 120..=180 — the loss is under 1e-5 °C, four
-/// orders of magnitude below the probe's own resolution. `cc_config::safety_view`
+/// orders of magnitude below the probe's own resolution. `cc_machine::safety_config`
 /// narrows for exactly the same reason and says so.
 fn celsius(degrees: f64) -> Celsius {
     #[allow(
@@ -601,41 +570,8 @@ fn celsius(degrees: f64) -> Celsius {
         reason = "every value that reaches here is a configured temperature in \
                   degrees Celsius within a range where f32 is exact to well \
                   under the probe's 0.0625 C resolution. See this function's \
-                  documentation and cc_config::safety_view, which narrows the \
+                  documentation and cc_machine::safety_config, which narrows the \
                   same way for the same reason"
     )]
     Celsius::new(degrees as f32)
-}
-
-/// `cc-config`'s `safety_view()` widened to `cc-safety`'s own struct.
-///
-/// A straight field-for-field copy; `cc_config::SafetyView` is typed in `Celsius`
-/// precisely so that this join is a copy and not a conversion.
-///
-/// `pub(crate)` rather than private because three call sites need it and the join
-/// is the thing that must not be written twice: `cc_config::Config::safety_view`
-/// names exactly the five fields, and a second spelling of that list is a second
-/// answer to "which parameters can make this machine unsafe".
-/// The single place a [`SafetyConfig`] is built from a [`Config`].
-///
-/// One owner, deliberately: the boot path (`network::bring_up_config`) and this
-/// module's tick both need it, and two field-by-field copies drifted once —
-/// see the call site's note. If a field is added to `SafetyConfig`, this is the
-/// only function that has to learn about it.
-pub(crate) fn safety_config(config: &Config) -> SafetyConfig {
-    let view = config.safety_view();
-    SafetyConfig {
-        emergency_temp: view.emergency_temp,
-        emergency_hysteresis: view.emergency_hysteresis,
-        steam_setpoint: view.steam_setpoint,
-        effective_brew_setpoint: view.effective_brew_setpoint,
-        brew_mode: view.brew_mode,
-        brew_by_time_enabled: view.brew_by_time_enabled,
-        brew_by_weight_enabled: view.brew_by_weight_enabled,
-        scale_fitted: view.scale_fitted,
-        heater_relay_trigger: view.heater_relay_trigger,
-        pump_relay_trigger: view.pump_relay_trigger,
-        valve_relay_trigger: view.valve_relay_trigger,
-        temperature_sensor: view.temperature_sensor,
-    }
 }

@@ -1,42 +1,15 @@
-//! MQTT on the control task: the client, the publish pass, and the inbound
-//! commands.
+//! Control-task MQTT service: connection bookkeeping, inbound commands, then publish.
 //!
-//! # Why this is a module and not twenty lines in the tick
-//!
-//! `main.rs`'s control loop is read as a list of what happens in one 10 ms
-//! period, and the ordering of that list is the property that matters. What
-//! MQTT does has four steps and its own vocabulary — topics, phases, budgets,
-//! the four special targets — and inlining it would have put four more blocks
-//! between "sense" and "decide" without making either easier to check.
-//!
-//! # The pass, in one place
-//!
-//! Connection bookkeeping, then inbound, then publish, all under one budget. What
-//! there is to publish is decided by `cc_hal_esp32::mqtt::Registry`, which Home
-//! Assistant discovery is generated from too, and the shape of the pass is
-//! `cc_hal_esp32::mqtt::Feed` — a cursor under a time budget rather than a loop over
-//! every topic on every tick.
-//!
-//! # What it must not do
-//!
-//! * **Block the control tick.** `esp_mqtt_client_publish` copies into the
-//!   client's outbox and returns; the socket write happens on the `esp-mqtt`
-//!   task. The one thing that *can* block is a full outbox, which is why
-//!   [`cc_hal_esp32::mqtt::Feed::service`] walks a cursor under a
-//!   [`cc_hal_esp32::mqtt::TIME_BUDGET_MS`] budget rather than publishing
-//!   everything at once.
-//! * **Allocate per publish.** The reusable buffers live in
-//!   `cc_hal_esp32::mqtt::Feed`; this module hands the value producer a
-//!   `&mut Payload` rather than a `String`.
-//! * **Own a second copy of the machine.** Every value it publishes is read
-//!   from the [`control::Control`] this task already has.
+//! The publish cursor shares one time budget; a full outbox can block despite
+//! socket writes running on the MQTT task. Reuse [`Payload`] buffers and read the
+//! existing [`crate::control::Control`] rather than allocating per topic or copying state.
 
 use cc_config::blob_store::BlobConfigStore;
 use cc_config::Config;
-use cc_hal_esp32::mqtt::{interval_for, Client, Feed, Payload, Registry, Service};
 use cc_hal_esp32::nvs::EspNvsBlob;
 use cc_hal_esp32::Sampler;
 use cc_machine::{Command, Effects, Event, Machine};
+use cc_net_esp32::mqtt::{interval_for, Client, Feed, Payload, Registry, Service};
 use esp_idf_svc::sys::EspError;
 use log::{error, info, warn};
 
@@ -109,7 +82,7 @@ pub struct Live {
 /// here — no 4 KB of task stack, no two 1 KB buffers, and one `Option` discriminant per
 /// tick.
 pub struct Link {
-    /// The `esp-mqtt` client. See `cc_hal_esp32::mqtt::Client`'s own notes on
+    /// The `esp-mqtt` client. See `cc_net_esp32::mqtt::Client`'s own notes on
     /// why it is built **here** and not in `bring_up`: the control task is the
     /// only one with the store, the configuration and the machine, and the
     /// client is `Send` if it ever has to be moved.
@@ -164,9 +137,9 @@ impl Link {
     /// this one. The two allocations that remain are both on the inbound path:
     /// `cc_config::assign::apply` takes `&[(String, String)]`, and the discovery
     /// document list is rebuilt once per
-    /// [`cc_hal_esp32::mqtt::DISCOVERY_INTERVAL_MS`].
+    /// [`cc_net_esp32::mqtt::DISCOVERY_INTERVAL_MS`].
     ///
-    /// [`SetCommand`]: cc_hal_esp32::mqtt::SetCommand
+    /// [`SetCommand`]: cc_net_esp32::mqtt::SetCommand
     #[allow(
         clippy::too_many_arguments,
         reason = "the arguments are the control task's own borrows, and a \
@@ -263,7 +236,7 @@ impl Link {
         value: &str,
     ) {
         match key {
-            cc_hal_esp32::mqtt::STEAM_MODE => {
+            cc_net_esp32::mqtt::STEAM_MODE => {
                 // Arm the steam mode and ask for normal operation. A `0` only wakes the
                 // machine: this target asks for steam rather than setting it to a value,
                 // so there is no steam-*off* here.
@@ -273,7 +246,7 @@ impl Link {
                 wake(control, config, effects);
                 info!("mqtt: STEAM_MODE -> {}", truthy(value));
             }
-            cc_hal_esp32::mqtt::BACKFLUSH_ON => {
+            cc_net_esp32::mqtt::BACKFLUSH_ON => {
                 // A `backflush.cycles` of zero cannot start a cycle, so the command is
                 // ignored and the next pass republishes the value the machine actually
                 // holds.
@@ -293,7 +266,7 @@ impl Link {
                     info!("mqtt: BACKFLUSH_ON -> {on}");
                 }
             }
-            cc_hal_esp32::mqtt::TARE_ON => {
+            cc_net_esp32::mqtt::TARE_ON => {
                 scale_modes.tare = truthy(value);
                 if scale_modes.tare {
                     match sampler.map(Sampler::request_tare) {
@@ -304,7 +277,7 @@ impl Link {
                 }
                 wake(control, config, effects);
             }
-            cc_hal_esp32::mqtt::CALIBRATION_ON => {
+            cc_net_esp32::mqtt::CALIBRATION_ON => {
                 // The scale has no known weight of its own: the one in
                 // `hardware.sensors.scale.known_weight` is what the web route uses too,
                 // and it is this task's to read.
@@ -362,9 +335,7 @@ impl Link {
         if applied.updated == 0 {
             return;
         }
-        if let Err(violation) =
-            cc_safety::validate_config(&crate::control::safety_config(&candidate))
-        {
+        if let Err(violation) = cc_safety::validate_config(&cc_machine::safety_config(&candidate)) {
             let keys = violation.implicated_keys();
             error!(
                 "config: REFUSED — MQTT write of {key} would leave the configuration \
@@ -444,19 +415,19 @@ fn write_parameter(
     payload: &mut Payload,
 ) -> bool {
     match key {
-        cc_hal_esp32::mqtt::STEAM_MODE => {
+        cc_net_esp32::mqtt::STEAM_MODE => {
             payload.set_bool(machine.steam_mode);
             true
         }
-        cc_hal_esp32::mqtt::BACKFLUSH_ON => {
+        cc_net_esp32::mqtt::BACKFLUSH_ON => {
             payload.set_bool(machine.backflush.on);
             true
         }
-        cc_hal_esp32::mqtt::TARE_ON => {
+        cc_net_esp32::mqtt::TARE_ON => {
             payload.set_bool(scale_modes.tare);
             true
         }
-        cc_hal_esp32::mqtt::CALIBRATION_ON => {
+        cc_net_esp32::mqtt::CALIBRATION_ON => {
             payload.set_bool(scale_modes.calibration);
             true
         }

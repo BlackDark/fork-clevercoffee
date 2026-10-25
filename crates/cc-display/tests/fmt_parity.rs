@@ -1,24 +1,7 @@
-//! `format_fixed` against C's `snprintf("%.*f")`, over 80 000 values.
+//! Compare exact IEEE-754 inputs against frozen C `snprintf` output.
 //!
-//! # Why this is a data file and not a table in the test
-//!
-//! The interesting failures are the *rare* ones: a value whose two nearest
-//! `f64` neighbours straddle a decimal halfway point, where ties-to-even and
-//! ties-away-from-zero disagree. A hand-written table contains the cases the
-//! author thought of; `fmt_oracle.txt` contains 80 000 values from a fixed
-//! PRNG, every one of which C itself formatted. A regression that breaks the
-//! tie rule, the exponent handling or the sign therefore shows up as a diff
-//! against a file rather than as a subtly wrong glyph on one screen.
-//!
-//! Each line is `<16 hex digits of the IEEE-754 pattern> <decimals> <C's
-//! rendering>`. The Rust side formats the *exact* double C formatted, so the
-//! two cannot disagree about which number they meant.
-//!
-//! # Regenerating
-//!
-//! The file is the artefact; the C program that produced it is not in the tree. That
-//! program was `snprintf("%.*f")` over the same values the test walks, so re-deriving the
-//! table means writing it again — worth doing only if the rounding rule is in question.
+//! Rows contain hex bits, decimal precision, and rendered text. The generator is
+//! not in this tree; regeneration requires a C formatter, not Rust-derived expectations.
 
 use cc_display::fmt::format_fixed;
 

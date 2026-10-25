@@ -1,39 +1,9 @@
-//! The display task: the panel, on the panel's cadence.
+//! Panel owner, rendering the latest [`FrameRequest`](crate::slots::FrameRequest).
 //!
-//! # What it owns
-//!
-//! The panel and nothing else. It renders whatever
-//! [`FrameRequest`](crate::slots::FrameRequest) the control task last published,
-//! at the panel's own refresh interval, and it draws the two boot screens before
-//! any normal frame.
-//!
-//! # Why the panel left the control task
-//!
-//! Because of what a frame costs. The 1 KB framebuffer goes out as eight I²C
-//! writes, which is tens of milliseconds of bus time on a 400 kHz bus — and it
-//! was being paid **inside the control tick**, on the same task, in the same
-//! iteration as the heater decision. The loop was not slow because the loop was slow; it
-//! was slow because the display was in it.
-//!
-//! A whole-tick measurement (2026-10-09) has mean work 1 ms against a 10 ms period.
-//!
-//! With the panel here, the control task's cost is the reducer and the applier,
-//! and the panel's cost is the panel. The two contend for one I²C bus, which is
-//! a mutex, and neither can make the other miss a deadline that matters: the
-//! display may be 100 ms late, and the control decision may not be 10 ms late.
-//!
-//! # The refresh interval
-//!
-//! [`cc_hal_esp32::display::REFRESH_INTERVAL_MS`] = 100 ms. It is also the floor on how
-//! quickly a screen change becomes visible, because the panel's own driver rate-limits the
-//! flush and this task publishes a frame no faster than that.
-//!
-//! # The boot screens
-//!
-//! The logo is drawn twice at boot — once with the version and then with the Wi-Fi
-//! address. It is drawn here because this task owns the panel, and the address is not
-//! known to the control task: the radio publishes it into the telemetry snapshot, so the
-//! second screen is drawn when the snapshot's IP first appears.
+//! A frame takes tens of milliseconds on the shared I²C bus, so rendering runs
+//! outside the 10 ms control task. Refresh is limited by
+//! [`cc_hal_esp32::display::REFRESH_INTERVAL_MS`].
+//! Boot first shows the version, then the IP once it appears in the telemetry snapshot.
 
 use std::sync::Arc;
 
@@ -68,7 +38,7 @@ pub struct DisplayTask {
     /// Where the control task's frame requests arrive.
     frame: Arc<FrameSlot>,
     /// The telemetry snapshot, for the Wi-Fi address on the boot screen.
-    shared: Arc<cc_hal_esp32::web::Shared>,
+    shared: Arc<cc_net_esp32::web::Shared>,
     /// The brew-timer state of the last frame drawn, so a transition can be
     /// announced rather than the state merely repeated.
     last_brew_timer: cc_display::model::BrewTimerState,
@@ -81,7 +51,7 @@ impl DisplayTask {
         panel: Option<SharedPanel<'static>>,
         template: TemplateId,
         frame: Arc<FrameSlot>,
-        shared: Arc<cc_hal_esp32::web::Shared>,
+        shared: Arc<cc_net_esp32::web::Shared>,
     ) -> Self {
         Self {
             panel,
@@ -201,5 +171,86 @@ impl DisplayTask {
             }
             FreeRtos::delay_ms(REFRESH_MS);
         }
+    }
+}
+
+/// The `cc_display` template for a configured
+/// [`DisplayTemplate`](cc_domain::system::DisplayTemplate).
+///
+/// Two crates' enums with the same six layouts in the same order; nothing keeps
+/// them in step, so the mapping is written out rather than cast.
+pub(crate) fn template_for(
+    configured: cc_domain::system::DisplayTemplate,
+) -> cc_display::templates::TemplateId {
+    use cc_domain::system::DisplayTemplate;
+    match configured {
+        DisplayTemplate::Standard => TemplateId::Standard,
+        DisplayTemplate::Minimal => TemplateId::Minimal,
+        DisplayTemplate::TemperatureOnly => TemplateId::TemperatureOnly,
+        DisplayTemplate::Scale => TemplateId::Scale,
+        DisplayTemplate::Upright => TemplateId::Upright,
+        DisplayTemplate::Modern => TemplateId::Modern,
+    }
+}
+
+/// The `cc_display` view of the machine's configuration.
+///
+/// `cc_display::model::Config` is deliberately a *separate* type from
+/// `cc_config::Config`: the display crate is a pure renderer with 48 goldens and
+/// a pixel-for-pixel comparison against real U8g2, and it has no business knowing about
+/// Wi-Fi credentials or the NVS blob. The consequence is that this mapping
+/// exists, and it is the seam where a new display-relevant parameter has to be
+/// wired up by hand — which is the point.
+///
+/// **Every field is listed, with no `..Default::default()`.** That is what makes
+/// the seam load-bearing: a field added to the display crate's `Config` is a
+/// compile error here until someone decides what the machine's setting means for
+/// it, rather than a template that silently keeps using the default. The goldens
+/// can afford `..default()` because they are fixtures; this is not a fixture.
+pub(crate) fn display_config(config: &cc_config::Config) -> cc_display::model::Config {
+    use cc_display::model::{BrewMode, Config as DisplayConfig, Language, ScaleType};
+    use cc_domain::system::DisplayTemplate;
+
+    DisplayConfig {
+        brew_switch_enabled: config.hardware.switches.brew.enabled,
+        scale_enabled: config.hardware.sensors.scale.enabled,
+        // The display crate's `ScaleType` is a two-way question (wired load
+        // cell or radio) where the config's is three (one cell, two cells, or
+        // radio). Single and dual are the same *layout* to a template, so they
+        // collapse here; which one it is belongs to the driver, not the screen.
+        scale_type: match config.hardware.sensors.scale.r#type {
+            cc_domain::hardware::ScaleType::Bluetooth => ScaleType::Bluetooth,
+            cc_domain::hardware::ScaleType::Hx711Dual
+            | cc_domain::hardware::ScaleType::Hx711Single => ScaleType::Hx711,
+        },
+        pressure_enabled: config.hardware.sensors.pressure.enabled,
+        oled_enabled: config.hardware.oled.enabled,
+        upright_template: config.display.template == DisplayTemplate::Upright,
+        inverted: config.display.inverted,
+        language: match config.display.language {
+            cc_domain::system::Language::English => Language::English,
+            cc_domain::system::Language::German => Language::German,
+            cc_domain::system::Language::Spanish => Language::Spanish,
+        },
+        heating_logo: u8::from(config.display.heating_logo),
+        pid_off_logo: u8::from(config.display.pid_off_logo),
+        fullscreen_brew_timer: config.display.fullscreen_brew_timer,
+        fullscreen_manual_flush_timer: config.display.fullscreen_manual_flush_timer,
+        fullscreen_hot_water_timer: config.display.fullscreen_hot_water_timer,
+        post_brew_timer_duration_s: config.display.post_brew_timer_duration,
+        blinking_delta: config.display.blinking.delta,
+        backflush_reminder_enabled: config.maintenance.backflush_reminder.enabled,
+        brew_mode: match config.brew.mode {
+            cc_domain::process::BrewMode::Manual => BrewMode::Manual,
+            cc_domain::process::BrewMode::Automatic => BrewMode::Automatic,
+        },
+        brew_by_time_enabled: config.brew.by_time.enabled,
+        brew_by_weight_enabled: config.brew.by_weight.enabled,
+        brew_by_weight_target: config.brew.by_weight.target_weight,
+        mqtt_enabled: config.mqtt.enabled,
+        // `cycles` is an i32 in the config and a u8 on screen. `unwrap_or` rather than
+        // a cast: a machine configured with a nonsense value should render the default
+        // layout detail, not wrap to 255 cycles.
+        backflush_cycles: u8::try_from(config.backflush.cycles).unwrap_or(5),
     }
 }

@@ -1,54 +1,12 @@
-//! Strobe acquisition and frame assembly: a pure function of edge timestamps.
+//! Decode `ZACwire` frames from edge timestamps using app note §1.3.
 //!
-//! # This is the app note's §1.3 decoder, written out
+//! Measure the start pulse as `strobe`; each following bit is `pulse > strobe`.
+//! That is equivalent to sampling at the strobe deadline without waiting in an ISR.
+//! Check start width, bit periods, stop gap, reserved zeros, and even packet parity.
+//! Parity alone misses two-bit errors, so framing checks are also required.
 //!
-//! > When the falling edge of the start bit occurs, measure the time until the
-//! > rising edge of the start bit. This time (`Tstrobe`) is the strobe time.
-//! > When the next falling edge occurs, wait for a time period equal to
-//! > `Tstrobe`, and then sample the ZACwire signal. The data present on the
-//! > signal at this time is the bit being transmitted. […] the sampling window is
-//! > reset with every bit transmission.
-//!
-//! Restated as arithmetic, which is what [`decode_frame`] does:
-//!
-//! 1. find the start bit's falling edge and its rising edge;
-//! 2. `strobe = rising − falling`, and check it is a plausible 50 % pulse;
-//! 3. for every following bit, take its falling edge, find its rising edge, and
-//!    decide `bit = (rising − falling) > strobe`.
-//!
-//! Step 3 is the app note's "wait `Tstrobe`, then sample", computed without
-//! waiting: at `Tstrobe` after the falling edge the line is still low **iff** the
-//! pulse outlasts the strobe, and "the line is still low" is exactly
-//! `pulse > strobe`. So the decoder needs two timestamps per bit instead of one
-//! sample, which is what makes it runnable in a task on a buffer of edges rather
-//! than in a busy-waiting ISR.
-//!
-//! # What is checked, and why each check exists
-//!
-//! | check | catches |
-//! | --- | --- |
-//! | the start pulse is in the strobe window | a frame that did not start on a start bit — 1-Wire traffic, a floating line, a partial capture |
-//! | every falling edge is 94..156 µs after the last | a **missing** edge (250 µs) or a **spurious** one (62 µs) |
-//! | the 9 → 10 gap is 188..234 µs | a **missing stop bit** (125 µs) or a doubled one (375 µs) |
-//! | `data_high`'s top five bits are zero | a mis-framed frame: those bits are the sensor's reserved zeros |
-//! | even parity on each packet | a single bit flipped anywhere in a packet |
-//!
-//! The parity check is the app note's and it is weak by construction — it cannot
-//! see two flipped bits. That is why it is not the only check: the period checks
-//! catch the framing errors parity cannot, and the reserved-zero check catches the
-//! mis-framing that a coincidentally-valid parity would let through.
-//!
-//! # 🔴 What this cannot tell you
-//!
-//! **A passing test of this module is not evidence that a TSIC-306 works.** The
-//! waveform it is tested against is synthesised by
-//! `simulator` from the spec's own timings. That proves the
-//! arithmetic, the ordering, the rejection of damaged frames, and the
-//! DS → °C conversion. It proves nothing about a real sensor: real clock
-//! tolerance, real 31.25 µs and 93.75 µs pulses that a 1 µs clock rounds, real
-//! rise and fall times through a pull-up and a cable, real EMI, and a real
-//! sensor's behaviour when it is brownout. No TSIC-306 is fitted to the machine
-//! this was written on. See the module docs of [`super`].
+//! Tests use synthesized waveforms. They do not validate sensor clock tolerance,
+//! cable rise times, EMI, or brownout behavior; see [`super`].
 
 use super::protocol::{self, tolerances};
 use super::ring::Edge;
@@ -93,7 +51,6 @@ impl Frame {
     /// The two agree exactly at the top of the range and differ by at most one 0.1 °C step
     /// everywhere else.
     #[must_use]
-    #[allow(clippy::cast_precision_loss)]
     pub fn celsius(self) -> f32 {
         f32::from(self.raw) / protocol::RANGE_STEPS * protocol::RANGE_SPAN_C + protocol::RANGE_MIN_C
     }
@@ -328,23 +285,15 @@ fn packet(bits: &[bool; 9], number: u8) -> Result<u8, FrameError> {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::float_cmp,
-    reason = "the tests compare f32 temperatures that the code under test computes \
-              by the same expression, or that are exactly representable grid \
-              points; an approximate comparison would hide what is being pinned"
-)]
-#[allow(
+#[expect(
     clippy::assertions_on_constants,
     reason = "these tests assert protocol and transport constants against the \
               datasheet/app note numbers on purpose: that is the claim, and the \
               compiler is right that a run-time comparison of two constants is \
               not a test"
 )]
-#[allow(
-    clippy::cast_possible_truncation,
+#[expect(
     clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
     reason = "test-side narrowing of values the protocol bounds to 0..=2047"
 )]
 mod tests {

@@ -1,25 +1,9 @@
-//! Small, pure helpers shared between the display and the status LEDs.
+//! Shared OLED and LED thresholds with intentionally different boundaries.
 //!
-//! These are the single source of truth for the tolerance thresholds, and the two
-//! `is_near_setpoint_*` functions differ by exactly one comparison operator on
-//! purpose:
-//!
-//! * [`is_near_setpoint_for_display`] is **strict `<`**, for the OLED blink.
-//!   A value exactly `delta` away is *not* near, so the readout blinks at the
-//!   boundary.
-//! * [`is_near_setpoint_for_led`] is **`<=`**, and uses a wider tolerance in a
-//!   steam state. A value exactly at the boundary *is* near, so the LED settles.
-//!
-//! That asymmetry is not an oversight and is asserted in the tests below: the two
-//! are one rule with one operator changed, and the boundary is the only place they
-//! disagree.
-//!
-//! [`is_heating_logo_condition_met`] is the third: it is `> HEATING_LOGO_THRESHOLD_C`
-//! (5 °C) below setpoint, and it is the *only* place that constant is applied.
-//! It additionally requires the PID to be in `PID_NORMAL` and
-//! `heating_logo` to be enabled, because during a brew the temperature is
-//! *supposed* to be below setpoint and the logo would otherwise take over the
-//! screen.
+//! OLED proximity uses strict `<` and blinks at the boundary; LEDs use `<=` and a
+//! wider steam tolerance. The heating logo requires normal PID mode, enabled
+//! configuration, and a deficit above [`HEATING_LOGO_THRESHOLD_C`], so it cannot
+//! replace the brew screen.
 
 use cc_domain::state::MachineState;
 

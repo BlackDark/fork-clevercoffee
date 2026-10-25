@@ -1,34 +1,9 @@
-//! The in-memory configuration value.
+//! Typed configuration with nested JSON matching `docs/example_config.json`.
 //!
-//! # Structure
-//!
-//! The 98 fields and their defaults below are the schema's parameters, one field
-//! each. The nesting is chosen so that a `serde_json` serialisation of [`Config`]
-//! is **byte-compatible with the documented export format** for every key: a
-//! dotted key `pid.regular.kp` becomes `{"pid":{"regular":{"kp":…}}}`, which is the
-//! shape `docs/example_config.json` carries and the shape the import test parses.
-//! `schema::SCHEMA` is the flat view of the same registry, and a test asserts the
-//! two agree.
-//!
-//! # Field types
-//!
-//! * `bool`, `i32` and `f64` for the three scalar kinds. A numeric parameter that
-//!   is not a count is an `f64`, which avoids a lossy round trip through `f32`.
-//! * Rust enums from `cc-domain` for the enumerations. They serialise as their
-//!   integer discriminant, which is what the wire format carries.
-//! * `Secret<String>` for the four credentials. See [`crate::Secret`].
-//! * `String` for the remaining text parameters: a fixed-capacity type here would
-//!   reject configurations that have no length bound to begin with; see `schema`'s
-//!   module documentation.
-//!
-//! # Accessors
-//!
-//! The fields are public, so the typed accessor *is* the field access
-//! (`config.brew.setpoint` is a `f64`, and it is impossible to pass it where a
-//! `Bar` belongs). On top of that, [`Config`] provides named accessors for the
-//! handful of values that are *derived* rather than stored — the PID gains the
-//! firmware actually computes, the safety view, the heater window — so that
-//! nobody has to re-derive them and get it subtly wrong.
+//! Dotted schema keys map to nested fields; enums serialize as integer discriminants.
+//! Non-count numbers use `f64` to avoid a lossy `f32` round trip. Credentials use
+//! [`crate::Secret`]; other text uses `String` with the storage bound in [`crate::json`].
+//! Derived accessors centralize PID gains, safety settings, and heater timing.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -39,10 +14,9 @@ use cc_domain::hardware::{
 };
 use cc_domain::process::BrewMode;
 use cc_domain::system::{DisplayTemplate, Language, LogLevel};
-use cc_domain::units::Celsius;
 use serde::{Deserialize, Serialize};
 
-use crate::secret::Secret;
+use crate::Secret;
 
 /// Revert one key to [`Config::default`]. `false` for any other key.
 ///
@@ -402,7 +376,10 @@ impl Default for Steam {
 // toggles have no relationship to one another, and collapsing them into
 // two-variant enums would make an exported configuration harder to read for no
 // gain.
-#[allow(clippy::struct_excessive_bools)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent user-settable flags, not a state machine"
+)]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Display {
@@ -1228,123 +1205,7 @@ impl Default for Safety {
         }
     }
 }
-/// The subset of the configuration that decides whether an actuator may be
-/// energised.
-///
-/// `cc-config` cannot depend on `cc-safety` — they are siblings, and both sit
-/// below `cc-machine` — so this is a plain view of the safety-relevant values, and
-/// `cc-firmware` (or `cc-hal-esp32`) converts it with
-/// `cc_safety::SafetyConfig::from(view)` at wiring time. Keeping the struct here
-/// means those values are named in exactly one place.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SafetyView {
-    /// `safety.emergency_temp`, as a [`Celsius`].
-    ///
-    /// A `Celsius` and not the `f64` the field holds, because the consumer is
-    /// `cc_safety::SafetyConfig`, which is `Celsius`-typed, and a `f64`-typed
-    /// view of an `f32`-typed consumer pushes a narrowing cast into the one
-    /// caller that does the conversion. Converting here makes the loss visible
-    /// and happens once: 0.01 °C at the extremes of the parameter's range.
-    pub emergency_temp: Celsius,
-    /// `safety.emergency_hysteresis`, as a [`Celsius`]. See
-    /// [`SafetyView::emergency_temp`] for why.
-    pub emergency_hysteresis: Celsius,
-    /// `steam.setpoint`, as a [`Celsius`]. See [`SafetyView::emergency_temp`]
-    /// for why.
-    pub steam_setpoint: Celsius,
-    /// `brew.setpoint + brew.temp_offset`, as a [`Celsius`] — the temperature
-    /// the PID is actually told to hold in brew mode, which is what
-    /// `cc_safety::validate_config` needs to compare against the emergency
-    /// threshold.
-    ///
-    /// The offset is included deliberately. `cc_safety` asks "is the threshold
-    /// above the temperature the boiler is driven to?", and the offset is part
-    /// of that number (`Config::effective_brew_setpoint`); carrying the raw
-    /// `brew.setpoint` would leave a 0..=20 degree gap the validator cannot see.
-    pub effective_brew_setpoint: Celsius,
-    /// `brew.mode`, as a [`BrewMode`] — so the join with `cc_safety` is a copy
-    /// rather than a re-derivation of "is this brew automatic".
-    ///
-    /// Needed only by `cc_safety::validate_config`, and for one reason: an
-    /// automatic brew is supposed to end by itself, so a configuration that
-    /// leaves it with no reachable stop condition is a machine holding a pump
-    /// and an open valve with nothing to end it.
-    pub brew_mode: BrewMode,
-    /// `brew.by_time.enabled`. See [`SafetyView::brew_by_weight_enabled`] for
-    /// why these two travel together.
-    pub brew_by_time_enabled: bool,
-    /// `brew.by_weight.enabled` — the stop condition that needs a scale to mean
-    /// anything, which is why [`SafetyView::scale_fitted`] is here.
-    pub brew_by_weight_enabled: bool,
-    /// `hardware.sensors.scale.enabled` — **this firmware's definition of a
-    /// fitted scale**.
-    ///
-    /// It is the guard on every scale command.
-    ///
-    /// A configuration value rather than a live probe, and that is deliberate:
-    /// `cc_safety::validate_config` is a pure function of configuration, so the
-    /// fact it reasons about has to be readable before any driver has produced
-    /// a sample. What the driver then does — starts, faults, answers — is
-    /// reported as `Sensors::has_scale_error` and as the weight itself, and
-    /// neither reaches `cc_safety`.
-    pub scale_fitted: bool,
-    /// `hardware.relays.heater.trigger_type`.
-    pub heater_relay_trigger: RelayTriggerType,
-    /// `hardware.relays.pump.trigger_type`. See
-    /// [`SafetyView::heater_relay_trigger`].
-    pub pump_relay_trigger: RelayTriggerType,
-    /// `hardware.relays.valve.trigger_type`.
-    pub valve_relay_trigger: RelayTriggerType,
-    /// `hardware.sensors.temperature.type`.
-    ///
-    /// Carried for completeness rather than for validation: both sensor types
-    /// have a driver, so `cc_safety::validate_config` has nothing to say about
-    /// this value and does not treat it as a reason to refuse a
-    /// configuration. The firmware still needs to know which driver the
-    /// configuration asked for, and it reads it from the `Config`, not from the
-    /// `SafetyView`.
-    pub temperature_sensor: TemperatureSensorType,
-}
-
 impl Config {
-    /// The safety-relevant subset of this configuration.
-    ///
-    /// Read this **once** at boot, convert it to a `cc_safety::SafetyConfig`,
-    /// and hand that to `cc_safety::load_or_default` so an unsafe stored
-    /// configuration is discarded rather than run. See
-    /// [`crate::store`] for where that wiring happens.
-    #[must_use]
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "the four narrowing casts are the point of this method, and \
-                  this is the one place they happen. The `Config` fields are \
-                  `f64` because a numeric parameter is a `double`; \
-                  `cc_safety::SafetyConfig` is \
-                  `Celsius`-typed, which is `f32`. Over the schema's ranges \
-                  (emergency_temp 120..180, emergency_hysteresis 1..15, \
-                  steam_setpoint 100..140, effective_brew_setpoint 20..130) the \
-                  loss is under 1e-5 C, which is four orders of magnitude \
-                  below the probe's 0.0625 C resolution. Doing it here rather \
-                  than in the caller is what keeps the loss in one place and \
-                  out of `cc-firmware`."
-    )]
-    pub fn safety_view(&self) -> SafetyView {
-        SafetyView {
-            emergency_temp: Celsius::new(self.safety.emergency_temp as f32),
-            emergency_hysteresis: Celsius::new(self.safety.emergency_hysteresis as f32),
-            steam_setpoint: Celsius::new(self.steam.setpoint as f32),
-            effective_brew_setpoint: Celsius::new(self.effective_brew_setpoint() as f32),
-            brew_mode: self.brew.mode,
-            brew_by_time_enabled: self.brew.by_time.enabled,
-            brew_by_weight_enabled: self.brew.by_weight.enabled,
-            scale_fitted: self.hardware.sensors.scale.enabled,
-            heater_relay_trigger: self.hardware.relays.heater.trigger_type,
-            pump_relay_trigger: self.hardware.relays.pump.trigger_type,
-            valve_relay_trigger: self.hardware.relays.valve.trigger_type,
-            temperature_sensor: self.hardware.sensors.temperature.r#type,
-        }
-    }
-
     /// The brew setpoint the PID should actually hold.
     ///
     /// `brew.temp_offset` exists to compensate a probe that reads consistently

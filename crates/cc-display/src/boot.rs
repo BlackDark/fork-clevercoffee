@@ -1,25 +1,7 @@
-//! The boot screen: logo, version, Wi-Fi address.
+//! Boot logo with version first, then Wi-Fi address after association.
 //!
-//! # Why this module exists
-//!
-//! The panel shows the screen twice: once with the firmware version straight
-//! after the display is brought up, and once with the address as soon as the radio
-//! has associated. Without it the panel sits on whatever the previous frame left
-//! there — on a cold boot, a cleared panel — for as long as the Wi-Fi takes.
-//!
-//! # The layout
-//!
-//! Two very different arrangements behind one `if`, and both are reproduced:
-//!
-//! | template | logo | text |
-//! | --- | --- | --- |
-//! | landscape (the default) | `(38, 0)`, 40x40 | two lines at `(0, 45)` and `(0, 55)` |
-//! | Upright | `(11, 4)`, 40x40 | one word per line from `y = 47`, 10 px apart |
-//!
-//! The Upright arm word-wraps on spaces, which is why the version line is passed
-//! with a trailing space: the empty final token is dropped rather than printing a
-//! blank line. The landscape arm prints the two lines as given, so the same
-//! trailing space costs a pixel of width and nothing else.
+//! Upright wraps on spaces and drops a trailing empty token. Landscape prints
+//! lines verbatim, so the same trailing space only affects width.
 
 use crate::bitmaps_data as bm;
 use crate::display::Display;

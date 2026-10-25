@@ -1,13 +1,7 @@
-//! The steam switch: start, stop, and what standby does with it.
+//! Steam starts on an edge, so a held toggle cannot keep requesting it in standby.
 //!
-//! A momentary switch requests a start from `PID_NORMAL` and a stop while steaming. A toggle
-//! requests a start on the rising edge and a stop on the falling edge, and the level is recorded
-//! either way.
-//!
-//! Two things here are worth more than the happy path. The first is standby: a steam toggle left
-//! on does **not** keep requesting steam, because the request is made on the press edge and
-//! nowhere else. The second is an empty tank, which does not deny the steam switch -- steam needs
-//! no water, so there is nothing for the tank to block.
+//! Momentary presses start/stop; toggles start on rising and stop on falling edges.
+//! An empty tank does not deny steam requests.
 
 mod common;
 

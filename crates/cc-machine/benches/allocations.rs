@@ -1,43 +1,14 @@
-//! The control tick must not touch the heap. Measured, not asserted.
+//! Measure reducer allocations; timing alone misses device heap pressure.
 //!
-//! # Why this measures allocations and not nanoseconds
-//!
-//! A `reduce` that returns `(Machine, Vec<Effect>)` allocates a fresh `Vec` per call, and the
-//! control task calls it four or five times per 10 ms tick: **4.00 heap allocations and about
-//! 192 bytes per tick**, roughly 400 allocations a second out of the same task that runs the
-//! heater deadman, on a device with 320 KB of RAM.
-//!
-//! A host micro-benchmark of nanoseconds would NOT have caught that. An allocation costs about
-//! as much as the rest of the tick put together, and what matters is allocator pressure on a
-//! fragmented heap. So the reported number is allocations, and the time is printed only for
-//! scale.
-//!
-//! # The same measurement gates the build
-//!
-//! `tests/tick_allocations.rs` runs the identical measurement as a `#[test]`, so
-//! `just test` fails if the count is ever non-zero. Both files include
-//! `benches/alloc.rs`, so they cannot drift apart — which is the failure mode a
-//! duplicated helper would invite.
-//!
-//! # Caveat
-//!
-//! Counting a `#[global_allocator]` is exact on a single thread, which is the
-//! shape of the control task. It does NOT measure the httpd or display tasks,
-//! which have their own allocations and their own reasons.
-//!
-//! ```sh
-//! just bench
-//! ```
-
-#[path = "alloc.rs"]
-mod alloc;
+//! `tests/tick_allocations.rs` gates the same invariant with the same allocator.
+//! The measurement excludes other tasks. Run with `just bench`.
 
 use std::time::Instant;
 
 use cc_domain::units::{Celsius, Millis};
 use cc_machine::{boot, reduce, Context, Event, Machine, Sensors};
 
-use alloc::{nanos_per, per, Counting};
+use cc_alloc_count::{nanos_per, per, Counting};
 
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
@@ -78,10 +49,10 @@ fn main() {
     // lazily-initialised statics, and that is not what is being measured.
     one_tick(&mut machine, &ctx, sensors, Millis::new(2_000));
 
-    let mark = alloc::counters();
+    let mark = cc_alloc_count::counters();
     let started = Instant::now();
     for i in 0..REPORTED_TICKS {
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
             reason = "REPORTED_TICKS is 100_000, a literal; the truncation is exact"
         )]
@@ -89,7 +60,7 @@ fn main() {
         one_tick(&mut machine, &ctx, sensors, Millis::new(2_000 + step));
     }
     let elapsed = started.elapsed();
-    let (allocs, bytes) = alloc::delta_since(mark);
+    let (allocs, bytes) = cc_alloc_count::delta_since(mark);
 
     println!("control tick: {REPORTED_TICKS} iterations");
     println!(

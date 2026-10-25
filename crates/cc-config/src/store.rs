@@ -1,38 +1,10 @@
-//! Where the configuration lives.
+//! Storage errors and the configuration safety boundary.
 //!
-//! # One blob, not one key per parameter
-//!
-//! [`BlobConfigStore`](crate::BlobConfigStore) moves one
-//! [`Config`](crate::Config) value in one NVS entry. A store that wrote each
-//! parameter separately, under a hashed key, would fail in three ways:
-//!
-//! * A partial write is possible. Writing the parameters one at a time means a
-//!   power cut mid-way leaves some parameters new and the rest old. For a machine
-//!   that heats to 150 °C, "some new" is a configuration nobody ever chose.
-//! * The keys are unreadable. A hashed key tells an operator nothing, so
-//!   diagnosing a customer's NVS needs a key-derivation program.
-//! * A hash collision would silently alias two parameters.
-//!
-//! # Wiring the fail-closed rule
-//!
-//! [`BlobConfigStore`](crate::BlobConfigStore) deliberately does **not** know
-//! about `cc-safety`, because `cc-config` may not depend on it. Discarding a
-//! stored configuration that is unsafe to run is therefore the caller's rule,
-//! applied in three lines:
-//!
-//! ```text
-//! let Some(stored) = store.load()? else { return Ok(Config::default()) };
-//! let safety = cc_safety::SafetyConfig::from(stored.safety_view());
-//! match cc_safety::load_or_default(Some(&safety)) {
-//!     cc_safety::ConfigOrigin::Stored => Ok(stored),
-//!     _ => Ok(Config::default()),   // discarded, or nothing stored
-//! }
-//! ```
-//!
-//! [`crate::Config::safety_view`] is the hand-off point. This module holds only
-//! the error type; the store itself is [`blob_store`](crate::blob_store), which
-//! is generic over its medium so that the format is host-testable without an
-//! ESP32.
+//! [`BlobConfigStore`](crate::BlobConfigStore) writes a whole configuration atomically.
+//! It cannot depend on `cc-safety`; callers must validate
+//! `cc_machine::safety_config` of a stored configuration before applying it and fail closed
+//! when validation rejects them. The backend-independent format lives in
+//! [`blob_store`](crate::blob_store).
 
 /// Why a store operation failed.
 ///

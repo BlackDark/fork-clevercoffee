@@ -1,37 +1,13 @@
-//! The HX711 load-cell amplifier: the bit protocol, the moving average, the tare, and a bounded
-//! wait in place of an unbounded spin.
+//! Bounded HX711 polling, smoothing, tare, and calibration.
 //!
-//! # What there is to match
+//! The sign-bit flip converts two's complement to offset binary, where electrical
+//! zero is `0x800000`. Persisted offsets and calibration depend on that convention.
+//! Smoothing drops extremes and divides by a rounded-down power-of-two sample count.
 //!
-//! The arithmetic follows the amplifier's own reference implementation, so a calibration factor
-//! derived the usual way means what it says: the 24 data bits plus the gain-select clocks, the
-//! sign-bit flip that turns the amplifier's two's-complement output into offset binary, the
-//! drop-highest-and-lowest moving average, the round-down-to-a-power-of-two division, and
-//! `(smoothed - tare) / calibration` as the weight. Each is documented where it is implemented.
-//!
-//! # Bounded waits
-//!
-//! Nothing in this driver spins. Cells are clocked from a caller-driven poll, so a slow or absent
-//! amplifier costs one tick rather than the control task: every wait has a deadline the caller
-//! owns, and the deadline is armed when the driver starts rather than when the first sample
-//! arrives. See [`SignalWatchdog`] for the timing and [`Scale`] for the dual-cell alternation.
-//!
-//! # Offset binary
-//!
-//! The amplifier reports two's complement and the sign bit is flipped on read, so `0x800000` is the
-//! electrical zero of the amplifier and a count above it is a load. That convention is reproduced
-//! exactly, because the tare, the calibration and the persisted offsets are all expressed in it.
-//!
-//! # The one quirk kept deliberately
-//!
-//! [`Cell::push`] **discards a raw sample of exactly zero**. Offset-binary zero is `0x800000` on
-//! the wire: the amplifier's most-negative full-scale input, a real reading, and one a reversed
-//! load cell produces routinely. It is kept because it doubles as the plausibility filter for a
-//! data line held low, and because removing a filter that changes every weight on a reversed cell
-//! is not a change to make while bringing a driver up for the first time. [`Cell::push`] returns
-//! whether the sample was accepted and [`Cell::rejected_samples`] counts the refusals, so a driver
-//! that reports its own health can distinguish "the weight has not moved" from "every sample is
-//! being rejected".
+//! Arm readiness deadlines at startup, not the first sample. [`Scale`] alternates
+//! cells; [`SignalWatchdog`] bounds absent-device waits.
+//! [`Cell::push`] deliberately rejects raw zero, also a valid negative full-scale
+//! value. Preserve that plausibility filter and its rejection counter.
 
 use cc_domain::units::Millis;
 
@@ -513,7 +489,7 @@ impl Cell {
             .saturating_sub(u64::from(low))
             .saturating_sub(u64::from(high));
         let divisor = 1u64 << self.samples_in_use.trailing_zeros();
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
             reason = "the sum is at most 34 values of 0xFFFFFF, so the quotient \
                       is below 0xFFFFFF and fits a u32"
@@ -1260,12 +1236,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(
-        clippy::float_cmp,
-        reason = "the factors here are 3.0 and 4.0, which an f64 holds exactly; \
-                  `==` is the assertion, and a tolerance would hide a factor that \
-                  came back as 3.0000000000000004"
-    )]
     fn a_zero_or_non_finite_calibration_is_refused() {
         // The factor is divided by unchecked at the weight, and the config API can set it to zero,
         // so the check has to live here.
@@ -1279,12 +1249,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(
-        clippy::float_cmp,
-        reason = "DEFAULT_CALIBRATION is 1.0, which an f64 holds exactly, and \
-                  this test exists precisely to prove the stored value is \
-                  *that* constant rather than something close to it"
-    )]
     fn a_zero_calibration_at_construction_falls_back_to_the_default() {
         let cell = Cell::new(0.0, 1);
         assert_eq!(cell.calibration(), DEFAULT_CALIBRATION);
@@ -1293,12 +1257,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(
-        clippy::float_cmp,
-        reason = "267000 / 100 is 2670 exactly in binary floating point, so \
-                  `==` is the assertion: a factor that came back as 2669.9999 \
-                  would be a defect, not a rounding artefact to tolerate"
-    )]
     fn calibrating_against_a_known_mass_gives_counts_per_gram() {
         // (smoothed - tare) / known_mass is the factor that makes the current reading equal the
         // mass.
@@ -1311,11 +1269,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(
-        clippy::float_cmp,
-        reason = "1.0 is held exactly by an f64 and a refused calibration must \
-                  leave the factor bit-for-bit unchanged"
-    )]
     fn calibrating_against_nothing_is_refused() {
         let mut cell = Cell::new(1.0, 1);
         assert_eq!(cell.calibrate(100.0), None, "an empty cell");

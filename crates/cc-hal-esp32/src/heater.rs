@@ -1,31 +1,8 @@
-//! The heater output: a `GPTimer` ISR chopping the relay, behind one type.
+//! `GPTimer` ISR transport for the portable heater gate and chopper.
 //!
-//! This file owns the pin and the timer that drives it. The decision *what* duty
-//! to ask for lives in [`cc_domain::heater`], host-testable; the arithmetic that
-//! turns a duty into relay levels is `cc_domain::heater::IsrChopper`, also
-//! host-tested.
-//!
-//! ## Carrier: 1 Hz, and why
-//!
-//! The pin drives a **contactor**, so what matters is level changes per second,
-//! not smoothness. The chopper adds 10 ms to a counter over a 1000 ms window and
-//! holds the relay high while the duty exceeds the counter, so on-time is one
-//! contiguous run from counter 0:
-//!
-//! | `duty` | on-ticks | level over the window | level changes/s |
-//! | --- | --- | --- | --- |
-//! | 0 | 0 | OFF throughout | **0** |
-//! | 50 | 5 | ON 50 ms, OFF 950 ms | **2** |
-//! | 500 | 50 | ON 500 ms, OFF 500 ms | **2** |
-//! | 950 | 95 | ON 950 ms, OFF 50 ms | **2** |
-//! | 1000 | 100 | ON throughout | **0** |
-//!
-//! Any duty between the extremes is two level changes, whatever the carrier
-//! frequency. At 100 Hz the average power is identical and the contactor sees
-//! **200** operations a second instead of two, which on a 2 kW boiler contactor
-//! is wear with nothing bought for it. One period per control window is also the
-//! only frequency at which the number the PID writes and the duty delivered are
-//! the same number, so [`CARRIER_HZ`] is `1 / WINDOW_MS`.
+//! The ISR runs every 10 ms, but constant intermediate duty makes only two
+//! relay edges per 1000 ms window. Raising the carrier would wear the contactor
+//! without improving average power. See [`cc_domain::heater`] for control-law units.
 //!
 //! ## Resolution: 17 bits
 //!
@@ -347,7 +324,7 @@ impl TimerIsrPwm {
     ///
     /// Never. There is no peripheral call here — the pin belongs to the ISR, and
     /// the pin is already inactive because the gate closed the duty to zero
-    /// before this was called. See [`HeaterOutput`](super::HeaterOutput)'s
+    /// before this was called. See [`HeaterOutput`]'s
     /// ordering note.
     pub fn disarm(&self) -> Result<(), EspError> {
         self.chopper.disarm();
@@ -395,36 +372,20 @@ impl TimerIsrPwm {
 }
 
 impl TimerIsrPwm {
-    /// Publish the gated duty for the ISR to chop to.
+    /// Convert gated register counts back to millisecond duty on the 10 ms grid.
     ///
-    /// The unit is a *count* out of `max_duty` because that is the unit a
-    /// register-driven carrier would need; this transport works in milliseconds,
-    /// so the count is converted back by [`duty_ms_from_fraction`]. The
-    /// conversion lands on the chopper's 10 ms grid and is bounded by half a step
-    /// — see that function's docs, and
-    /// `a_sub_step_duty_delivers_a_whole_tick_through_the_transport_too` for what
-    /// "bounded" means when the caller asks for less than one tick.
-    ///
-    /// **The gate has already run.** [`HeaterOutput`](super::HeaterOutput)
-    /// resolves the deadman before it calls this, so a count of zero here means
-    /// the deadman is shut and the ISR is chopping a zero on-time — i.e. leaving
-    /// the relay off — for the rest of the window. `AtomicChopper::set_duty` also
-    /// returns the counter to 0, so a deadman that trips at counter 500 stops the
-    /// heater for the remainder of *that* window rather than the next one.
-    ///
-    /// **Infallible, and that is why [`HeaterOutput::set_duty`] is too.** There is
-    /// no peripheral call here: this writes two atomics and returns. The
-    /// `Result` this used to return came from the `LEDC` transport's
-    /// `ledc_set_duty_and_update`, which *can* fail — the peripheral may not be
-    /// initialised — and which is what `Actuators::force_heater_duty`'s
-    /// "the pin still holds the PREVIOUS duty" warning was written for. A
-    /// transport that can fail brings it back; see the module docs.
+    /// The deadman has already run. `set_duty` also resets the counter, so a closed
+    /// gate applies within this window. Only atomic stores occur; a fallible
+    /// peripheral transport would need to restore error handling.
     fn apply(&mut self, counts: u32, max_duty: u32) {
         let counts = counts.min(max_duty);
         let fraction = if max_duty == 0 {
             0.0
         } else {
-            #[allow(clippy::cast_precision_loss)]
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "duty counts are far below 2^24, where f32 stops being exact"
+            )]
             {
                 counts as f32 / max_duty as f32
             }

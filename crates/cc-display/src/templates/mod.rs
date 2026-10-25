@@ -1,21 +1,8 @@
-//! The six display templates, and the stage order they share.
+//! Fixed pipeline: fullscreen modes, shared system screens, then normal layout.
 //!
-//! # The stage order is the design, not an implementation detail
-//!
-//! The pipeline is fixed: **fullscreen modes -> system screens -> the template's
-//! own layout**, with a per-template [`TemplatePolicy`] choosing which shared
-//! stages run.
-//!
-//! The order is realised as a `match` on [`TemplateId`] in `render::dispatch`,
-//! which costs no vtable and needs no trait. [`render()`] is the fixed stage order
-//! and no template can reorder it, which is the property that matters.
-//!
-//! [`TemplatePolicy`] is public and `const` because the policy is *data*, and data
-//! is what a test can assert on: `Standard`/`Scale`/`Upright` enable all four
-//! shared stages, `Minimal` and `TemperatureOnly` enable none, and `Modern` opts
-//! out of the shared heating logo because it draws its own `HEATING` row instead.
-//! That asymmetry is the whole reason the policy exists, and a test checks it
-//! rather than leaving it to a reviewer.
+//! [`TemplatePolicy`] controls shared stages without reordering them. Standard,
+//! Scale, and Upright enable all; Minimal and `TemperatureOnly` enable none;
+//! Modern draws its own heating row instead of the shared logo.
 
 pub mod modern_layout;
 pub mod render;
@@ -30,7 +17,7 @@ use crate::model::{BrewTimerState, Config, DisplayInput};
 // Four independent opt-outs, one per shared stage. They are only ever set
 // together (`ALL`, `NONE` or `MODERN`), and grouping them into a `shared_stages`
 // sub-struct would add a layer with nothing in it.
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "one flag per shared stage; see the type's doc comment"
 )]
@@ -238,10 +225,6 @@ pub struct Rendered {
 /// splash beats both (an offline device showing its last normal layout is
 /// worse than saying so); and the OTA screen beats everything, because an
 /// in-progress update has to be able to report its own failure at any time.
-#[allow(
-    clippy::too_many_lines,
-    reason = "the stage order IS the function; splitting it would hide it"
-)]
 pub fn render(
     template: TemplateId,
     d: &mut Display,
@@ -336,7 +319,7 @@ pub fn step_brew_timer(input: &mut DisplayInput, config: &Config) -> BrewTimerSt
             // `display.post_brew_timer_duration` is bounded to [1, 60] by its
             // ParamDef, so the value is 1000..=60000 after the conversion to
             // milliseconds and the result is exact.
-            #[allow(
+            #[expect(
                 clippy::cast_sign_loss,
                 reason = "duration is in seconds and positive; the ParamDef bounds it to [1, 60]"
             )]
@@ -373,7 +356,7 @@ mod tests {
         );
         assert!(!TemplateId::Modern.policy().shared_fullscreen_brew_timer);
 
-        // Minimal and TemperatureOnly: no shared stages.
+        // Minimal and `TemperatureOnly`: no shared stages.
         for id in [TemplateId::Minimal, TemplateId::TemperatureOnly] {
             assert_eq!(id.policy(), TemplatePolicy::NONE, "{}", id.name());
         }

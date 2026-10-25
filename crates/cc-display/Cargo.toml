@@ -17,6 +17,9 @@ repository.workspace = true
 # state enum and drift from the state machine.
 cc-domain = { workspace = true }
 
+[dev-dependencies]
+cc-alloc-count.workspace = true
+
 [lints]
 workspace = true
 
