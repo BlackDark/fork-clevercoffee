@@ -8,3 +8,10 @@ mise.local.toml
 
 # Written by `just vendor-test`; the vendored crates build inside the firmware workspace.
 firmware/vendor/*/Cargo.lock
+
+# Local bench WiFi credentials (`just bench-provision`, docs/bench.md). Never commit.
+.env
+# PlatformIO files of the C++ firmware (still on main).
+.pio/
+# Local reference checkouts and toolchains from the port's research.
+/research/

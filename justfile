@@ -3,6 +3,8 @@
 # Xtensa "esp" toolchain from espup (`just setup`).
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
+# `.env` (git-ignored) may hold the bench WiFi: WIFI_SSID, WIFI_PASS.
+set dotenv-load := true
 
 # Firmware image flavours: minimal (no MQTT, no display), standard (default), full.
 profile := "standard"
@@ -141,8 +143,10 @@ ui-dev:
 # --- bench --------------------------------------------------------------------------
 
 # Bench profile (docs/bench.md) plus WiFi, applied at next boot.
-bench-provision ssid password:
-    just provision --ssid "{{ssid}}" --password "{{password}}" system.hostname=cc-bench \
+bench-provision ssid=env("WIFI_SSID", "") password=env("WIFI_PASS", ""):
+    @[ -n "{{ssid}}" ] || { echo "no SSID: pass it or set WIFI_SSID in .env" >&2; exit 1; }
+    @# Not echoed: the line holds the WiFi password.
+    @just provision --ssid "{{ssid}}" --password "{{password}}" system.hostname=cc-bench \
       pid.enabled=1 hardware.switches.brew.enabled=1 hardware.switches.brew.type=0 \
       hardware.switches.steam.enabled=1 hardware.switches.hot_water.enabled=1 \
       hardware.switches.power.enabled=0 \

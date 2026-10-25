@@ -25,6 +25,13 @@ just flash bench                                  # full + the watchdog test rou
 just bench-provision <ssid> <password>            # then reset the board
 ```
 
+`just bench-provision` without arguments takes the WiFi from `.env` (git-ignored):
+
+```bash
+WIFI_SSID=MyNetwork
+WIFI_PASS=secret
+```
+
 For MQTT, a throwaway broker on the PC (`mqtt.enabled=1 mqtt.broker=<PC address>`):
 
 ```bash
