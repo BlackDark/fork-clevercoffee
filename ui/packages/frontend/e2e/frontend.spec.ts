@@ -79,12 +79,15 @@ test("parameter editing preserves drafts across categories and masks secrets in 
     page.getByRole("button", { name: "Review & save" }),
   ).toBeDisabled();
   const target = page.getByRole("spinbutton", {
-    name: "brew.setpoint",
+    name: "Setpoint (°C)",
     exact: true,
   });
   const next = Number(await target.inputValue()) === 95 ? "96" : "95";
   await target.fill(next);
   await target.blur();
+  await expect(
+    page.getByRole("img", { name: "Edited", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByText("1 unsaved change", { exact: true }),
   ).toBeVisible();
@@ -187,10 +190,10 @@ test("drafts survive dashboard navigation and secrets stay masked in review", as
   page,
 }) => {
   await page.goto("#/config/system");
-  const mqtt = page.getByRole("switch", { name: "mqtt.enabled", exact: true });
+  const mqtt = page.getByRole("switch", { name: "MQTT enabled", exact: true });
   await expect(mqtt).toBeVisible();
   await mqtt.check();
-  const password = page.getByLabel("mqtt.password", { exact: true });
+  const password = page.getByLabel("Password", { exact: true });
   await expect(password).toBeEnabled();
   await password.fill("private-test-secret");
   await password.blur();
@@ -493,7 +496,7 @@ test("blue controls, centered disabled badges and compact maintenance placement"
         (cardBox?.width ?? 0) / 2,
     ),
   ).toBeLessThan(2);
-  const select = page.getByLabel("display.language", { exact: true });
+  const select = page.getByLabel("Display Language", { exact: true });
   await expect(select).toHaveAttribute("data-slot", "select-trigger");
   await page.goto("#/config/hardware");
   await expect(page.getByRole("alert")).toContainText(
@@ -523,7 +526,7 @@ test("select labels survive repeated changes, zero values, keyboard selection an
     await route.fulfill({ json: parameters });
   });
   await page.goto("#/config/behavior");
-  const select = page.getByLabel("brew.mode", { exact: true });
+  const select = page.getByLabel("Brew Mode", { exact: true });
   await expect(select).toHaveText("Automatic");
   await select.click();
   await expect(page.getByRole("listbox")).toBeVisible();
@@ -603,4 +606,149 @@ test("warnings align icons beside text and System/About share the page container
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+});
+
+test("changing OTA type clears the selected file and allows selecting it again", async ({
+  page,
+}) => {
+  await page.goto("#/system");
+  const file = page.getByLabel("Upload a file", { exact: true });
+  const image = {
+    name: "firmware.bin",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("image"),
+  };
+  await file.setInputFiles(image);
+  await expect(
+    page.getByRole("button", { name: "Upload update", exact: true }),
+  ).toBeEnabled();
+  await page.getByLabel("Update type", { exact: true }).click();
+  await page
+    .getByRole("option", { name: "Filesystem (.bin / .img)", exact: true })
+    .click();
+  await expect(file).toHaveValue("");
+  await expect(
+    page.getByRole("button", { name: "Upload update", exact: true }),
+  ).toBeDisabled();
+  await file.setInputFiles(image);
+  await expect(
+    page.getByRole("button", { name: "Upload update", exact: true }),
+  ).toBeEnabled();
+});
+
+for (const response of [
+  {
+    status: 413,
+    body: "Upload too large",
+    expected: "HTTP 413: Upload too large",
+  },
+  {
+    status: 500,
+    body: "Storage failure",
+    expected: "HTTP 500: Storage failure",
+  },
+  {
+    status: 200,
+    body: "not json",
+    expected: "Invalid configuration upload response (HTTP 200)",
+  },
+  {
+    status: 200,
+    body: "{}",
+    expected: "Invalid configuration upload response (HTTP 200)",
+  },
+]) {
+  test(`configuration restore explains ${response.status} response ${response.body}`, async ({
+    page,
+  }) => {
+    await page.route("**/api/config/upload", (route) =>
+      route.fulfill({
+        status: response.status,
+        contentType: "text/plain",
+        body: response.body,
+      }),
+    );
+    await page.goto("#/system");
+    await page.getByLabel("Configuration file", { exact: true }).setInputFiles({
+      name: "config.json",
+      mimeType: "application/json",
+      buffer: Buffer.from("{}"),
+    });
+    await page
+      .getByRole("button", { name: "Restore configuration", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await expect(
+      page.locator("[data-sonner-toast][data-type=error]"),
+    ).toContainText(response.expected);
+  });
+}
+
+test("configuration restore enforces the 8 KB device limit", async ({
+  page,
+}) => {
+  let requests = 0;
+  await page.route("**/api/config/upload", (route) => {
+    requests++;
+    return route.fulfill({ json: { success: true } });
+  });
+  await page.goto("#/system");
+  const file = page.getByLabel("Configuration file", { exact: true });
+  for (const size of [8193, 8192]) {
+    const text = JSON.stringify({ padding: "x".repeat(size - 14) });
+    expect(Buffer.byteLength(text)).toBe(size);
+    await file.setInputFiles({
+      name: "config.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(text),
+    });
+    await page
+      .getByRole("button", { name: "Restore configuration", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    if (size > 8192) {
+      await expect(
+        page.locator("[data-sonner-toast][data-type=error]"),
+      ).toContainText("up to 8 KB");
+      expect(requests).toBe(0);
+      await page.getByRole("button", { name: "Dismiss notification" }).click();
+    } else {
+      await expect(
+        page.locator("[data-sonner-toast][data-type=success]"),
+      ).toBeVisible();
+      expect(requests).toBe(1);
+    }
+  }
+});
+
+test("unknown device parameters without bounds remain editable", async ({
+  page,
+}) => {
+  await page.route("**/api/parameters?filter=all", async (route) => {
+    const response = await route.fetch();
+    const parameters = await response.json();
+    parameters.push({
+      name: "device.future",
+      type: 2,
+      value: 12,
+      min: null,
+      max: null,
+    });
+    await route.fulfill({ json: parameters });
+  });
+  await page.goto("#/config/system");
+  const input = page.getByRole("spinbutton", {
+    name: "device.future",
+    exact: true,
+  });
+  await input.fill("42");
+  await input.blur();
+  await page
+    .getByRole("button", { name: "Review & save", exact: true })
+    .click();
+  const request = page.waitForRequest(
+    (r) => r.url().endsWith("/api/parameters") && r.method() === "POST",
+  );
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  expect((await request).postData()).toBe("device.future=42");
 });

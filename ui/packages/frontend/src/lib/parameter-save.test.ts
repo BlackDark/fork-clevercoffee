@@ -39,3 +39,33 @@ describe("parameter saves", () => {
       encodeParameterChanges([{ name: "missing", value: true }], [parameter]),
     ).toThrow("Unknown device parameter"));
 });
+
+it("keeps unknown numeric bounds unbounded and still rejects non-finite values", () => {
+  const unknown = {
+    ...parameter,
+    name: "device.future",
+    min: undefined,
+    max: undefined,
+  };
+  expect(
+    encodeParameterChanges(
+      [{ name: unknown.name, value: 42 }],
+      [unknown],
+    ).toString(),
+  ).toBe("device.future=42");
+  expect(() =>
+    encodeParameterChanges([{ name: unknown.name, value: NaN }], [unknown]),
+  ).toThrow();
+  expect(() =>
+    encodeParameterChanges(
+      [{ name: unknown.name, value: Infinity }],
+      [unknown],
+    ),
+  ).toThrow();
+  expect(() =>
+    encodeParameterChanges(
+      [{ name: parameter.name, value: 1 }],
+      [{ ...parameter, min: 0, max: 0 }],
+    ),
+  ).toThrow();
+});

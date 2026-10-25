@@ -31,8 +31,8 @@ export function createMachine() {
       );
       const server = raw.map((p) => ({
         ...p,
-        min: p.min ?? getParameterMetadata(p.name)?.min ?? 0,
-        max: p.max ?? getParameterMetadata(p.name)?.max ?? 0,
+        min: p.min ?? getParameterMetadata(p.name)?.min,
+        max: p.max ?? getParameterMetadata(p.name)?.max,
       }));
       // Metadata supplies labels and dependencies, never writable rows absent from the device.
       const enriched = new Map(

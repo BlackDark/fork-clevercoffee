@@ -7,15 +7,20 @@ export function encodeParameterChanges(
   for (const change of changes) {
     const parameter = known.get(change.name);
     if (!parameter) throw new Error(`Unknown device parameter: ${change.name}`);
-    if (
-      typeof change.value === "number" &&
-      (!Number.isFinite(change.value) ||
-        change.value < parameter.min ||
-        change.value > parameter.max)
-    )
-      throw new Error(
-        `${change.name}: enter a value between ${parameter.min} and ${parameter.max}.`,
-      );
+    if (typeof change.value === "number") {
+      if (!Number.isFinite(change.value))
+        throw new Error(`${change.name}: enter a finite number.`);
+      if (
+        typeof parameter.min === "number" &&
+        Number.isFinite(parameter.min) &&
+        typeof parameter.max === "number" &&
+        Number.isFinite(parameter.max) &&
+        (change.value < parameter.min || change.value > parameter.max)
+      )
+        throw new Error(
+          `${change.name}: enter a value between ${parameter.min} and ${parameter.max}.`,
+        );
+    }
   }
   const body = new URLSearchParams(
     changes.map((p) => [p.name, String(p.value)]),

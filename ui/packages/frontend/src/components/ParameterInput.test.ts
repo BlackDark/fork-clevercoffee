@@ -38,3 +38,19 @@ describe("typed parameter controls", () => {
     expect(getByRole("spinbutton")).toBeDisabled();
   });
 });
+
+it("does not put an empty numeric value into the draft", async () => {
+  const onchange = vi.fn();
+  const { getByRole } = render(ParameterInput, { parameter, onchange });
+  await fireEvent.change(getByRole("spinbutton"), { target: { value: "" } });
+  expect(onchange).not.toHaveBeenCalled();
+});
+
+it("uses the visible label as the accessible name", () => {
+  const { getByRole } = render(ParameterInput, {
+    parameter,
+    label: "Brew temperature",
+    onchange: vi.fn(),
+  });
+  expect(getByRole("spinbutton", { name: "Brew temperature" })).toBeVisible();
+});

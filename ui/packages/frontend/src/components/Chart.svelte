@@ -14,6 +14,7 @@
   let container: HTMLDivElement;
   let plot: uPlot | undefined;
   let error = $state("");
+  let builtDark: boolean | undefined;
   function create() {
     const stroke = dark ? "#6b7280" : "#9ca3af";
     const grid = dark ? "#374151" : "#e5e7eb";
@@ -48,7 +49,7 @@
               value: (_, v) => (v == null ? "—" : `${v.toFixed(0)}%`),
             },
           ];
-    return new uPlot(
+    const next = new uPlot(
       {
         width: Math.max(240, container.clientWidth),
         height: 320,
@@ -81,6 +82,8 @@
       data as uPlot.AlignedData,
       container,
     );
+    builtDark = dark;
+    return next;
   }
   onMount(() => {
     try {
@@ -116,11 +119,17 @@
   });
   $effect(() => {
     const theme = dark;
-    void theme;
-    if (plot) {
+    if (plot && builtDark !== theme) {
       untrack(() => {
-        plot?.destroy();
-        plot = create();
+        const previous = plot;
+        plot = undefined;
+        try {
+          previous?.destroy();
+          plot = create();
+          error = "";
+        } catch (e) {
+          error = String(e);
+        }
       });
     }
   });

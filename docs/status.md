@@ -25,9 +25,29 @@ page.
 
 ---
 
+## PR review corrections — 2026-10-25
+
+Owner: Codex. The still-applicable findings in
+[PR #124](https://github.com/BlackDark/fork-clevercoffee/pull/124) are covered by
+[Chart.test.ts](../ui/packages/frontend/src/components/Chart.test.ts),
+[ParameterInput.test.ts](../ui/packages/frontend/src/components/ParameterInput.test.ts),
+[parameter-save.test.ts](../ui/packages/frontend/src/lib/parameter-save.test.ts),
+and [frontend.spec.ts](../ui/packages/frontend/e2e/frontend.spec.ts).
+The regressions cover single chart construction and caught theme-rebuild errors,
+empty numeric edits, visible accessible labels, absent numeric bounds, OTA file
+selection resets, the 8 KB restore boundary, and useful HTTP/upload errors.
+
+Local `pnpm --dir ui check`, the TypeScript 6 compatibility command, and the
+mock-backed Playwright suite passed. Stable `just check`, device lint/rustdoc,
+the release build, and the size check passed. The built image measured
+1,691,744 B against a 1,835,008 B slot. This review follow-up was not flashed;
+the hardware observations below belong to the earlier committed build.
+
 ## Frontend migration follow-up — 2026-10-25
 
-Owner: Codex. Official shadcn-svelte registry sources were imported with CLI
+Owner: Codex. Validation and hardware observations in this section were
+recorded for [574534fc](https://github.com/BlackDark/fork-clevercoffee/commit/574534fc).
+Official shadcn-svelte registry sources were imported with CLI
 1.7.1 (Nova style); [components.json](../ui/packages/frontend/components.json)
 records their configuration. Pages use the registry Button, Input, Label, Card,
 Badge, Alert, Progress, Tabs, Dialog, Select, Switch, Tooltip, and Sonner
@@ -67,7 +87,8 @@ untouched.
 
 ## Frontend layout correction — 2026-10-21
 
-Owner: Codex. Restored the original neutral light/dark palette, logo, header
+Owner: Codex. Implementation and validation record: [9e747c04](https://github.com/BlackDark/fork-clevercoffee/commit/9e747c04).
+Restored the original neutral light/dark palette, logo, header
 navigation, two-panel machine overview, and cyan/purple/amber uPlot colors.
 Navigation collapses below 768px into a burger menu; route selection, Escape,
 and outside clicks close it. The theme follows the system until a selection is

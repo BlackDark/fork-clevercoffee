@@ -1,8 +1,7 @@
 # BrewUI frontend
 
-Svelte 5 static SPA with Vite, Tailwind 4, Bits UI dialogs, TanStack Svelte Query,
-Zod Mini boundary validation, and uPlot time-series charts. Native form controls
-keep keyboard support and avoid an extra form or primitive dependency.
+Svelte 5 static SPA with Vite, Tailwind 4, official shadcn-svelte components, TanStack Svelte Query,
+Zod Mini boundary validation, and uPlot time-series charts. The component registry is configured in `components.json`.
 
 From `ui/`:
 
@@ -20,7 +19,7 @@ pnpm --filter @clevercoffee/frontend test:e2e
 remains installed for Svelte tooling, with TypeScript 7 pinned under the
 `@typescript/native` npm alias. Each native check clears its generated cache so
 removed or renamed Svelte files cannot leave stale diagnostics.
-`pnpm check:types:ts6` provides a compatibility
+`pnpm --filter @clevercoffee/frontend check:types:ts6` provides a compatibility
 check using the TypeScript 6 engine. See the [svelte-check documentation](https://www.npmjs.com/package/svelte-check).
 ESLint is not used.
 Browser tests exercise the bundled mock API; reports and screenshots go to

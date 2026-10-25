@@ -202,6 +202,7 @@
                     >{getParameterLabel(parameter.name) ||
                       parameter.name}{#if Object.hasOwn(draft.edits, parameter.name)}<span
                         class="edited-dot"
+                        role="img"
                         aria-label="Edited"
                       ></span>{/if}</Label
                   >
@@ -223,6 +224,8 @@
                       )}
                     />{:else}<ParameterInput
                       {parameter}
+                      label={getParameterLabel(parameter.name) ||
+                        parameter.name}
                       disabled={m.save.isPending}
                       onchange={(value) => {
                         draft.edits = {

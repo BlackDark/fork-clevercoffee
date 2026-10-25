@@ -43,10 +43,10 @@
         if (
           !file ||
           file.size === 0 ||
-          file.size > 50 * 1024 ||
+          file.size > 8 * 1024 ||
           !file.name.toLowerCase().endsWith(".json")
         )
-          throw new Error("Choose a nonempty JSON file up to 50 KB.");
+          throw new Error("Choose a nonempty JSON file up to 8 KB.");
         const content = await file.text();
         const parsed: unknown = JSON.parse(content);
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
@@ -56,8 +56,23 @@
           body: content,
           signal: AbortSignal.timeout(30000),
         });
-        const result = ConfigUploadResponseSchema.parse(await response.json());
-        if (!response.ok || !result.success)
+        const text = await response.text();
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${text}`);
+        let payload: unknown;
+        try {
+          payload = JSON.parse(text);
+        } catch {
+          throw new Error(
+            `Invalid configuration upload response (HTTP ${response.status}).`,
+          );
+        }
+        const parsedResult = ConfigUploadResponseSchema.safeParse(payload);
+        if (!parsedResult.success)
+          throw new Error(
+            `Invalid configuration upload response (HTTP ${response.status}).`,
+          );
+        const result = parsedResult.data;
+        if (!result.success)
           throw new Error(result.message || "Configuration upload failed");
         toast.success(
           result.message || "Configuration restored. The device may restart.",
@@ -99,7 +114,7 @@
       await m.command.mutateAsync(route);
       toast.success("Device updated");
     } catch (e) {
-      toast.error(String(e));
+      toast.error(e instanceof Error ? e.message : String(e));
     }
   }
 </script>
@@ -202,7 +217,7 @@
             role="heading"
             aria-level={2}>Restore configuration</Card.Title
           >
-          <p>Restore settings from a JSON backup (up to 50 KB).</p>
+          <p>Restore settings from a JSON backup (up to 8 KB).</p>
         </div>
         <Upload size={20} />
       </div>

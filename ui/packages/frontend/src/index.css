@@ -258,21 +258,8 @@ main {
   display: inline-flex;
   flex-shrink: 0;
 }
-.parameter-hint.unavailable .hint-trigger {
-  padding: 8px 12px;
-  border: 1px solid #bfdbfe;
-  background: #eff6ff;
-  color: #2563eb;
-  font-size: 14px;
-  font-weight: 500;
-}
 .parameter-control:has(.unavailable) {
   justify-content: center;
-}
-:root.dark .parameter-hint.unavailable .hint-trigger {
-  border-color: #1e40af;
-  background: #172554;
-  color: #93c5fd;
 }
 .section-icon {
   display: inline-flex;

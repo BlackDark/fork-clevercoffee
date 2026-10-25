@@ -20,6 +20,7 @@
   import ConfirmDialog from "./ConfirmDialog.svelte";
   let type = $state<"firmware" | "filesystem">("firmware");
   let file = $state<File | null>(null);
+  let fileInput = $state<HTMLInputElement | null>(null);
   let url = $state("");
   let open = $state(false);
   let source = $state<"file" | "url">("file");
@@ -136,6 +137,7 @@
         onchange={(value) => {
           type = value as typeof type;
           file = null;
+          if (fileInput) fileInput.value = "";
         }}
       />
     </div>
@@ -146,6 +148,7 @@
           class="font-medium flex gap-2 items-center mb-3"
           ><Upload size={17} />Upload a file</Label
         ><Input
+          bind:ref={fileInput}
           id="ota-file"
           type="file"
           class="mb-3"

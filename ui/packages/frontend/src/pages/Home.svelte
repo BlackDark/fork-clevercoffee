@@ -46,7 +46,7 @@
     null,
   );
   let stream = $state("Connecting");
-  let chart = $state<ChartData>([[], [], [], []]);
+  let chart = $state.raw<ChartData>([[], [], [], []]);
   let setpoint = $state<number | undefined>();
   const current = $derived(live ?? initial.data);
   const target = $derived(
@@ -104,7 +104,7 @@
       setpoint = undefined;
       toast.success("Brew temperature saved");
     } catch (e) {
-      toast.error(String(e));
+      toast.error(e instanceof Error ? e.message : String(e));
     }
   }
 </script>

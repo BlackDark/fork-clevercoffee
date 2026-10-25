@@ -1132,3 +1132,11 @@ when the last two table rows in 13.5 become runnable. That step is not an agent 
       and again using the keyboard. The trigger label remains visible after
       closing the menu and navigating away/back. Check the themed popup in
       light/dark mode and Escape focus return. Discard the draft afterward.
+
+- [ ] Configuration restore rejects files over 8 KB before sending a request.
+      A plain-text 413 or 500 response retains its HTTP status in the UI error;
+      malformed successful responses report an upload-response error instead of
+      a JSON/schema parser exception.
+- [ ] Select an OTA file, change the update type, and verify the displayed file
+      selection clears along with the pending upload. Re-selecting the same file
+      enables upload again.
