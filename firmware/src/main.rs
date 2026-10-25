@@ -311,9 +311,10 @@ async fn main(spawner: Spawner) -> ! {
         Ok(controller) => {
             spawner.spawn(net::net_task(sta_runner).unwrap());
             spawner.spawn(net::net_task(ap_runner).unwrap());
-            let (workers, streams) = net::web::pool(ble_scale);
-            for id in 0..workers {
-                spawner.spawn(net::web::task(id, stacks, streams).unwrap());
+            static POOL: StaticCell<net::web::Pool> = StaticCell::new();
+            let pool: &'static _ = POOL.init(net::web::pool(ble_scale));
+            for id in 0..pool.workers {
+                spawner.spawn(net::web::task(id, stacks, pool).unwrap());
             }
             spawner.spawn(net::portal::dns_task(stacks.ap).unwrap());
             spawner.spawn(net::portal::dhcp_task(stacks.ap).unwrap());

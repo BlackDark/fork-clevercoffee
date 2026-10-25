@@ -264,6 +264,21 @@ async fn health_has_a_content_length() {
     .await;
 }
 
+// Bodies longer than one window are streamed in pieces that stop rendering early; the
+// pieces must add up to the whole body.
+#[tokio::test(flavor = "current_thread")]
+async fn windowed_json_body_is_complete() {
+    with_server(ready(), |port| async move {
+        let r = get(port, "/api/parameters?filter=all").await;
+        assert_eq!(r.status, 200);
+        assert!(r.body.len() > 3 * 4096, "{} bytes", r.body.len());
+        let length: usize = r.header("Content-Length").unwrap().parse().unwrap();
+        assert_eq!(r.body.len(), length);
+        assert_eq!(r.json().as_array().unwrap().len(), cc_core::config::PARAMS.len());
+    })
+    .await;
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn writes_parameters_and_setpoint() {
     let fake = with_server(ready(), |port| async move {

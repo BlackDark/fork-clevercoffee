@@ -147,7 +147,7 @@ static CONFIG: picoserve::Config = picoserve::Config::new(picoserve::Timeouts {
     read_request: Duration::from_secs(3),
     write: Duration::from_secs(5),
 })
-.keep_connection_alive();
+.close_connection_after_response();
 
 /// HTTP workers, shared by the home network and the access point: a boot runs one of
 /// them at a time (the device restarts when the home network comes back after the
@@ -162,19 +162,35 @@ const WORKERS_WITH_BLE: usize = 2;
 static STREAMS: cc_web::StreamSlots = cc_web::StreamSlots::new(WORKERS / 2);
 static STREAMS_WITH_BLE: cc_web::StreamSlots = cc_web::StreamSlots::new(WORKERS_WITH_BLE / 2);
 
-/// Number of workers and the stream cap they share.
-pub fn pool(ble_scale: bool) -> (usize, &'static cc_web::StreamSlots) {
+/// The HTTP workers' share of RAM.
+pub struct Pool {
+    pub workers: usize,
+    pub streams: &'static cc_web::StreamSlots,
+    /// TCP send buffer per worker: what goes out per round trip. 1.5 KB took 0.4 s for
+    /// the 21 KB parameter list, 4 KB 0.19 s; with a Bluetooth scale the heap has no
+    /// 10 KB to spare.
+    pub tx_buf: usize,
+}
+
+pub fn pool(ble_scale: bool) -> Pool {
     if ble_scale {
-        (WORKERS_WITH_BLE, &STREAMS_WITH_BLE)
+        Pool {
+            workers: WORKERS_WITH_BLE,
+            streams: &STREAMS_WITH_BLE,
+            tx_buf: 1536,
+        }
     } else {
-        (WORKERS, &STREAMS)
+        Pool {
+            workers: WORKERS,
+            streams: &STREAMS,
+            tx_buf: 4096,
+        }
     }
 }
 
 /// The TCP receive buffer is the window a client may send without waiting: 1 KB held a
 /// firmware upload to 35–45 KB/s (one window per round trip).
 const RX_BUF: usize = 2048;
-const TX_BUF: usize = 1536;
 const HTTP_BUF: usize = 2048;
 
 /// The network to serve next and its port-80 listener: the home network if its link is
@@ -192,14 +208,14 @@ async fn pick(stacks: &'static super::Stacks) -> (Stack<'static>, &'static TcpLi
 }
 
 #[embassy_executor::task(pool_size = 4)]
-pub async fn task(id: usize, stacks: &'static super::Stacks, streams: &'static cc_web::StreamSlots) -> ! {
+pub async fn task(id: usize, stacks: &'static super::Stacks, pool: &'static Pool) -> ! {
     // Buffers only once a network is up.
     let _ = pick(stacks).await;
-    let app = cc_web::Api::new(&DEVICE, streams).router();
+    let app = cc_web::Api::new(&DEVICE, pool.streams).router();
     // Socket and request buffers on the heap (reclaimed RAM), not in the static task
     // pool: main RAM is short once Bluetooth reserves its 64 KB.
     let mut rx = alloc::vec![0; RX_BUF];
-    let mut tx = alloc::vec![0; TX_BUF];
+    let mut tx = alloc::vec![0; pool.tx_buf];
     let mut http = alloc::vec![0; HTTP_BUF];
     loop {
         let (stack, listener) = pick(stacks).await;

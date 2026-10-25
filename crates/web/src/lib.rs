@@ -171,11 +171,15 @@ impl<'b, B: Backend> Api<'b, B> {
 
 // --- bodies -----------------------------------------------------------------------
 
-/// A JSON body generated on demand. It is rendered twice (length, then content) and
-/// streamed in windows, so a 20 KB parameter list needs no allocation.
+/// A JSON body generated on demand, without buffering it whole: rendered once to count
+/// its length, then streamed in windows. Each window renders the body up to the
+/// window's end and stops there, so a 21 KB body costs about three full renders and a
+/// 4 KB buffer. Rendering the whole body for every 1 KB window took 0.9 s on the chip;
+/// buffering it whole took 25 KB of heap.
 struct Json<F>(F);
 
-const WINDOW: usize = 1024;
+/// Matches the HTTP workers' TCP send buffer (4 KB): one window per round trip.
+const WINDOW: usize = 4096;
 
 struct Counter(usize);
 impl core::fmt::Write for Counter {
@@ -185,7 +189,8 @@ impl core::fmt::Write for Counter {
     }
 }
 
-/// Collects bytes `[skip, skip + buf.len())` of the output.
+/// Collects bytes `[skip, skip + buf.len())` of the output, then stops the render with
+/// an error (the writers pass it up with `?`).
 struct Window<'a> {
     skip: usize,
     pos: usize,
@@ -195,7 +200,10 @@ struct Window<'a> {
 impl core::fmt::Write for Window<'_> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         for &b in s.as_bytes() {
-            if self.pos >= self.skip && self.len < self.buf.len() {
+            if self.pos >= self.skip {
+                if self.len == self.buf.len() {
+                    return Err(core::fmt::Error);
+                }
                 self.buf[self.len] = b;
                 self.len += 1;
             }
@@ -241,9 +249,9 @@ impl<F: Fn(&mut dyn core::fmt::Write) -> core::fmt::Result> Content for Json<F> 
 
 fn json<F: Fn(&mut dyn core::fmt::Write) -> core::fmt::Result>(
     status: StatusCode,
-    f: F,
+    render: F,
 ) -> Response<impl picoserve::response::HeadersIter + use<F>, impl picoserve::response::Body + use<F>> {
-    Response::new(status, Json(f)).with_headers(CORS)
+    Response::new(status, Json(render)).with_headers(CORS)
 }
 
 const CORS: [(&str, &str); 3] = [
@@ -474,26 +482,23 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
             ("GET", "/api/health") => reply!(Response::new(StatusCode::OK, "").with_headers(CORS)),
             ("GET", "/api/temperatures") => {
                 let st = b.read(|_, s, _| *s);
-                reply!(json(StatusCode::OK, move |w| cc_api::write_temperatures(
-                    &st,
-                    &mut Writer::new(w)
-                )));
+                reply!(json(StatusCode::OK, move |w| {
+                    cc_api::write_temperatures(&st, &mut Writer::new(w))
+                }));
             }
             ("GET", "/api/history") => {
                 let Some(h) = history_copy(b) else {
                     reply!(message(StatusCode::new(503), false, "Busy, try again"));
                 };
-                reply!(json(StatusCode::OK, move |w| cc_api::write_history(
-                    &h[0],
-                    &mut Writer::new(w)
-                )));
+                reply!(json(StatusCode::OK, move |w| {
+                    cc_api::write_history(&h[0], &mut Writer::new(w))
+                }));
             }
             ("GET", "/api/parameters") => {
                 let cfg = alloc::boxed::Box::new(b.read(|c, _, _| c.clone()));
-                reply!(json(StatusCode::OK, move |w| cc_api::write_parameters(
-                    &cfg,
-                    &mut Writer::new(w)
-                )));
+                reply!(json(StatusCode::OK, move |w| {
+                    cc_api::write_parameters(&cfg, &mut Writer::new(w))
+                }));
             }
             ("GET", "/api/parameter-help") => {
                 let mut v = [0u8; 96];
@@ -505,23 +510,22 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                 }
                 let mut key_owned: heapless::String<96> = heapless::String::new();
                 let _ = key_owned.push_str(key);
-                reply!(json(StatusCode::OK, move |w| cc_api::write_parameter_help(
-                    &key_owned,
-                    &mut Writer::new(w)
-                )
-                .unwrap_or(Ok(()))));
+                reply!(json(StatusCode::OK, move |w| {
+                    cc_api::write_parameter_help(&key_owned, &mut Writer::new(w)).unwrap_or(Ok(()))
+                }));
             }
             ("GET", "/api/config" | "/api/config/download") => {
                 let cfg = alloc::boxed::Box::new(b.read(|c, _, _| c.clone()));
                 let download = path.ends_with("download");
-                let body = Json(move |w: &mut dyn core::fmt::Write| {
+                let render = move |w: &mut dyn core::fmt::Write| {
                     let mut wr = if download {
                         Writer::pretty(w)
                     } else {
                         Writer::new(w)
                     };
                     cc_api::write_config(&cfg, &mut wr)
-                });
+                };
+                let body = Json(render);
                 if download {
                     reply!(Response::ok(body).with_headers([
                         ("Content-Disposition", "attachment; filename=\"config.json\""),
