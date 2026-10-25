@@ -188,6 +188,58 @@ fn sensor_dropout_stops_heating_and_recovers_after_delay() {
     assert_eq!(s.state(), State::PidNormal);
 }
 
+// The C++ firmware returned to PID after a sensor error, also when it began in standby:
+// on the bench a few bad DS18B20 readings woke the idle machine and it heated until
+// the standby timer ran out again.
+#[test]
+fn fix_sensor_error_in_standby_returns_to_standby() {
+    let mut s = Sim::ready();
+    s.cmd(Command::Sleep);
+    s.run(100);
+    assert_eq!(s.state(), State::Standby);
+    let mut sim_t = None;
+    std::mem::swap(&mut s.inp.temperature, &mut sim_t);
+    for _ in 0..300 {
+        s.inp.now_ms += TICK_MS;
+        s.m.tick(
+            &mut s.cfg,
+            &Inputs {
+                temperature: None,
+                ..s.inp
+            },
+        );
+    }
+    assert_eq!(s.state(), State::SensorError);
+    s.temp(93.0);
+    s.run(6_000);
+    assert_eq!(s.state(), State::Standby);
+    assert!(!s.out().heater);
+}
+
+#[test]
+fn sensor_error_in_standby_woken_meanwhile_returns_to_heating() {
+    let mut s = Sim::ready();
+    s.cmd(Command::Sleep);
+    s.run(100);
+    let mut sim_t = None;
+    std::mem::swap(&mut s.inp.temperature, &mut sim_t);
+    for _ in 0..300 {
+        s.inp.now_ms += TICK_MS;
+        s.m.tick(
+            &mut s.cfg,
+            &Inputs {
+                temperature: None,
+                ..s.inp
+            },
+        );
+    }
+    assert_eq!(s.state(), State::SensorError);
+    s.cmd(Command::Wake);
+    s.temp(93.0);
+    s.run(6_000);
+    assert_eq!(s.state(), State::PidNormal);
+}
+
 #[test]
 fn over_temperature_trips_after_three_readings_and_clears_when_cool() {
     let mut s = Sim::ready();

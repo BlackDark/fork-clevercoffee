@@ -272,6 +272,8 @@ pub struct Machine {
     boot_ms: u64,
     req: Requests,
     standby_requested: bool,
+    /// The sensor error began in standby: recovery goes back there, not to heating.
+    fault_from_standby: bool,
     pid_runtime: bool,
     backflush_mode: bool,
     backflush_cycle: i32,
@@ -353,6 +355,7 @@ impl Machine {
             boot_ms: now_ms,
             req: Requests::default(),
             standby_requested: false,
+            fault_from_standby: false,
             pid_runtime: cfg.pid_enabled,
             backflush_mode: false,
             backflush_cycle: 1,
@@ -976,10 +979,18 @@ impl Machine {
                 wake.then_some(pid_state)
             }
             State::SensorError => {
+                // Woken during the error: it was not left in standby.
+                if r.normal_operation || r.brew_start || r.steam_start {
+                    self.fault_from_standby = false;
+                }
                 let recovered = self
                     .temp_good_since_ms
                     .is_some_and(|t| self.now_ms.saturating_sub(t) > SENSOR_RECOVERY_MS);
-                recovered.then_some(pid_state)
+                recovered.then_some(if self.fault_from_standby {
+                    State::Standby
+                } else {
+                    pid_state
+                })
             }
         }
     }
@@ -1039,6 +1050,7 @@ impl Machine {
                 self.standby_requested = false;
             }
             State::EmergencyStop => self.pid_runtime = false,
+            State::SensorError => self.fault_from_standby = from == State::Standby,
             _ => {}
         }
         if !to.is_brew_active() && to != State::BrewFinished {

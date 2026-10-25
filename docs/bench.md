@@ -98,4 +98,5 @@ What the first run on a chip (2026-10-23) found; each has a fix and, where the l
 | `just provision --ssid "My Net"` fails with "not KEY=VALUE" | the recipe split arguments at spaces |
 | With two UI tabs open, connections stalled 3–4 s at a time | picoserve kept an idle keep-alive connection for 1 s, then waited up to 3 s for the browser's FIN. `Connection: close` now (ADR 0008) |
 | (listener, first version) connections hung until the client timed out | an accepted socket took another client's SYN; requests of clients that had given up held workers. Covered by `test_accepted_socket_takes_only_its_own_client` and the listener tests in the vendored smoltcp |
+| In a 4 h soak the idle machine left standby four times | DS18B20 read errors (about 2 % of readings) raised a sensor error, and its recovery went to PID, not back to standby |
 | Opening the serial port resets the board | DTR/RTS auto-reset: release RTS before DTR, or use `just monitor` |

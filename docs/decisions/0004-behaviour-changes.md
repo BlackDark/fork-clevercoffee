@@ -13,6 +13,7 @@ The C++ firmware v1.3.4 and its tests were the specification. Porting them line 
 | The pump timer was never started: brew and hot water ran without a limit. | Brew stops after 5 min, hot water after 60 s (`fix_brew_is_capped`, `fix_hot_water_is_capped`). |
 | `/api/steam` changed only the setpoint, the state stayed PidNormal. | Steam via API enters the Steam state like the switch (`fix_api_steam_toggle_enters_the_steam_state`). |
 | A brew press during steam or while the tank was empty was replayed later. | Requests last one tick; nothing is replayed (`fix_brew_press_during_steam_is_not_replayed`, `fix_brew_toggle_flipped_while_tank_empty_does_not_brew_after_refill`). |
+| A sensor error that began in standby recovered into PID: a few bad readings woke the idle machine, which heated until the standby timer ran out again. | Recovery returns to standby unless the machine was woken meanwhile (`fix_sensor_error_in_standby_returns_to_standby`). |
 | Waking from standby with the brew switch also started a shot. | The press only wakes (`fix_wake_by_brew_press_does_not_start_a_shot`). |
 | The "normal operation" request lingered: after any web activity standby did not stick. | Standby latches; activity wakes once (`fix_standby_sticks_after_web_activity`). |
 | A momentary long press in backflush idle never started a manual flush. | Short press starts a backflush cycle, long press flushes while held (`fix_momentary_long_press_in_backflush_idle_flushes_while_held`). |
