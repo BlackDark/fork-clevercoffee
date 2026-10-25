@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { Input } from "@/components/ui/input";
+  import SelectField from "./SelectField.svelte";
+  import SwitchField from "./SwitchField.svelte";
   import {
     isParameterBoolean,
     isParameterEnum,
@@ -18,31 +21,28 @@
 </script>
 
 {#if isParameterBoolean(parameter)}
-  <input
-    class="toggle"
-    aria-label={parameter.name}
+  <SwitchField
     id={parameter.name}
-    type="checkbox"
-    role="switch"
+    label={parameter.name}
     checked={!!parameter.value}
     {disabled}
-    onchange={(e) => onchange(e.currentTarget.checked)}
+    {onchange}
   />
 {:else if isParameterEnum(parameter)}
-  <select
-    class="input"
+  <SelectField
     id={parameter.name}
-    aria-label={parameter.name}
+    label={parameter.name}
     value={String(parameter.value)}
+    options={(parameter.options ?? []).map((option) => ({
+      value: String(option.value),
+      label: option.label,
+    }))}
     {disabled}
-    onchange={(e) => onchange(Number(e.currentTarget.value))}
-    >{#each parameter.options ?? [] as option}<option value={option.value}
-        >{option.label}</option
-      >{/each}</select
-  >
+    onchange={(value) => onchange(Number(value))}
+  />
 {:else if isParameterString(parameter)}
-  <input
-    class="input"
+  <Input
+    class=""
     id={parameter.name}
     aria-label={parameter.name}
     type={parameter.name.includes("password") ? "password" : "text"}
@@ -52,8 +52,8 @@
     onchange={(e) => onchange(e.currentTarget.value)}
   />
 {:else}
-  <input
-    class="input"
+  <Input
+    class=""
     id={parameter.name}
     aria-label={parameter.name}
     type="number"

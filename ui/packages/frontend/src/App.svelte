@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as Tooltip from "./components/ui/tooltip";
   import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
   import Shell from "./components/Shell.svelte";
   const client = new QueryClient({
@@ -9,4 +10,7 @@
   });
 </script>
 
-<QueryClientProvider {client}><Shell /></QueryClientProvider>
+<QueryClientProvider {client}
+  ><Tooltip.Provider delayDuration={150}><Shell /></Tooltip.Provider
+  ></QueryClientProvider
+>

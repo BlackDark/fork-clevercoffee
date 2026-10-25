@@ -1,6 +1,20 @@
 <script lang="ts">
+  import * as Alert from "@/components/ui/alert";
+  import { Button } from "@/components/ui/button";
+  import { Input } from "@/components/ui/input";
+  import { Label } from "@/components/ui/label";
+  import * as Card from "@/components/ui/card";
+  import { Progress } from "@/components/ui/progress";
+  import SelectField from "./SelectField.svelte";
+  import { toast } from "svelte-sonner";
   import { createMutation, createQuery } from "@tanstack/svelte-query";
-  import { Upload, Link, HardDrive } from "@lucide/svelte";
+  import {
+    Upload,
+    Link,
+    HardDrive,
+    TriangleAlert,
+    RefreshCw,
+  } from "@lucide/svelte";
   import { apiJsonFetch } from "@/lib/api-config";
   import { ApiResponseSchema, OtaStatusSchema } from "@/lib/schemas";
   import ConfirmDialog from "./ConfirmDialog.svelte";
@@ -9,7 +23,6 @@
   let url = $state("");
   let open = $state(false);
   let source = $state<"file" | "url">("file");
-  let message = $state("");
   const status = createQuery(() => ({
     queryKey: ["ota"],
     queryFn: async ({ signal }) =>
@@ -61,19 +74,19 @@
       return result;
     },
     onSuccess: async (result) => {
-      message =
+      toast.success(
         result.message ||
-        "Update accepted. Watch device status for completion.";
+          "Update accepted. Watch device status for completion.",
+      );
       await status.refetch();
     },
   }));
   const busy = $derived(upload.isPending || !!status.data?.updateInProgress);
   async function run() {
-    message = "";
     try {
       await upload.mutateAsync();
     } catch (e) {
-      message = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       open = false;
     }
@@ -84,117 +97,133 @@
   }
 </script>
 
-<section class="panel mt-6">
-  <div class="panel-heading">
-    <div>
-      <h2>Device updates</h2>
-      <p>
-        Install firmware or filesystem updates. The device will restart after a
-        successful update.
-      </p>
-    </div>
-    <HardDrive size={20} />
-  </div>
-  <div class="notice warning">
-    Keep the device powered throughout the update. Updates may be refused while
-    brewing or steaming.
-  </div>
-  <label
-    for="update-type"
-    class="font-medium">Update type</label
-  ><select
-    id="update-type"
-    class="input my-3 max-w-sm"
-    bind:value={type}
-    disabled={busy}
-    onchange={() => {
-      file = null;
-    }}
-    ><option value="firmware">Firmware (.bin)</option><option value="filesystem"
-      >Filesystem (.bin / .img)</option
-    ></select
-  >
-  <div class="two-columns">
-    <div>
-      <label
-        for="ota-file"
-        class="font-medium flex gap-2 items-center mb-3"
-        ><Upload size={17} />Upload a file</label
-      ><input
-        id="ota-file"
-        type="file"
-        class="input mb-3"
-        accept={type === "firmware" ? ".bin" : ".bin,.img"}
-        disabled={busy}
-        onchange={(e) => (file = e.currentTarget.files?.[0] ?? null)}
-      /><button
-        class="btn"
-        disabled={!file || busy || status.isError || status.isPending}
-        onclick={() => ask("file")}
-        >{upload.isPending ? "Updating…" : "Upload update"}</button
-      >
-    </div>
-    <div>
-      <label
-        for="ota-url"
-        class="font-medium flex gap-2 items-center mb-3"
-        ><Link size={17} />Update from URL</label
-      >
-      <form
-        onsubmit={(e) => {
-          e.preventDefault();
-          ask("url");
-        }}
-      >
-        <input
-          id="ota-url"
-          class="input mb-3"
-          type="url"
-          required
-          placeholder="https://example.com/firmware.bin"
-          bind:value={url}
-          disabled={busy}
-        /><button
-          class="btn secondary"
-          disabled={!url || busy || status.isError || status.isPending}
-          >Update from URL</button
+<Card.Root class="panel mt-6"
+  ><Card.Content>
+    <div class="panel-heading">
+      <div>
+        <Card.Title
+          role="heading"
+          aria-level={2}>Device updates</Card.Title
         >
-      </form>
-      <p class="text-xs text-muted-foreground mt-2">
-        Availability depends on firmware support. Unsupported requests are
-        reported by the device.
-      </p>
+        <p>
+          Install firmware or filesystem updates. The device will restart after
+          a successful update.
+        </p>
+      </div>
+      <HardDrive size={20} />
     </div>
-  </div>
-  {#if status.isError}<p
-      role="alert"
-      class="notice error"
+    <Alert.Root
+      class="mb-4 border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+      ><TriangleAlert size={18} /><Alert.Description class="text-inherit">
+        Keep the device powered throughout the update. Updates may be refused
+        while brewing or steaming.
+      </Alert.Description></Alert.Root
     >
-      Update status unavailable. <button
-        class="text-link"
-        onclick={() => status.refetch()}>Retry</button
+    <Label
+      for="update-type"
+      class="font-medium">Update type</Label
+    >
+    <div class="my-3 max-w-sm">
+      <SelectField
+        id="update-type"
+        label="Update type"
+        value={type}
+        options={[
+          { value: "firmware", label: "Firmware (.bin)" },
+          { value: "filesystem", label: "Filesystem (.bin / .img)" },
+        ]}
+        disabled={busy}
+        onchange={(value) => {
+          type = value as typeof type;
+          file = null;
+        }}
+      />
+    </div>
+    <div class="two-columns">
+      <div>
+        <Label
+          for="ota-file"
+          class="font-medium flex gap-2 items-center mb-3"
+          ><Upload size={17} />Upload a file</Label
+        ><Input
+          id="ota-file"
+          type="file"
+          class="mb-3"
+          accept={type === "firmware" ? ".bin" : ".bin,.img"}
+          disabled={busy}
+          onchange={(e) => (file = e.currentTarget.files?.[0] ?? null)}
+        /><Button
+          type="button"
+          variant="default"
+          disabled={!file || busy || status.isError || status.isPending}
+          onclick={() => ask("file")}
+          ><Upload size={16} />{upload.isPending
+            ? "Updating…"
+            : "Upload update"}</Button
+        >
+      </div>
+      <div>
+        <Label
+          for="ota-url"
+          class="font-medium flex gap-2 items-center mb-3"
+          ><Link size={17} />Update from URL</Label
+        >
+        <form
+          onsubmit={(e) => {
+            e.preventDefault();
+            ask("url");
+          }}
+        >
+          <Input
+            id="ota-url"
+            class="mb-3"
+            type="url"
+            required
+            placeholder="https://example.com/firmware.bin"
+            bind:value={url}
+            disabled={busy}
+          /><Button
+            type="submit"
+            variant="outline"
+            disabled={!url || busy || status.isError || status.isPending}
+            ><Link size={16} />Update from URL</Button
+          >
+        </form>
+        <p class="text-xs text-muted-foreground mt-2">
+          Availability depends on firmware support. Unsupported requests are
+          reported by the device.
+        </p>
+      </div>
+    </div>
+    {#if status.isError}<Alert.Root
+        role="alert"
+        variant="destructive"
+        class="mb-4"
+        ><Alert.Description>
+          Update status unavailable. <Button
+            type="button"
+            variant="link"
+            class="h-auto p-0"
+            onclick={() => status.refetch()}
+            ><RefreshCw size={16} />Retry</Button
+          >
+        </Alert.Description></Alert.Root
+      >{/if}
+    {#if busy || (status.data?.status !== "idle" && status.data)}<div
+        class="mt-5"
+        role="status"
       >
-    </p>{/if}
-  {#if busy || (status.data?.status !== "idle" && status.data)}<div
-      class="mt-5"
-      role="status"
-    >
-      <p>{status.data?.message || status.data?.status || "Uploading…"}</p>
-      <progress
-        max="100"
-        value={status.data?.progress ?? 0}
-        aria-label="Device update progress"
-      ></progress>{#if status.data?.error}<p class="text-red-600">
-          {status.data.error}
-        </p>{/if}
-    </div>{/if}
-  {#if message}<p
-      class="notice"
-      role="status"
-    >
-      {message}
-    </p>{/if}
-</section>
+        <p>{status.data?.message || status.data?.status || "Uploading…"}</p>
+        <Progress
+          max={100}
+          value={status.data?.progress ?? 0}
+          aria-label="Device update progress"
+        ></Progress>{#if status.data?.error}<p class="text-red-600">
+            {status.data.error}
+          </p>{/if}
+      </div>{/if}
+  </Card.Content></Card.Root
+>
 <ConfirmDialog
   bind:open
   title={`Install ${type} update?`}

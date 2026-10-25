@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { Dialog } from "bits-ui";
+  import * as Dialog from "./ui/dialog";
+  import { Button } from "./ui/button";
+  import { X, Check } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   let {
     open = $bindable(false),
@@ -23,34 +25,37 @@
 </script>
 
 <Dialog.Root bind:open>
-  <Dialog.Portal
-    ><Dialog.Overlay class="dialog-overlay" /><Dialog.Content
-      class="dialog-content"
-      onEscapeKeydown={(e) => {
-        if (busy) e.preventDefault();
-      }}
-      onInteractOutside={(e) => {
-        if (busy) e.preventDefault();
-      }}
-    >
-      <Dialog.Title class="text-xl font-semibold">{title}</Dialog.Title>
-      <Dialog.Description class="mt-2 text-muted-foreground"
-        >{description}</Dialog.Description
-      >
-      {#if children}<div class="my-5 max-h-72 overflow-auto">
-          {@render children()}
-        </div>{/if}
-      <div class="mt-6 flex justify-end gap-3">
-        <Dialog.Close
-          class="btn secondary"
-          disabled={busy}>Cancel</Dialog.Close
-        ><button
-          class:danger={destructive}
-          class="btn"
-          disabled={busy}
-          onclick={confirm}>{busy ? "Working…" : label}</button
-        >
-      </div>
-    </Dialog.Content></Dialog.Portal
+  <Dialog.Content
+    showCloseButton={!busy}
+    class="max-h-[90vh] overflow-y-auto sm:max-w-lg"
+    onEscapeKeydown={(event) => {
+      if (busy) event.preventDefault();
+    }}
+    onInteractOutside={(event) => {
+      if (busy) event.preventDefault();
+    }}
   >
+    <Dialog.Header
+      ><Dialog.Title>{title}</Dialog.Title><Dialog.Description
+        >{description}</Dialog.Description
+      ></Dialog.Header
+    >
+    {#if children}<div class="max-h-72 overflow-auto">
+        {@render children()}
+      </div>{/if}
+    <Dialog.Footer>
+      <Button
+        variant="outline"
+        disabled={busy}
+        onclick={() => {
+          open = false;
+        }}><X size={16} />Cancel</Button
+      >
+      <Button
+        variant={destructive ? "destructive" : "default"}
+        disabled={busy}
+        onclick={confirm}><Check size={16} />{busy ? "Working…" : label}</Button
+      >
+    </Dialog.Footer>
+  </Dialog.Content>
 </Dialog.Root>

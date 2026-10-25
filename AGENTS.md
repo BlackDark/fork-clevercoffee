@@ -381,9 +381,9 @@ Practical consequences:
 
 **AG-UI-1.** `ui/packages/frontend` uses Svelte 5 runes and plain Vite;
 TanStack Svelte Query owns server state and mutations, uPlot owns charts, and
-Zod Mini validates API data. Use native controls and Bits UI dialogs rather than
-adding a second primitive library. Hash routes keep the client independent of
-server route registration. Preserve the original neutral light/dark palette, logo, and header navigation.
+Zod Mini validates API data. Use official shadcn-svelte registry components wherever available.
+Keep custom code for application layout, device behavior, and uPlot charts. Hash routes keep the client independent of
+server route registration. Preserve neutral light/dark surfaces, blue accents, the logo, and header navigation.
 Collapse navigation into a burger menu below 768px; do not introduce a sidebar.
 There is no 50 KB size limit.
 

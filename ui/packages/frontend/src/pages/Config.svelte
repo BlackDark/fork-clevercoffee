@@ -1,5 +1,20 @@
 <script lang="ts">
-  import { Search, Save, RotateCcw, AlertTriangle } from "@lucide/svelte";
+  import * as Tabs from "@/components/ui/tabs";
+  import * as Alert from "@/components/ui/alert";
+  import { Button } from "@/components/ui/button";
+  import { Input } from "@/components/ui/input";
+  import { Label } from "@/components/ui/label";
+  import { Badge } from "@/components/ui/badge";
+  import * as Card from "@/components/ui/card";
+  import ParameterHint from "../components/ParameterHint.svelte";
+  import { toast } from "svelte-sonner";
+  import {
+    Search,
+    Save,
+    RotateCcw,
+    AlertTriangle,
+    Settings2,
+  } from "@lucide/svelte";
   import { useMachine } from "@/lib/machine.svelte";
   import { groups2, parameterGroups } from "@/lib/parameter-groups";
   import { getParameterLabel } from "@/lib/parameter-labels";
@@ -18,7 +33,6 @@
   let search = $state("");
   let confirm = $state(false);
   let reboot = $state(false);
-  let message = $state("");
   const parameters = $derived(
     (m.parameters.data ?? []).map((p) => ({
       ...p,
@@ -67,9 +81,9 @@
       reboot = submitted.some((p) => parameterRequiresReboot(p.name));
       draft.edits = {};
       confirm = false;
-      message = "Parameters saved successfully.";
+      toast.success("Parameters saved successfully.");
     } catch (e) {
-      message = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
       confirm = false;
     }
   }
@@ -82,58 +96,77 @@
   </div>
 </div>
 <div class="settings-toolbar">
-  <nav
-    class="tabs"
-    aria-label="Parameter categories"
-  >
-    {#each ["behavior", "system", "hardware"] as category}<a
-        href={`#/config/${category}`}
-        class:active={filter === category}
-        aria-current={filter === category ? "page" : undefined}
-        >{category[0].toUpperCase() + category.slice(1)}</a
-      >{/each}
+  <nav aria-label="Parameter categories">
+    <Tabs.Root
+      value={filter}
+      onValueChange={(value) => {
+        if (value && value !== filter) {
+          filter = value;
+          location.hash = `/config/${value}`;
+        }
+      }}
+    >
+      <Tabs.List>
+        {#each ["behavior", "system", "hardware"] as category}
+          <Tabs.Trigger value={category}
+            >{category[0].toUpperCase() + category.slice(1)}</Tabs.Trigger
+          >
+        {/each}
+      </Tabs.List>
+    </Tabs.Root>
   </nav>
-  <div class="search-box">
-    <Search size={16} /><input
+  <div class="relative w-full sm:w-64">
+    <Search
+      size={16}
+      class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+    /><Input
+      class="pl-9"
       aria-label="Search parameters"
       placeholder="Find a parameter…"
       bind:value={search}
     />
   </div>
 </div>
-{#if filter === "hardware"}<div class="notice warning">
-    <AlertTriangle size={18} /><span
-      >Incorrect hardware settings can activate the pump, heater, or valve
-      unexpectedly. Check relay, sensor, and switch settings before saving and
-      restarting.</span
-    >
-  </div>{/if}
-{#if message}<div
-    class="notice"
-    role="status"
-  >
-    {message}
-  </div>{/if}
-{#if reboot}<div class="notice">
-    Some saved settings need a reboot to take effect. <a
-      href="#/system"
-      class="text-link">Restart in System</a
-    ><button
-      class="text-link"
-      onclick={() => (reboot = false)}>Dismiss</button
-    >
-  </div>{/if}
+{#if filter === "hardware"}<Alert.Root
+    class="mb-4 border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+    ><AlertTriangle size={18} /><Alert.Description class="text-inherit">
+      <span
+        >Incorrect hardware settings can activate the pump, heater, or valve
+        unexpectedly. Check relay, sensor, and switch settings before saving and
+        restarting.</span
+      >
+    </Alert.Description></Alert.Root
+  >{/if}
+
+{#if reboot}<Alert.Root class="mb-4"
+    ><Alert.Description>
+      Some saved settings need a reboot to take effect. <Button
+        href="#/system"
+        variant="link"
+        class="h-auto p-0">Restart in System</Button
+      ><Button
+        type="button"
+        variant="link"
+        class="h-auto p-0"
+        onclick={() => (reboot = false)}>Dismiss</Button
+      >
+    </Alert.Description></Alert.Root
+  >{/if}
 {#if m.parameters.isPending}<p role="status">
     Loading parameters…
-  </p>{:else if m.parameters.isError}<div
+  </p>{:else if m.parameters.isError}<Alert.Root
     role="alert"
-    class="notice error"
-  >
-    {m.parameters.error.message}<button
-      class="text-link"
-      onclick={() => m.parameters.refetch()}>Retry</button
-    >
-  </div>{:else if !groups2[filter]}<p>Unknown parameter category.</p>{:else}
+    variant="destructive"
+    class="mb-4"
+    ><Alert.Description>
+      {m.parameters.error.message}<Button
+        type="button"
+        variant="link"
+        class="h-auto p-0"
+        onclick={() => m.parameters.refetch()}>Retry</Button
+      >
+    </Alert.Description></Alert.Root
+  >{:else if !groups2[filter]}<p>Unknown parameter category.</p>{:else}
   <form
     onsubmit={(e) => {
       e.preventDefault();
@@ -141,48 +174,75 @@
     }}
   >
     {#each [...sections, ...(filter === "system" && unmapped.length ? [{ key: "other", label: "Other device parameters", items: unmapped }] : [])] as group}
-      <section class="panel parameter-panel">
-        <div class="panel-heading">
-          <h2>{group.label}</h2>
-          <span class="badge">{group.items.length} settings</span>
-        </div>
-        {#each group.items as parameter (parameter.name)}{@const enabled =
-            areRequiredParametersMet(parameter, parameters)}
-          <div class="parameter-row">
-            <div>
-              <label
-                for={parameter.name}
-                class="font-medium"
-                >{getParameterLabel(parameter.name) ||
-                  parameter.name}{#if Object.hasOwn(draft.edits, parameter.name)}<span
-                    class="edited-dot"
-                    aria-label="Edited"
-                  ></span>{/if}</label
-              >
-              <p class="parameter-key">{parameter.name}</p>
-              {#if parameterHelpTexts[parameter.name]}<p class="parameter-help">
-                  {parameterHelpTexts[parameter.name].replace(/<[^>]*>/g, "")}
-                </p>{/if}{#if !enabled}<p class="text-sm text-amber-700">
-                  {getMissingRequiredParametersMessage(parameter, parameters)}
-                </p>{/if}
-            </div>
-            <div class="parameter-control">
-              <ParameterInput
-                {parameter}
-                disabled={!enabled || m.save.isPending}
-                onchange={(value) => {
-                  draft.edits = { ...draft.edits, [parameter.name]: value };
-                }}
-              />
-            </div>
+      <Card.Root class="panel parameter-panel"
+        ><Card.Content>
+          <div class="panel-heading">
+            <Card.Title
+              role="heading"
+              aria-level={2}
+            >
+              <span
+                class="section-icon"
+                class:purple={/pid|mqtt/i.test(group.key)}
+                class:amber={/power|relay|switch/i.test(group.key)}
+                class:teal={/brew|water|maintenance|scale/i.test(group.key)}
+                ><Settings2 size={19} /></span
+              >{group.label}
+            </Card.Title>
+            <Badge variant="secondary">{group.items.length} settings</Badge>
           </div>
-        {/each}
-      </section>{/each}
-    {#if !sections.length && !(filter === "system" && unmapped.length)}<p
-        class="notice"
-      >
-        No matching parameters.
-      </p>{/if}
+          <div class="parameter-grid">
+            {#each group.items as parameter (parameter.name)}{@const enabled =
+                areRequiredParametersMet(parameter, parameters)}
+              <div class="parameter-row">
+                <div class="parameter-label">
+                  <Label
+                    for={parameter.name}
+                    class="font-medium"
+                    >{getParameterLabel(parameter.name) ||
+                      parameter.name}{#if Object.hasOwn(draft.edits, parameter.name)}<span
+                        class="edited-dot"
+                        aria-label="Edited"
+                      ></span>{/if}</Label
+                  >
+                  {#if parameterHelpTexts[parameter.name]}<ParameterHint
+                      id={`help-${parameter.name}`}
+                      text={parameterHelpTexts[parameter.name].replace(
+                        /<[^>]*>/g,
+                        "",
+                      )}
+                    />{/if}
+                </div>
+                <div class="parameter-control">
+                  {#if !enabled}<ParameterHint
+                      id={`disabled-${parameter.name}`}
+                      unavailable
+                      text={getMissingRequiredParametersMessage(
+                        parameter,
+                        parameters,
+                      )}
+                    />{:else}<ParameterInput
+                      {parameter}
+                      disabled={m.save.isPending}
+                      onchange={(value) => {
+                        draft.edits = {
+                          ...draft.edits,
+                          [parameter.name]: value,
+                        };
+                      }}
+                    />{/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+        </Card.Content></Card.Root
+      >{/each}
+    {#if !sections.length && !(filter === "system" && unmapped.length)}<Alert.Root
+        class="mb-4"
+        ><Alert.Description>
+          No matching parameters.
+        </Alert.Description></Alert.Root
+      >{/if}
     <div class="save-bar">
       <span
         >{changes.length
@@ -190,18 +250,19 @@
           : "All changes saved"}</span
       >
       <div class="flex gap-2">
-        <button
+        <Button
           type="button"
-          class="btn secondary"
+          variant="outline"
           onclick={() => {
             draft.edits = {};
           }}
           disabled={!changes.length || m.save.isPending}
-          ><RotateCcw size={15} />Discard</button
-        ><button
-          class="btn"
+          ><RotateCcw size={15} />Discard</Button
+        ><Button
+          type="submit"
+          variant="default"
           disabled={!changes.length || m.save.isPending}
-          ><Save size={15} />Review & save</button
+          ><Save size={15} />Review & save</Button
         >
       </div>
     </div>

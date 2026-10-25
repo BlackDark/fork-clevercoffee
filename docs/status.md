@@ -25,6 +25,46 @@ page.
 
 ---
 
+## Frontend migration follow-up — 2026-10-25
+
+Owner: Codex. Official shadcn-svelte registry sources were imported with CLI
+1.7.1 (Nova style); [components.json](../ui/packages/frontend/components.json)
+records their configuration. Pages use the registry Button, Input, Label, Card,
+Badge, Alert, Progress, Tabs, Dialog, Select, Switch, Tooltip, and Sonner
+components. The custom toast store and control CSS were removed; custom CSS is
+limited to application layout, typography, and theme accents. uPlot still owns
+the graphs. AG-UI-1 records the component preference.
+
+The added packages supply the registry's class merging/variants, animation
+styles, shared state styles, and Sonner notifications. Bits UI was updated to
+2.20.2 for the current registry; new dependencies are exactly pinned in
+[package.json](../ui/packages/frontend/package.json).
+
+`pnpm --dir ui check`, the production build, and the mock-backed Playwright
+suite passed. The draft-navigation regression also passed repeated runs.
+[frontend.spec.ts](../ui/packages/frontend/e2e/frontend.spec.ts) covers visible
+checked switches, enum labels after repeated pointer/keyboard edits and route
+changes, zero values, tooltip focus, secret masking, notifications, mobile
+navigation, card placement, and the device's HTTP 202 counter-reset contract.
+Local browser inspection covered the dashboard and System page; the registry's
+shared Tailwind state styles are imported so checked/active states render.
+The subsequent layout regression verifies direct-child warning icons beside
+the description on desktop/mobile, icons on all System action buttons, and
+shared main-container bounds for Home, System, and About. About's card uses
+the full content width. System/About were also visually inspected locally. The final System layout
+was also inspected in a fresh device-served tab after flashing.
+
+Stable `just check` and the `esp` device lint, rustdoc, release build, and size
+check passed. The release image measured 1,691,632 B against a 1,835,008 B slot.
+
+Both app slots were flashed on bench ESP32 `ec:62:60:76:b5:3c`. `/ui/` and its
+JS/CSS assets returned 200 and matched the tested local build byte-for-byte.
+Status reported state 20, PID enabled, temperature 20.12 °C, and tank full; all
+six bench-profile settings persisted. A fresh device tab rendered live
+telemetry and the registry controls; Reset counter produced Sonner's success
+notification without a schema error. The user's existing tab/draft was left
+untouched.
+
 ## Frontend layout correction — 2026-10-21
 
 Owner: Codex. Restored the original neutral light/dark palette, logo, header

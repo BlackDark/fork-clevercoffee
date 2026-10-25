@@ -1,4 +1,13 @@
 <script lang="ts">
+  import * as Alert from "@/components/ui/alert";
+  import { Button } from "@/components/ui/button";
+  import { Input } from "@/components/ui/input";
+  import { Label } from "@/components/ui/label";
+  import { Badge } from "@/components/ui/badge";
+  import * as Card from "@/components/ui/card";
+  import { Progress } from "@/components/ui/progress";
+  import SwitchField from "../components/SwitchField.svelte";
+  import { toast } from "svelte-sonner";
   import {
     Activity,
     Thermometer,
@@ -39,7 +48,6 @@
   let stream = $state("Connecting");
   let chart = $state<ChartData>([[], [], [], []]);
   let setpoint = $state<number | undefined>();
-  let message = $state("");
   const current = $derived(live ?? initial.data);
   const target = $derived(
     m.parameters.data?.find((p) => p.name === "brew.setpoint"),
@@ -79,203 +87,234 @@
     return () => events.close();
   });
   async function command(route: string) {
-    message = "";
     try {
       await m.command.mutateAsync(route);
-      message = "Device updated";
+      toast.success("Device updated");
     } catch (e) {
-      message = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
     }
   }
   async function save(event: SubmitEvent) {
     event.preventDefault();
     if (!target) return;
-    message = "";
     try {
       await m.save.mutateAsync([
         { name: target.name, value: setpoint ?? Number(target.value) },
       ]);
       setpoint = undefined;
-      message = "Brew temperature saved";
+      toast.success("Brew temperature saved");
     } catch (e) {
-      message = String(e);
+      toast.error(String(e));
     }
   }
 </script>
 
 <h1 class="sr-only">Home</h1>
-{#if message}<p
-    class="notice"
-    role="status"
-  >
-    {message}
-  </p>{/if}
+
 <div class="home-grid">
-  <section class="panel">
-    <div class="panel-heading">
-      <h2><Activity size={20} />Machine Status</h2>
-      <span class="badge"
-        ><span
-          class="status-dot"
-          class:offline={stream !== "Live"}
-        ></span>{stream}</span
-      >
-    </div>
-    <div class="machine-metrics">
-      <div>
-        <div class="stat-label">
-          <Thermometer
-            size={18}
-            class="temperature-icon"
-          />Current Temperature
-        </div>
-        <div class="stat-value">
-          {current?.currentTemp.toFixed(2) ?? "—"}<span>°C</span>
-        </div>
-      </div>
-      <div>
-        <div class="stat-label">
-          <Zap
-            size={18}
-            class="heater-icon"
-          />Current Heater Power
-        </div>
-        <div class="stat-value">
-          {current?.heaterPower.toFixed(2) ?? "—"}<span>%</span>
-        </div>
-      </div>
-    </div>
-    {#if !current && initial.isError}<p role="alert">
-        Temperature unavailable.
-      </p>{/if}
-    <form
-      class="setpoint-form"
-      onsubmit={save}
-    >
-      <div>
-        <label for="brew-temperature">Setpoint (°C)</label>
-        <p>Target: {current?.targetTemp.toFixed(1) ?? "—"} °C</p>
-      </div>
-      <div class="setpoint-controls">
-        <input
-          class="input"
-          aria-label="Brew temperature"
-          id="brew-temperature"
-          type="number"
-          step="any"
-          min={target?.min ?? 0}
-          max={target?.max ?? 150}
-          value={setpoint ?? target?.value ?? ""}
-          oninput={(e) => {
-            setpoint = e.currentTarget.valueAsNumber;
-          }}
-          required
-          disabled={!target}
-        /><button
-          class="btn"
-          disabled={m.save.isPending || !target}>Save</button
+  <Card.Root class="panel"
+    ><Card.Content>
+      <div class="panel-heading">
+        <Card.Title
+          role="heading"
+          aria-level={2}><Activity size={20} />Machine Status</Card.Title
+        >
+        <Badge variant="secondary"
+          ><span
+            class="status-dot"
+            class:offline={stream !== "Live"}
+          ></span>{stream}</Badge
         >
       </div>
-    </form>
-  </section>
-  <section class="panel">
-    <div class="panel-heading">
-      <h2><Power size={20} />Machine Functions</h2>
-    </div>
-    {#each [{ label: "PID heating", route: "/pid", on: m.status.data?.pidEnabled ?? !!m.parameters.data?.find((p) => p.name === "pid.enabled")?.value }, { label: "Steam mode", route: "/steam", on: m.status.data?.steamMode }] as control}
-      <div class="control-row">
+      <div class="machine-metrics">
         <div>
-          <span>{control.label}</span>
-          <p>{control.on ? "Enabled" : "Disabled"}</p>
+          <div class="stat-label">
+            <Thermometer
+              size={18}
+              class="temperature-icon"
+            />Current Temperature
+          </div>
+          <div class="stat-value">
+            {current?.currentTemp.toFixed(2) ?? "—"}<span>°C</span>
+          </div>
         </div>
-        <button
-          class="pill-toggle"
-          role="switch"
-          aria-label={control.label}
-          aria-checked={!!control.on}
+        <div>
+          <div class="stat-label">
+            <Zap
+              size={18}
+              class="heater-icon"
+            />Current Heater Power
+          </div>
+          <div class="stat-value">
+            {current?.heaterPower.toFixed(2) ?? "—"}<span>%</span>
+          </div>
+        </div>
+      </div>
+      {#if !current && initial.isError}<p role="alert">
+          Temperature unavailable.
+        </p>{/if}
+      <form
+        class="setpoint-form"
+        onsubmit={save}
+      >
+        <div>
+          <Label for="brew-temperature">Setpoint (°C)</Label>
+          <p>Target: {current?.targetTemp.toFixed(1) ?? "—"} °C</p>
+        </div>
+        <div class="setpoint-controls">
+          <Input
+            class=""
+            aria-label="Brew temperature"
+            id="brew-temperature"
+            type="number"
+            step="any"
+            min={target?.min ?? 0}
+            max={target?.max ?? 150}
+            value={setpoint ?? target?.value ?? ""}
+            oninput={(e) => {
+              setpoint = e.currentTarget.valueAsNumber;
+            }}
+            required
+            disabled={!target}
+          /><Button
+            type="submit"
+            variant="default"
+            disabled={m.save.isPending || !target}>Save</Button
+          >
+        </div>
+      </form>
+    </Card.Content></Card.Root
+  >
+  <Card.Root class="panel"
+    ><Card.Content>
+      <div class="panel-heading">
+        <Card.Title
+          role="heading"
+          aria-level={2}><Power size={20} />Machine Functions</Card.Title
+        >
+      </div>
+      {#each [{ label: "PID heating", route: "/pid", on: m.status.data?.pidEnabled ?? !!m.parameters.data?.find((p) => p.name === "pid.enabled")?.value }, { label: "Steam mode", route: "/steam", on: m.status.data?.steamMode }] as control}
+        <div class="control-row">
+          <div>
+            <span>{control.label}</span>
+            <p>{control.on ? "Enabled" : "Disabled"}</p>
+          </div>
+          <SwitchField
+            label={control.label}
+            checked={!!control.on}
+            disabled={m.command.isPending ||
+              m.status.isError ||
+              m.status.isPending}
+            onchange={() => command(control.route)}
+          />
+        </div>{/each}
+      <div class="control-row">
+        <span>Backflush</span><Button
+          type="button"
+          variant="outline"
           disabled={m.command.isPending ||
             m.status.isError ||
             m.status.isPending}
-          onclick={() => command(control.route)}><span></span></button
+          onclick={() => command("/backflush")}>Toggle backflush</Button
         >
-      </div>{/each}
-    <div class="control-row">
-      <span>Backflush</span><button
-        class="btn secondary"
-        disabled={m.command.isPending || m.status.isError || m.status.isPending}
-        onclick={() => command("/backflush")}>Toggle backflush</button
-      >
-    </div>
-    {#if m.parameters.data?.some((p) => p.name === "hardware.sensors.scale.enabled" && !!p.value)}<div
-        class="flex gap-2 mt-4"
-      >
-        <button
-          class="btn secondary"
-          disabled={m.command.isPending}
-          onclick={() => command("/scale/tare")}>Tare scale</button
-        ><button
-          class="btn secondary"
-          disabled={m.command.isPending}
-          onclick={() => command("/scale/calibration")}>Calibrate scale</button
+      </div>
+      {#if m.parameters.data?.some((p) => p.name === "hardware.sensors.scale.enabled" && !!p.value)}<div
+          class="flex gap-2 mt-4"
         >
-      </div>{/if}
-  </section>
-  <section class="panel chart-panel">
-    <div class="panel-heading">
-      <h2>
-        <Thermometer
-          size={20}
-          class="temperature-icon"
-        />Temperature History
-      </h2>
-    </div>
-    {#if history.isError}<div
-        class="notice error"
-        role="alert"
-      >
-        History unavailable. <button
-          class="text-link"
-          onclick={() => history.refetch()}>Retry</button
+          <Button
+            type="button"
+            variant="outline"
+            disabled={m.command.isPending}
+            onclick={() => command("/scale/tare")}>Tare scale</Button
+          ><Button
+            type="button"
+            variant="outline"
+            disabled={m.command.isPending}
+            onclick={() => command("/scale/calibration")}
+            >Calibrate scale</Button
+          >
+        </div>{/if}
+    </Card.Content></Card.Root
+  >
+  <Card.Root class="panel maintenance-panel"
+    ><Card.Content>
+      <div class="panel-heading">
+        <Card.Title
+          role="heading"
+          aria-level={2}><Droplets size={20} />Maintenance</Card.Title
         >
-      </div>{/if}<Chart
-      data={temperatureChart}
-      {dark}
-    />
-  </section>
-  <section class="panel chart-panel">
-    <div class="panel-heading">
-      <h2>
-        <Zap
-          size={20}
-          class="heater-icon"
-        />Heater Power History
-      </h2>
-    </div>
-    <Chart
-      data={heaterChart}
-      kind="heater"
-      {dark}
-    />
-  </section>
-  <section class="panel maintenance-panel">
-    <div class="panel-heading"><h2><Droplets size={20} />Maintenance</h2></div>
-    <div class="maintenance-number">
-      {shots}<span> / {threshold} shots</span>
-    </div>
-    <p class="text-sm text-muted-foreground mb-3">
-      Shots since last backflush{m.status.data?.backflushReminderDue
-        ? " · Cleaning recommended"
-        : ""}
-    </p>
-    <progress
-      max={Math.max(1, threshold)}
-      value={shots}
-      aria-label="Shots since backflush"
-    ></progress><button
-      class="btn secondary mt-4"
-      disabled={m.command.isPending}
-      onclick={() => command("/maintenance/reset-backflush-counter")}
-      ><RotateCcw size={15} />Reset counter</button
-    >
-  </section>
+      </div>
+      <div class="maintenance-number">
+        {shots}<span> / {threshold}</span>
+      </div>
+      <p class="text-sm text-muted-foreground mb-3">
+        Shots since last backflush{m.status.data?.backflushReminderDue
+          ? " · Cleaning recommended"
+          : ""}
+      </p>
+      <Progress
+        max={Math.max(1, threshold)}
+        value={shots}
+        aria-label="Shots since backflush"
+      ></Progress><Button
+        type="button"
+        variant="outline"
+        class="mt-4"
+        disabled={m.command.isPending}
+        onclick={() => command("/maintenance/reset-backflush-counter")}
+        ><RotateCcw size={15} />Reset counter</Button
+      >
+    </Card.Content></Card.Root
+  >
+  <Card.Root class="panel chart-panel"
+    ><Card.Content>
+      <div class="panel-heading">
+        <Card.Title
+          role="heading"
+          aria-level={2}
+        >
+          <Thermometer
+            size={20}
+            class="temperature-icon"
+          />Temperature History
+        </Card.Title>
+      </div>
+      {#if history.isError}<Alert.Root
+          role="alert"
+          variant="destructive"
+          class="mb-4"
+          ><Alert.Description>
+            History unavailable. <Button
+              type="button"
+              variant="link"
+              class="h-auto p-0"
+              onclick={() => history.refetch()}>Retry</Button
+            >
+          </Alert.Description></Alert.Root
+        >{/if}<Chart
+        data={temperatureChart}
+        {dark}
+      />
+    </Card.Content></Card.Root
+  >
+  <Card.Root class="panel chart-panel"
+    ><Card.Content>
+      <div class="panel-heading">
+        <Card.Title
+          role="heading"
+          aria-level={2}
+        >
+          <Zap
+            size={20}
+            class="heater-icon"
+          />Heater Power History
+        </Card.Title>
+      </div>
+      <Chart
+        data={heaterChart}
+        kind="heater"
+        {dark}
+      />
+    </Card.Content></Card.Root
+  >
 </div>

@@ -35,6 +35,11 @@ export const ApiResponseSchema = z.object({
   message: z.optional(z.string()),
 });
 
+export const CommandResponseSchema = z.union([
+  ApiResponseSchema,
+  z.object({ accepted: z.literal(true) }),
+]);
+
 export const SteamResponseSchema = z.extend(ApiResponseSchema, {
   steamMode: z.boolean(),
 });

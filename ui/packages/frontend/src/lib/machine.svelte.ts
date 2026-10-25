@@ -15,6 +15,7 @@ import type { UpdateParameter } from "./parameter-types";
 import { API_ROUTES } from "./routes";
 import {
   ApiResponseSchema,
+  CommandResponseSchema,
   MachineStatusSchema,
   ServerParametersSchema,
 } from "./schemas";
@@ -73,8 +74,8 @@ export function createMachine() {
   const command = createMutation(() => ({
     mutationFn: async (route: string) => {
       const data = await apiJsonFetch(route, { method: "POST" });
-      const result = ApiResponseSchema.parse(data);
-      if (!result.success)
+      const result = CommandResponseSchema.parse(data);
+      if ("success" in result && !result.success)
         throw new Error(result.message || "Command refused by device");
       if (
         route === API_ROUTES.STEAM ||

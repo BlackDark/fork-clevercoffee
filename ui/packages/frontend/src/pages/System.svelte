@@ -1,4 +1,9 @@
 <script lang="ts">
+  import { Button } from "@/components/ui/button";
+  import { Input } from "@/components/ui/input";
+  import { Label } from "@/components/ui/label";
+  import * as Card from "@/components/ui/card";
+  import { toast } from "svelte-sonner";
   import {
     Power,
     Moon,
@@ -6,6 +11,7 @@
     Download,
     Upload,
     TriangleAlert,
+    Wifi,
   } from "@lucide/svelte";
   import { useMachine } from "@/lib/machine.svelte";
   import { apiFetch, API_BASE_URL } from "@/lib/api-config";
@@ -15,8 +21,6 @@
   const m = useMachine();
   let action = $state("");
   let busy = $state(false);
-  let message = $state("");
-  let failed = $state(false);
   let file = $state<File | null>(null);
   const descriptions: Record<string, string> = {
     restart: "Restart the device? The browser may disconnect briefly.",
@@ -34,8 +38,6 @@
   }
   async function perform() {
     busy = true;
-    message = "";
-    failed = false;
     try {
       if (action === "upload") {
         if (
@@ -57,8 +59,9 @@
         const result = ConfigUploadResponseSchema.parse(await response.json());
         if (!response.ok || !result.success)
           throw new Error(result.message || "Configuration upload failed");
-        message =
-          result.message || "Configuration restored. The device may restart.";
+        toast.success(
+          result.message || "Configuration restored. The device may restart.",
+        );
         await m.parameters.refetch();
       } else {
         const response = await apiFetch(`/${action}`, {
@@ -80,12 +83,12 @@
           result.success === false
         )
           throw new Error("Device refused the action");
-        message =
-          "Request accepted. The device may disconnect while restarting.";
+        toast.success(
+          "Request accepted. The device may disconnect while restarting.",
+        );
       }
     } catch (e) {
-      failed = true;
-      message = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       busy = false;
       open = false;
@@ -94,11 +97,9 @@
   async function standby(route: string) {
     try {
       await m.command.mutateAsync(route);
-      message = "Device updated";
-      failed = false;
+      toast.success("Device updated");
     } catch (e) {
-      failed = true;
-      message = String(e);
+      toast.error(String(e));
     }
   }
 </script>
@@ -109,96 +110,124 @@
     <p>Back up your settings, update your device, and keep things running.</p>
   </div>
 </div>
-{#if message}<div
-    class="notice"
-    class:error={failed}
-    role={failed ? "alert" : "status"}
-  >
-    {message}
-  </div>{/if}
+
 <div class="two-columns">
-  <section class="panel">
-    <div class="panel-heading">
-      <div>
-        <h2>Power & standby</h2>
-        <p>Wake, sleep, or restart the device.</p>
+  <Card.Root class="panel"
+    ><Card.Content>
+      <div class="panel-heading">
+        <div>
+          <Card.Title
+            role="heading"
+            aria-level={2}>Power & standby</Card.Title
+          >
+          <p>Wake, sleep, or restart the device.</p>
+        </div>
+        <Power size={20} />
       </div>
-      <Power size={20} />
-    </div>
-    <div class="flex flex-wrap gap-2">
-      <button
-        class="btn"
-        disabled={m.command.isPending}
-        onclick={() => standby("/wake")}><Power size={16} />Wake up</button
-      ><button
-        class="btn secondary"
-        disabled={m.command.isPending}
-        onclick={() => standby("/sleep")}><Moon size={16} />Sleep</button
-      ><button
-        class="btn secondary"
-        onclick={() => ask("restart")}><RotateCcw size={16} />Restart</button
+      <div class="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="default"
+          class="bg-green-700 text-white hover:bg-green-800"
+          disabled={m.command.isPending}
+          onclick={() => standby("/wake")}><Power size={16} />Wake up</Button
+        ><Button
+          type="button"
+          variant="outline"
+          disabled={m.command.isPending}
+          onclick={() => standby("/sleep")}><Moon size={16} />Sleep</Button
+        ><Button
+          type="button"
+          variant="default"
+          class="bg-orange-700 text-white hover:bg-orange-800"
+          onclick={() => ask("restart")}><RotateCcw size={16} />Restart</Button
+        >
+      </div>
+    </Card.Content></Card.Root
+  >
+  <Card.Root class="panel"
+    ><Card.Content>
+      <div class="panel-heading">
+        <div>
+          <Card.Title
+            role="heading"
+            aria-level={2}>Reset options</Card.Title
+          >
+          <p>These actions erase saved settings.</p>
+        </div>
+        <TriangleAlert size={20} />
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="default"
+          class="bg-orange-700 text-white hover:bg-orange-800"
+          onclick={() => ask("wifi-reset")}
+          ><Wifi size={16} />Reset Wi-Fi</Button
+        ><Button
+          type="button"
+          variant="destructive"
+          onclick={() => ask("factory-reset")}
+          ><TriangleAlert size={16} />Factory reset</Button
+        >
+      </div>
+    </Card.Content></Card.Root
+  >
+  <Card.Root class="panel"
+    ><Card.Content>
+      <div class="panel-heading">
+        <div>
+          <Card.Title
+            role="heading"
+            aria-level={2}>Configuration backup</Card.Title
+          >
+          <p>Download the current configuration.</p>
+        </div>
+        <Download size={20} />
+      </div>
+      <Button
+        variant="default"
+        class="bg-green-700 text-white hover:bg-green-800"
+        href={`${API_BASE_URL}/config/download`}
+        download="clevercoffee-config.json"
+        ><Download size={16} />Download configuration</Button
       >
-    </div>
-  </section>
-  <section class="panel">
-    <div class="panel-heading">
-      <div>
-        <h2>Reset options</h2>
-        <p>These actions erase saved settings.</p>
+    </Card.Content></Card.Root
+  >
+  <Card.Root class="panel"
+    ><Card.Content>
+      <div class="panel-heading">
+        <div>
+          <Card.Title
+            role="heading"
+            aria-level={2}>Restore configuration</Card.Title
+          >
+          <p>Restore settings from a JSON backup (up to 50 KB).</p>
+        </div>
+        <Upload size={20} />
       </div>
-      <TriangleAlert size={20} />
-    </div>
-    <div class="flex flex-wrap gap-2">
-      <button
-        class="btn secondary"
-        onclick={() => ask("wifi-reset")}>Reset Wi-Fi</button
-      ><button
-        class="btn danger"
-        onclick={() => ask("factory-reset")}>Factory reset</button
+      <Label
+        class="sr-only"
+        for="config-file">Configuration file</Label
+      ><Input
+        class="mb-4"
+        id="config-file"
+        type="file"
+        accept=".json"
+        disabled={busy}
+        onchange={(e) => {
+          file = e.currentTarget.files?.[0] ?? null;
+        }}
+      /><Button
+        type="button"
+        variant="default"
+        class="bg-blue-700 text-white hover:bg-blue-800"
+        onclick={() => ask("upload")}
+        disabled={!file || busy}
+        ><Upload size={16} />Restore configuration</Button
       >
-    </div>
-  </section>
-  <section class="panel">
-    <div class="panel-heading">
-      <div>
-        <h2>Configuration backup</h2>
-        <p>Download the current configuration.</p>
-      </div>
-      <Download size={20} />
-    </div>
-    <a
-      class="btn secondary"
-      href={`${API_BASE_URL}/config/download`}
-      download="clevercoffee-config.json"
-      ><Download size={16} />Download configuration</a
-    >
-  </section>
-  <section class="panel">
-    <div class="panel-heading">
-      <div>
-        <h2>Restore configuration</h2>
-        <p>Restore settings from a JSON backup (up to 50 KB).</p>
-      </div>
-      <Upload size={20} />
-    </div>
-    <label
-      class="sr-only"
-      for="config-file">Configuration file</label
-    ><input
-      class="input mb-4"
-      id="config-file"
-      type="file"
-      accept=".json"
-      disabled={busy}
-      onchange={(e) => {
-        file = e.currentTarget.files?.[0] ?? null;
-      }}
-    /><button
-      class="btn secondary"
-      onclick={() => ask("upload")}
-      disabled={!file || busy}>Restore configuration</button
-    >
-  </section>
+    </Card.Content></Card.Root
+  >
 </div>
 <Ota />
 <ConfirmDialog

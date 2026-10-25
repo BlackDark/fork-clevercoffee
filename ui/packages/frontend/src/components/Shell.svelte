@@ -1,4 +1,8 @@
 <script lang="ts">
+  import * as Alert from "@/components/ui/alert";
+  import { Toaster } from "./ui/sonner";
+  import { Button } from "@/components/ui/button";
+  import { toast } from "svelte-sonner";
   import { Menu, X, Sun, Moon } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { createMachine } from "@/lib/machine.svelte";
@@ -13,7 +17,7 @@
       "/",
   );
   let menuOpen = $state(false);
-  let menuButton: HTMLButtonElement;
+  let menuButton = $state<HTMLElement | null>(null);
   let dark = $state(false);
   let theme = $state("system");
   const links = [
@@ -59,8 +63,9 @@
   async function wake() {
     try {
       await machine.command.mutateAsync("/wake");
-    } catch {
-      /* Error is displayed below. */
+      toast.success("Device updated");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
     }
   }
   function guard(event: BeforeUnloadEvent) {
@@ -128,13 +133,14 @@
           link.href === "/"
             ? route === "/"
             : route.startsWith(link.href.split("/").slice(0, 2).join("/"))}
-        <a
+        <Button
+          variant="ghost"
           href={`#${link.href}`}
-          class:active
+          class={active ? "text-foreground" : "text-muted-foreground"}
           aria-current={active ? "page" : undefined}
           onclick={() => {
             menuOpen = false;
-          }}>{link.label}</a
+          }}>{link.label}</Button
         >
       {/each}
     </nav>
@@ -151,22 +157,28 @@
             ? "Offline"
             : "Online"}</span
       >
-      <button
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
         class="icon-btn"
         onclick={toggleTheme}
         aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
-        >{#if dark}<Sun size={18} />{:else}<Moon size={18} />{/if}</button
+        >{#if dark}<Sun size={18} />{:else}<Moon size={18} />{/if}</Button
       >
-      <button
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
         class="icon-btn menu-button"
-        bind:this={menuButton}
+        bind:ref={menuButton}
         aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
         aria-expanded={menuOpen}
         aria-controls="primary-navigation"
         onclick={() => {
           menuOpen = !menuOpen;
         }}
-        >{#if menuOpen}<X size={20} />{:else}<Menu size={20} />{/if}</button
+        >{#if menuOpen}<X size={20} />{:else}<Menu size={20} />{/if}</Button
       >
     </div>
   </header>
@@ -174,48 +186,59 @@
     id="main"
     tabindex="-1"
   >
-    {#if machine.status.isError}<div
-        class="notice error"
+    {#if machine.status.isError}<Alert.Root
         role="alert"
-      >
-        Cannot reach the device. Controls may be out of date. <button
-          class="text-link"
-          onclick={() => machine.status.refetch()}>Retry connection</button
-        >
-      </div>{/if}
-    {#if machine.status.data?.isStandby}<div class="notice">
-        The machine is in standby. <button
-          class="text-link"
-          onclick={wake}
-          disabled={machine.command.isPending}>Wake up</button
-        >
-      </div>{/if}
-    {#if machine.status.data?.backflushReminderDue && route !== "/"}<div
-        class="notice"
-      >
-        Backflush recommended · {machine.status.data.shotsSinceBackflush} shots since
-        cleaning.
-        <a
-          class="text-link"
-          href="#/">View maintenance</a
-        >
-      </div>{/if}
-    {#if machine.command.isError}<div
-        class="notice error"
-        role="alert"
-      >
-        {machine.command.error.message}
-      </div>{/if}
+        variant="destructive"
+        class="mb-4"
+        ><Alert.Description>
+          Cannot reach the device. Controls may be out of date. <Button
+            type="button"
+            variant="link"
+            class="h-auto p-0"
+            onclick={() => machine.status.refetch()}>Retry connection</Button
+          >
+        </Alert.Description></Alert.Root
+      >{/if}
+    {#if machine.status.data?.isStandby}<Alert.Root class="mb-4"
+        ><Alert.Description>
+          The machine is in standby. <Button
+            type="button"
+            variant="link"
+            class="h-auto p-0"
+            onclick={wake}
+            disabled={machine.command.isPending}>Wake up</Button
+          >
+        </Alert.Description></Alert.Root
+      >{/if}
+    {#if machine.status.data?.backflushReminderDue && route !== "/"}<Alert.Root
+        class="mb-4"
+        ><Alert.Description>
+          Backflush recommended · {machine.status.data.shotsSinceBackflush} shots
+          since cleaning.
+          <a
+            class="text-primary underline underline-offset-4"
+            href="#/">View maintenance</a
+          >
+        </Alert.Description></Alert.Root
+      >{/if}
     {#if route === "/"}<Home
         {dark}
       />{:else if route.startsWith("/config/")}<Config
         filter={route.split("/")[2]}
       />{:else if route === "/system"}<System
       />{:else if route === "/about"}<About />{:else}<h1>Page not found</h1>
-      <a
+      <Button
         href="#/"
-        class="btn">Back to dashboard</a
+        variant="default">Back to dashboard</Button
       >{/if}
     <footer>CleverCoffee</footer>
   </main>
 </div>
+
+<Toaster
+  theme={dark ? "dark" : "light"}
+  position="bottom-right"
+  closeButton
+  closeButtonAriaLabel="Dismiss notification"
+  richColors
+/>
