@@ -89,18 +89,18 @@ GPIO and timing: the TSIC is decoded from edge timestamps taken in the GPIO inte
 
 ## RAM
 
-ESP32: ~320 KB data RAM. Heap: 94 KB reclaimed bootloader RAM, plus 80 KB main RAM without the `ble-scale` feature, or the Bluetooth controller's 64 KB when no Bluetooth scale is configured (ADR 0008). Main stack: 44 KB (`minimal`), 36 KB (`standard`), 38 KB (`full`). The device logs each new low of free heap and of never-used stack; `/api/status` reports `freeHeap`, `minFreeHeap` and `minFreeStack`.
+ESP32: ~320 KB data RAM. Heap: 94 KB reclaimed bootloader RAM, plus 80 KB main RAM without the `ble-scale` feature, or the Bluetooth controller's 64 KB when no Bluetooth scale is configured (ADR 0008). Main stack: 41 KB (`minimal`), 33 KB (`standard`), 35 KB (`full`). The device logs each new low of free heap and of never-used stack; `/api/status` reports `freeHeap`, `minFreeHeap` and `minFreeStack`.
 
-Measured on the bench (DevKitC v4, 2026-10-25), with MQTT and Home Assistant discovery on (not in `minimal`), two UI tabs open (Home and Configuration) and `just bench` run 3 times:
+Measured on the bench (DevKitC v4, 2026-10-25), with MQTT and Home Assistant discovery on (not in `minimal`), two UI tabs open (Home and Configuration) and `just bench` run 3 times. `minFreeHeap` is the allocator's high-water mark, exact:
 
 | Image | Heap after WiFi start | `minFreeHeap` | `minFreeStack` (of the main stack) |
 | --- | --- | --- | --- |
-| `minimal` | 140 KB | 99 KB | 28.7 of 44 KB |
-| `standard` | 140 KB | 94 KB | 20.2 of 36 KB |
-| `full`, no Bluetooth scale | 123 KB | 77 KB | 22.4 of 38 KB |
+| `minimal` | 140 KB | 76 KB | 25.9 of 41 KB |
+| `standard` | 140 KB | 70 KB | 17.4 of 33 KB |
+| `full`, no Bluetooth scale | 123 KB | 54 KB | 19.6 of 35 KB |
 | `full` with the Bluetooth RAM reserved (as with a scale; 2026-10-23, before ADR 0008, 4 workers) | 44 KB | 7 KB, then a panic | |
 
-The deepest stack use is at boot (settings, flash, WiFi start), not under load. A firmware upload runs at about 40 KB/s (38 s for 1.5 MB) with the 2 KB TCP window, the same as with 1 KB.
+The deepest stack use is at boot (settings, flash, WiFi start), not under load. A firmware upload runs at about 40 KB/s (38–45 s for 1.5 MB). HTTP (ADR 0008): the 21 KB parameter list in 0.25 s, eight connections at once in 0.3–0.6 s with two tabs open.
 
 `tools/bench` fails below 12 KB of heap or 4 KB of stack. A Bluetooth scale has not been measured connected (docs/todo.md).
 

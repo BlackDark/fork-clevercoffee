@@ -70,4 +70,4 @@ Same PR, only what the change touches:
 - GPIO1 (steam LED) is UART TX: enabling that LED silences the serial log.
 - GPIO34–39 have no pulls: switches need external resistors, floating inputs read as pressed.
 - `just flash` erases `otadata`: after an OTA update a plain `espflash flash` writes ota_0 and the board keeps booting ota_1.
-- `firmware/vendor/` holds patched `xtensa-lx-rt` (boot) and `smoltcp` (listen backlog); each patch is marked `CleverCoffee patch`. Remove when upstream fixes them (docs/todo.md).
+- `firmware/vendor/` holds patched `xtensa-lx-rt` (boot), `smoltcp` and `embassy-net` (listen backlog); each patch is marked `CleverCoffee patch`, `just vendor-test` runs smoltcp's tests. Remove when upstream fixes them (docs/todo.md).

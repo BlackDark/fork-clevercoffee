@@ -32,3 +32,20 @@ The first run on a DevKitC (docs/bench.md) found the web server and the RAM budg
 - History points in hundredths (`i16`/`u16`): 3.6 KB instead of 7.2 KB, for the history and for each `/api/history` copy.
 - Without `ble-scale` the main-RAM heap is 80 KB instead of 48: `full` served every bench test with a 26 KB main stack, `standard` keeps 36 KB. The firmware reports the stack's high-water mark (`minFreeStack`, `firmware/src/stackmon.rs`); the bench fails below 4 KB. With measurements from a Bluetooth scale connected, `full` can move part of its 38 KB stack to the heap the same way.
 - TCP receive buffer 2 KB per worker (was 1 KB): it is the window a firmware upload gets.
+
+## Revision 2026-10-25: a listener instead of dropped SYNs
+
+Measured on the bench with two UI tabs open (each holds a worker for its event stream):
+
+| | 8 connections at once | 21 KB `/api/parameters` | 3 parallel parameter downloads |
+| --- | --- | --- | --- |
+| SYN drop, keep-alive, 1.5 KB send buffer, 1 KB windows | 2.0 s | 0.85 s | 2.4 s |
+| Listener, `Connection: close`, 4 KB send buffer, 4 KB windows that stop early | 0.3–0.6 s (worst 1.6 s) | 0.25 s | 0.73–0.86 s |
+
+- **Listen backlog**: `tcp::Listener` (vendored smoltcp) queues the SYNs on port 80, up to 8 per network; `TcpListener::accept` (vendored embassy-net) hands the oldest to a worker's idle socket, which replays the SYN through its own state machine at the next poll: no second handshake implementation, and data in the client's first ACK is not lost. This is the design a maintainer proposed on smoltcp-rs/smoltcp#1133. Without a listener smoltcp answers RST as upstream does; the SYN-drop patch is gone. A queued client waits for a free worker instead of its SYN retransmission (1, 2, 4 s).
+- Three things the bench found in the first version: an accepted socket took any client's SYN before its replay (it is bound to its client now); requests from clients that had given up held a worker until the handshake timed out (a request is skipped once its client has not retransmitted for 3 s, doubled per retransmission seen, which follows the clients' backoff; the handshake times out after 3 s; a RST closes the socket so the worker returns to the queue at once).
+- **No keep-alive**: picoserve held a worker for 1 s after a response waiting for the next request, then up to 3 s for the client's FIN, which a browser sends only when it next touches the connection. With two tabs open that blocked every worker for seconds at a time. With `Connection: close` the browser closes at once; a request costs a TCP handshake (about 10 ms on the LAN).
+- **Send buffer 4 KB** per worker (1.5 KB with a Bluetooth scale, whose heap has no 10 KB to spare): 21 KB went out in 14 round trips before.
+- **JSON in 4 KB windows that stop early**: each 1 KB window rendered the whole body (22 renders for 21 KB); now a window stops rendering once it is full (about 3 renders). Buffering the body whole was 0.06 s faster but took 25 KB of heap per request.
+- **`minFreeHeap` is exact**: esp-alloc's `internal-heap-stats` records the high-water mark; the 10 s sample missed every peak (it read 75 KB where the true low was 21 KB).
+

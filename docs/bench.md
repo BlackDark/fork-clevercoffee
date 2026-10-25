@@ -96,4 +96,6 @@ What the first run on a chip (2026-10-23) found; each has a fix and, where the l
 | `ds18b20: Crc` now and then during a firmware upload | flash writes stall the 1-Wire bit timing; a reading is dropped, nothing else |
 | Panic in the first flash call, a pointer reading 0xA5A5A5A5 | the stack monitor painted below a local's address, but inlined into `main` the local sat kilobytes above the stack pointer: it overwrote `main`'s variables. `paint` is not inlined now |
 | `just provision --ssid "My Net"` fails with "not KEY=VALUE" | the recipe split arguments at spaces |
+| With two UI tabs open, connections stalled 3–4 s at a time | picoserve kept an idle keep-alive connection for 1 s, then waited up to 3 s for the browser's FIN. `Connection: close` now (ADR 0008) |
+| (listener, first version) connections hung until the client timed out | an accepted socket took another client's SYN; requests of clients that had given up held workers. Covered by `test_accepted_socket_takes_only_its_own_client` and the listener tests in the vendored smoltcp |
 | Opening the serial port resets the board | DTR/RTS auto-reset: release RTS before DTR, or use `just monitor` |

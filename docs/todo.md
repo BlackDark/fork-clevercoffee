@@ -12,7 +12,7 @@ Ordered by value. Remove an item when it lands.
 ## Found on the bench, not fixed yet
 
 - `xtensa-lx-rt`: fixed upstream the same way (esp-hal PR #6497, merged 2026-10-15), not released yet (crates.io: 0.23.0). Drop `firmware/vendor/xtensa-lx-rt` with the first release after it; `just vendor-check` fails as soon as a bump stops using the vendored copy.
-- smoltcp has no listen backlog. Upstream draft PR smoltcp-rs/smoltcp#1120 drops every unmatched SYN and stalled on that behaviour change; ours drops only on ports a socket serves. Share the variant and the bench data there, then drop `firmware/vendor/smoltcp` once smoltcp has an opt-in or a listener (embassy-net 0.9 is on smoltcp 0.13; 0.14 is out).
+- smoltcp has no listen backlog. Ours (`tcp::Listener` queues SYNs, `Socket::accept` replays one into an idle socket) follows the design a maintainer proposed on smoltcp-rs/smoltcp#1133 (closed); propose it upstream with the bench data, together with `TcpListener` for embassy-net, then drop `firmware/vendor/{smoltcp,embassy-net}` (embassy-net 0.9 is on smoltcp 0.13; 0.14 is out). The drafts written for #1120 describe the older SYN-drop variant.
 - WiFi setup in the web UI: a "Connect to WiFi" card on the portal's home page with a network scan, instead of SSID and password under Configuration → System. Needs a scan endpoint.
 - The MQTT session drops during a firmware upload (flash stalls) and reconnects after it.
 

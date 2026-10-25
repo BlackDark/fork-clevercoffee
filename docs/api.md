@@ -26,7 +26,7 @@ With `system.auth.enabled`, every route needs HTTP basic auth.
 | GET | `/ui/…` | the embedded web UI; `/` redirects there |
 | POST | `/api/debug/hang` | `bench` builds only *(new)* |
 
-Changed: `/api/ota/filesystem` and `/api/ota/url` answer `410 Gone` (the UI is in the firmware; no download from URLs). Unknown `GET` paths redirect to `/ui/` so phones detect the captive portal. Any request but `/api/health` answers `503` with `Retry-After: 1` while less than 8 KB of heap is free, and `/api/history` and `/api/config/upload` when the heap cannot spare their buffer at that moment; retry. A firmware upload may take 3 minutes. A connection that finds every HTTP worker busy waits for its SYN retry instead of being refused (ADR 0008).
+Changed: `/api/ota/filesystem` and `/api/ota/url` answer `410 Gone` (the UI is in the firmware; no download from URLs). Unknown `GET` paths redirect to `/ui/` so phones detect the captive portal. Any request but `/api/health` answers `503` with `Retry-After: 1` while less than 8 KB of heap is free, and `/api/history` and `/api/config/upload` when the heap cannot spare their buffer at that moment; retry. A firmware upload may take 3 minutes. Every response closes its connection (`Connection: close`, no keep-alive). A connection that finds every HTTP worker busy waits in a backlog instead of being refused (ADR 0008).
 
 ## MQTT
 
