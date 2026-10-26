@@ -19,7 +19,7 @@
     "check:types:ts6": "svelte-check --tsconfig ./tsconfig.app.json --fail-on-warnings"
   },
   "dependencies": {
-    "@lucide/svelte": "1.59.0",
+    "@lucide/svelte": "1.61.0",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/svelte-query": "6.3.5",
     "bits-ui": "2.20.2",
