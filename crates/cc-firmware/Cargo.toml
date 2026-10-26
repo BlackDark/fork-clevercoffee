@@ -49,7 +49,7 @@ heapless.workspace = true
 # (`pthread_create`, `write`, `abort`, ...). The version MUST match the embuild
 # that the pinned esp-idf-sys builds with — 0.33.5, re-verified at R2-01.
 [build-dependencies]
-embuild = "=0.33.5"
+embuild = "=0.33.7"
 
 [lints]
 workspace = true
