@@ -264,7 +264,7 @@ jobs:
       #   * `runner.arch`, because `.embuild` carries a host python_env and
       #     idf_tools cmake/ninja that are not portable.
       - name: Restore the ESP-IDF build and the device target dir
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           # `target/debug` and `target/release` hold the HOST half of the device
           # build: build scripts and proc-macros (`--target` puts them there).
@@ -291,7 +291,7 @@ jobs:
       # checkout in the same job.
 
       - name: Restore the esp toolchain
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           # `espup install` spends 61 s, of which only 2.1 s is the download; the
           # rest is unpacking 1.9 GB. Restored, it is a re-entrant no-op.
@@ -299,7 +299,7 @@ jobs:
           key: rustup-esp-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.mise.toml', 'rust-toolchain.toml') }}
 
       - name: Restore the cargo registry
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           # Makes the `target/` cache above usable at all: without the registry,
           # the crates a cached build depends on are absent and everything
