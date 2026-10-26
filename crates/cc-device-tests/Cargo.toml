@@ -32,7 +32,7 @@ log.workspace = true
 # dependent package. Without this the link fails with hundreds of undefined
 # references.
 [build-dependencies]
-embuild = "=0.33.5"
+embuild = "=0.33.7"
 
 [lints]
 workspace = true
