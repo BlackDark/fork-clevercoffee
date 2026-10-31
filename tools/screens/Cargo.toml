@@ -10,7 +10,7 @@ publish.workspace = true
 [dependencies]
 cc-core.workspace = true
 cc-display = { workspace = true, features = ["samples"] }
-png = "0.18.1"
+png = "=0.18.1"
 
 [lints]
 workspace = true

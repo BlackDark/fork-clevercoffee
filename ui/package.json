@@ -10,9 +10,9 @@
     "format": "biome check --write . && pnpm --filter @clevercoffee/frontend exec prettier --write \"src/**/*.svelte\"",
     "check": "pnpm lint && pnpm --filter @clevercoffee/frontend check:types && pnpm --filter @clevercoffee/frontend test:run"
   },
-  "packageManager": "pnpm@11.25.0",
+  "packageManager": "pnpm@12.16.1",
   "devDependencies": {
-    "@biomejs/biome": "2.5.15",
+    "@biomejs/biome": "2.6.3",
     "concurrently": "10.0.6",
     "rimraf": "6.1.3"
   }
