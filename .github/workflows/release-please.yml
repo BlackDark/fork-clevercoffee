@@ -1,0 +1,79 @@
+# Pushes to main keep a release PR up to date: version from Conventional Commits, CHANGELOG.md,
+# the versions in Cargo.toml and firmware/Cargo.toml. Merging it tags vX.Y.Z and creates the GitHub
+# release; `publish` then builds the images and attaches them (release.yml).
+# Tags made with GITHUB_TOKEN start no workflows, hence the direct call. Pushes made with it
+# start none either: the lock sync below dispatches CI on the release branch itself.
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write # release PR labels
+    outputs:
+      created: ${{ steps.rp.outputs.release_created }}
+      tag: ${{ steps.rp.outputs.tag_name }}
+      pr: ${{ steps.rp.outputs.pr }}
+    steps:
+      - id: rp
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # release-please edits the versions in Cargo.toml but not the lock files, and 'cargo tree
+  # --locked' (vendor-check) rejects a stale one.
+  sync-locks:
+    needs: release-please
+    if: needs.release-please.outputs.pr != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BRANCH: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.BRANCH }}
+          persist-credentials: true # pushes the lock files back to the release branch
+      - name: Update the workspace entries in both lock files
+        run: |
+          cargo +stable update --workspace
+          cargo +stable update --workspace --manifest-path firmware/Cargo.toml
+      - name: Commit and run CI on the release branch
+        run: |
+          if git diff --quiet -- Cargo.lock firmware/Cargo.lock; then
+            echo "Lock files are current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: sync Cargo.lock with the release version" -- Cargo.lock firmware/Cargo.lock
+          git push origin "HEAD:$BRANCH"
+          gh workflow run ci.yml --ref "$BRANCH"
+
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.created == 'true'
+    uses: $/.github/workflows/release.yml
+    permissions:
+      contents: write
+      actions: read
+    with:
+      tag: ${{ needs.release-please.outputs.tag }}
