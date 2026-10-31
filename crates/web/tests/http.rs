@@ -456,6 +456,13 @@ async fn slow_firmware_upload_is_not_cut_off() {
     body.extend_from_slice(&image);
     body.extend_from_slice(b"\r\n--B--\r\n");
     let fake = with_server(ready(), |port| async move {
+        // Paused time jumps to the next timer when idle; without a short one, a chunk
+        // still in flight lets it jump straight to the 180 s upload deadline.
+        tokio::task::spawn_local(async {
+            loop {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        });
         let mut s = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
         let head = format!(
             "POST /api/ota/firmware HTTP/1.1\r\nHost: x\r\nConnection: close\r\nContent-Type: multipart/form-data; boundary=B\r\nContent-Length: {}\r\n\r\n",
