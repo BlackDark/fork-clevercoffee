@@ -4,7 +4,7 @@
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 # `.env` (git-ignored) may hold the bench WiFi: WIFI_SSID, WIFI_PASS.
-set dotenv-load := true
+set dotenv-load
 
 # Firmware image flavours: minimal (no MQTT, no display), standard (default), full.
 profile := "standard"
@@ -33,7 +33,7 @@ host-check: fmt-check lint test vendor-test
 # Formats host crates and firmware.
 fmt:
     cargo fmt --all
-    cd firmware && {{esp_env}} && cargo fmt
+    cd firmware && {{ esp_env }} && cargo fmt
 
 # Fails on unformatted host code (firmware: `firmware-lint`).
 fmt-check:
@@ -59,26 +59,26 @@ screens:
 # --- firmware -----------------------------------------------------------------------
 
 _features p=profile:
-    @case "{{p}}" in \
+    @case "{{ p }}" in \
       minimal) echo "--no-default-features --features esp32";; \
       standard) echo "";; \
       full) echo "--features full";; \
       bench) echo "--features full,bench";; \
-      *) echo "unknown profile {{p}} (minimal|standard|full|bench)" >&2; exit 1;; \
+      *) echo "unknown profile {{ p }} (minimal|standard|full|bench)" >&2; exit 1;; \
     esac
 
 # Format check and clippy on the firmware, smallest and largest feature set.
 firmware-lint: vendor-check
-    cd firmware && {{esp_env}} && cargo fmt --check
-    cd firmware && {{esp_env}} && cargo clippy --release $(just _features minimal) -- -D warnings
-    cd firmware && {{esp_env}} && cargo clippy --release $(just _features bench) -- -D warnings
+    cd firmware && {{ esp_env }} && cargo fmt --check
+    cd firmware && {{ esp_env }} && cargo clippy --release $(just _features minimal) -- -D warnings
+    cd firmware && {{ esp_env }} && cargo clippy --release $(just _features bench) -- -D warnings
 
 # Fails when a vendored crate (firmware/vendor) is not what the build uses: after a
 # dependency bump Cargo drops an unmatched `[patch]` with only a warning.
 vendor-check:
     #!/usr/bin/env bash
     set -euo pipefail
-    cd firmware && {{esp_env}}
+    cd firmware && {{ esp_env }}
     for crate in smoltcp embassy-net xtensa-lx-rt; do
       used=$(cargo tree --locked --features full --invert "$crate" --depth 0 2>&1 || true)
       if ! grep -q "(.*firmware/vendor/$crate)" <<<"$used"; then
@@ -91,25 +91,25 @@ vendor-check:
 
 # Builds the firmware; embeds ui/packages/frontend/dist (run `just ui` first).
 build p=profile:
-    cd firmware && {{esp_env}} && cargo build --release $(just _features {{p}})
+    cd firmware && {{ esp_env }} && cargo build --release $(just _features {{ p }})
 
 # Merged image (bootloader + partitions + app) at target/clevercoffee-<profile>.bin, flashed at 0x0.
 image p=profile: (build p)
     mkdir -p target
-    espflash save-image --chip esp32 --merge --partition-table firmware/partitions.csv {{elf}} target/clevercoffee-{{p}}.bin
-    @ls -l target/clevercoffee-{{p}}.bin
+    espflash save-image --chip esp32 --merge --partition-table firmware/partitions.csv {{ elf }} target/clevercoffee-{{ p }}.bin
+    @ls -l target/clevercoffee-{{ p }}.bin
 
 # Fails when the app outgrows 90 % of its OTA slot (0x1E0000 bytes).
 size p=profile: (build p)
-    espflash save-image --chip esp32 --partition-table firmware/partitions.csv {{elf}} target/app-{{p}}.bin
-    @size=$(wc -c < target/app-{{p}}.bin | tr -d " "); limit=$((0x1E0000 * 9 / 10)); \
+    espflash save-image --chip esp32 --partition-table firmware/partitions.csv {{ elf }} target/app-{{ p }}.bin
+    @size=$(wc -c < target/app-{{ p }}.bin | tr -d " "); limit=$((0x1E0000 * 9 / 10)); \
       echo "app: $size bytes, limit $limit"; [ "$size" -le "$limit" ]
 
 # Flashes over USB and opens the serial monitor (without a terminal: flash only, then
 # `just monitor`). Erases `otadata`: after an OTA update the bootloader would otherwise
 # keep starting the other slot, not the image just flashed.
 flash p=profile: (build p)
-    espflash flash --chip esp32 --partition-table firmware/partitions.csv --erase-parts otadata $([ -t 0 ] && echo --monitor) {{elf}}
+    espflash flash --chip esp32 --partition-table firmware/partitions.csv --erase-parts otadata $([ -t 0 ] && echo --monitor) {{ elf }}
 
 # Serial monitor. Without a terminal (agents, scripts) it streams the log read-only
 # until killed: `timeout 30 just monitor`.
@@ -121,7 +121,7 @@ monitor:
 [positional-arguments]
 provision *args:
     cargo run -q -p provision -- "$@" -o target/provision.bin
-    espflash write-bin --chip esp32 {{prov_offset}} target/provision.bin
+    espflash write-bin --chip esp32 {{ prov_offset }} target/provision.bin
 
 # Erases the whole flash (settings included).
 erase:
@@ -146,9 +146,9 @@ ui-dev:
 
 # Bench profile (docs/bench.md) plus WiFi, applied at next boot.
 bench-provision ssid=env("WIFI_SSID", "") password=env("WIFI_PASS", ""):
-    @[ -n "{{ssid}}" ] || { echo "no SSID: pass it or set WIFI_SSID in .env" >&2; exit 1; }
+    @[ -n "{{ ssid }}" ] || { echo "no SSID: pass it or set WIFI_SSID in .env" >&2; exit 1; }
     @# Not echoed: the line holds the WiFi password.
-    @just provision --ssid "{{ssid}}" --password "{{password}}" system.hostname=cc-bench \
+    @just provision --ssid "{{ ssid }}" --password "{{ password }}" system.hostname=cc-bench \
       pid.enabled=1 hardware.switches.brew.enabled=1 hardware.switches.brew.type=0 \
       hardware.switches.steam.enabled=1 hardware.switches.hot_water.enabled=1 \
       hardware.switches.power.enabled=0 \
@@ -157,4 +157,4 @@ bench-provision ssid=env("WIFI_SSID", "") password=env("WIFI_PASS", ""):
 
 # Smoke tests against a device: `just bench cc-bench.local [--hang] [--ota target/app-bench.bin]`.
 bench host *args:
-    cargo run -q -p bench -- {{host}} {{args}}
+    cargo run -q -p bench -- {{ host }} {{ args }}
