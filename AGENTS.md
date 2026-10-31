@@ -69,5 +69,9 @@ Same PR, only what the change touches:
 - `firmware/build.rs` embeds `ui/packages/frontend/dist`; without `just ui` a placeholder page is served (build warning).
 - GPIO1 (steam LED) is UART TX: enabling that LED silences the serial log.
 - GPIO34–39 have no pulls: switches need external resistors, floating inputs read as pressed.
-- `just flash` erases `otadata`: after an OTA update a plain `espflash flash` writes ota_0 and the board keeps booting ota_1.
+- `just flash` erases `otadata`: after an OTA update a plain `espflash flash` writes ota_0 and the board keeps booting ota_1. Fresh flash booted: log shows `Loaded app from partition at offset 0x10000`.
+- No TTY (agents): `just flash` skips the monitor; read the log with `timeout 30 just monitor`. Flash takes ~100 s at 115200 baud: don't kill it early.
+- `requires rustc 1.99` on `just build`: esp toolchain outdated, run the `espup install` line from `just setup`.
+- `mise install` fails with 404: pinned espup version has no GitHub release; pin an existing one.
+- `slow_firmware_upload_is_not_cut_off` (`crates/web/tests/http.rs`) flakes under full `just check` load; passes alone.
 - `firmware/vendor/` holds patched `xtensa-lx-rt` (boot), `smoltcp` and `embassy-net` (listen backlog); each patch is marked `CleverCoffee patch`, `just vendor-test` runs smoltcp's tests. Remove when upstream fixes them (docs/todo.md).

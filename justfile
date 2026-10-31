@@ -105,14 +105,16 @@ size p=profile: (build p)
     @size=$(wc -c < target/app-{{p}}.bin | tr -d " "); limit=$((0x1E0000 * 9 / 10)); \
       echo "app: $size bytes, limit $limit"; [ "$size" -le "$limit" ]
 
-# Flashes over USB and opens the serial monitor. Erases `otadata`: after an OTA update
-# the bootloader would otherwise keep starting the other slot, not the image just flashed.
+# Flashes over USB and opens the serial monitor (without a terminal: flash only, then
+# `just monitor`). Erases `otadata`: after an OTA update the bootloader would otherwise
+# keep starting the other slot, not the image just flashed.
 flash p=profile: (build p)
-    espflash flash --chip esp32 --partition-table firmware/partitions.csv --erase-parts otadata --monitor {{elf}}
+    espflash flash --chip esp32 --partition-table firmware/partitions.csv --erase-parts otadata $([ -t 0 ] && echo --monitor) {{elf}}
 
-# Serial monitor.
+# Serial monitor. Without a terminal (agents, scripts) it streams the log read-only
+# until killed: `timeout 30 just monitor`.
 monitor:
-    espflash monitor --chip esp32
+    espflash monitor --chip esp32 $([ -t 0 ] || echo --non-interactive)
 
 # Settings applied at next boot: `just provision --ssid Home --password secret system.hostname=silvia`.
 # Arguments are passed as given: an SSID with spaces stays one argument.
