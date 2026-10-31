@@ -8,13 +8,18 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_call:
+    inputs:
+      version:
+        description: Version shown in the web UI; default is the ref name
+        type: string
+        default: ""
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ inputs.version }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -49,7 +54,7 @@ jobs:
       - run: just ui-check
       - run: just ui
         env:
-          VITE_APP_VERSION: ${{ github.ref_name }}
+          VITE_APP_VERSION: ${{ inputs.version || github.ref_name }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ui-dist
