@@ -723,3 +723,26 @@ test("unknown device parameters without bounds remain editable", async ({
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   expect((await request).postData()).toBe("device.future=42");
 });
+
+test("standby shows a permanent toast with a Wake up action until awake", async ({
+  page,
+}) => {
+  let standby = true;
+  await page.route("**/api/status", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({ response, json: { ...body, isStandby: standby } });
+  });
+  await page.route("**/api/wake", (route) => {
+    standby = false;
+    return route.fulfill({ json: { success: true } });
+  });
+  await page.goto("#/");
+  const toast = page
+    .locator("[data-sonner-toast]")
+    .filter({ hasText: "The machine is in standby" });
+  await expect(toast).toBeVisible();
+  await expect(toast.getByRole("button", { name: "Dismiss" })).toHaveCount(0);
+  await toast.getByRole("button", { name: "Wake up" }).click();
+  await expect(toast).toBeHidden({ timeout: 10000 });
+});

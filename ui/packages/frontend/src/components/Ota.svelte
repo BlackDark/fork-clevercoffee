@@ -76,7 +76,8 @@
       <HardDrive size={20} />
     </div>
     <Alert.Root
-      class="mb-4 border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+      variant="warning"
+      class="mb-4"
       ><TriangleAlert size={18} /><Alert.Description class="text-inherit">
         Keep the device powered throughout the update. Updates may be refused
         while brewing or steaming.
@@ -109,14 +110,16 @@
         variant="destructive"
         class="mb-4"
         ><Alert.Description>
-          Update status unavailable. <Button
+          Update status unavailable.
+        </Alert.Description><Alert.Action
+          ><Button
             type="button"
-            variant="link"
-            class="h-auto p-0"
+            variant="outline"
+            size="sm"
             onclick={() => status.refetch()}
             ><RefreshCw size={16} />Retry</Button
-          >
-        </Alert.Description></Alert.Root
+          ></Alert.Action
+        ></Alert.Root
       >{/if}
     {#if busy || (status.data?.status !== "idle" && status.data)}<div
         class="mt-5"

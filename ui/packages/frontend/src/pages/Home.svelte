@@ -284,13 +284,15 @@
           variant="destructive"
           class="mb-4"
           ><Alert.Description>
-            History unavailable. <Button
+            History unavailable.
+          </Alert.Description><Alert.Action
+            ><Button
               type="button"
-              variant="link"
-              class="h-auto p-0"
+              variant="outline"
+              size="sm"
               onclick={() => history.refetch()}>Retry</Button
-            >
-          </Alert.Description></Alert.Root
+            ></Alert.Action
+          ></Alert.Root
         >{/if}<Chart
         data={temperatureChart}
         {dark}

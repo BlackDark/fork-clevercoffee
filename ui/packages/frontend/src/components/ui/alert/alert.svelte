@@ -9,6 +9,8 @@
     variants: {
       variant: {
         default: "bg-card text-card-foreground",
+        warning:
+          "border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100",
         destructive:
           "text-destructive bg-card *:data-[slot=alert-description]:text-destructive/90 *:[svg]:text-current",
       },

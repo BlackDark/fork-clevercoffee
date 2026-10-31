@@ -68,6 +68,26 @@
       toast.error(error instanceof Error ? error.message : String(error));
     }
   }
+  const onConfig = $derived(route.startsWith("/config/"));
+  const standby = $derived(!!machine.status.data?.isStandby);
+  // Stays until the machine is awake; the action keeps the toast open (preventDefault).
+  $effect(() => {
+    if (standby)
+      toast.info("The machine is in standby", {
+        id: "standby",
+        duration: Number.POSITIVE_INFINITY,
+        dismissable: false,
+        closeButton: false,
+        action: {
+          label: "Wake up",
+          onClick: (event) => {
+            event.preventDefault();
+            void wake();
+          },
+        },
+      });
+    else toast.dismiss("standby");
+  });
   function guard(event: BeforeUnloadEvent) {
     if (Object.keys(machine.draft.edits).length) {
       event.preventDefault();
@@ -191,24 +211,15 @@
         variant="destructive"
         class="mb-4"
         ><Alert.Description>
-          Cannot reach the device. Controls may be out of date. <Button
+          Cannot reach the device. Controls may be out of date.
+        </Alert.Description><Alert.Action
+          ><Button
             type="button"
-            variant="link"
-            class="h-auto p-0"
-            onclick={() => machine.status.refetch()}>Retry connection</Button
-          >
-        </Alert.Description></Alert.Root
-      >{/if}
-    {#if machine.status.data?.isStandby}<Alert.Root class="mb-4"
-        ><Alert.Description>
-          The machine is in standby. <Button
-            type="button"
-            variant="link"
-            class="h-auto p-0"
-            onclick={wake}
-            disabled={machine.command.isPending}>Wake up</Button
-          >
-        </Alert.Description></Alert.Root
+            variant="outline"
+            size="sm"
+            onclick={() => machine.status.refetch()}>Retry</Button
+          ></Alert.Action
+        ></Alert.Root
       >{/if}
     {#if machine.status.data?.backflushReminderDue && route !== "/"}<Alert.Root
         class="mb-4"
@@ -238,6 +249,12 @@
 <Toaster
   theme={dark ? "dark" : "light"}
   position="bottom-right"
+  offset={{ bottom: onConfig ? "5.5rem" : "1rem", right: "1rem" }}
+  mobileOffset={{
+    bottom: onConfig ? "5.5rem" : "1rem",
+    right: "1rem",
+    left: "1rem",
+  }}
   closeButton
   closeButtonAriaLabel="Dismiss notification"
   richColors

@@ -128,7 +128,8 @@
   </div>
 </div>
 {#if filter === "hardware"}<Alert.Root
-    class="mb-4 border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+    variant="warning"
+    class="mb-4"
     ><AlertTriangle size={18} /><Alert.Description class="text-inherit">
       <span
         >Incorrect hardware settings can activate the pump, heater, or valve
@@ -140,17 +141,19 @@
 
 {#if reboot}<Alert.Root class="mb-4"
     ><Alert.Description>
-      Some saved settings need a reboot to take effect. <Button
+      Some saved settings need a reboot to take effect.
+    </Alert.Description><Alert.Action class="flex gap-2"
+      ><Button
         href="#/system"
-        variant="link"
-        class="h-auto p-0">Restart in System</Button
+        variant="outline"
+        size="sm">Restart in System</Button
       ><Button
         type="button"
-        variant="link"
-        class="h-auto p-0"
+        variant="ghost"
+        size="sm"
         onclick={() => (reboot = false)}>Dismiss</Button
-      >
-    </Alert.Description></Alert.Root
+      ></Alert.Action
+    ></Alert.Root
   >{/if}
 {#if m.parameters.isPending}<p role="status">
     Loading parameters…
@@ -159,13 +162,15 @@
     variant="destructive"
     class="mb-4"
     ><Alert.Description>
-      {m.parameters.error.message}<Button
+      {m.parameters.error.message}
+    </Alert.Description><Alert.Action
+      ><Button
         type="button"
-        variant="link"
-        class="h-auto p-0"
+        variant="outline"
+        size="sm"
         onclick={() => m.parameters.refetch()}>Retry</Button
-      >
-    </Alert.Description></Alert.Root
+      ></Alert.Action
+    ></Alert.Root
   >{:else if !groups2[filter]}<p>Unknown parameter category.</p>{:else}
   <form
     onsubmit={(e) => {
