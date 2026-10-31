@@ -109,6 +109,7 @@ image p=profile: (build p)
 
 # Fails when the app outgrows 90 % of its OTA slot (0x1E0000 bytes).
 size p=profile: (build p)
+    mkdir -p target
     espflash save-image --chip esp32 --partition-table firmware/partitions.csv {{ elf }} target/app-{{ p }}.bin
     @size=$(wc -c < target/app-{{ p }}.bin | tr -d " "); limit=$((0x1E0000 * 9 / 10)); \
       echo "app: $size bytes, limit $limit"; [ "$size" -le "$limit" ]
