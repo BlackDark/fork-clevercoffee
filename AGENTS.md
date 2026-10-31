@@ -55,6 +55,12 @@ Same PR, only what the change touches:
 - PR already merged → branch anew from `origin/main`, open a new PR.
 - Force-push: `--force-with-lease` on own branches only.
 
+## Release
+
+- Conventional Commits drive the version. `release-please` keeps a release PR on `main`; merging it tags `vX.Y.Z`, then `release.yml` attaches the images.
+- First release: `release-as` and `last-release-sha` in `release-please-config.json` pin 2.0.0 and the changelog start. Remove both right after the v2.0.0 release.
+- Xtensa toolchain version lives only in the justfile (`esp_toolchain`, `# renovate:` comment above it). CI reads it with `just --evaluate`.
+
 ## Boundaries
 
 - `sudo`, system packages, global installs: the user runs them; ask with what and why.
