@@ -69,11 +69,11 @@ jobs:
         with:
           path: |
             ~/.rustup/toolchains/esp
-            ~/export-esp.sh
+            firmware/.esp-env.sh
           key: esp-${{ runner.os }}-${{ env.ESP_TOOLCHAIN }}
       - name: Install Xtensa toolchain
         if: steps.esp-cache.outputs.cache-hit != 'true'
-        run: espup install --targets esp32 --toolchain-version "$ESP_TOOLCHAIN" --skip-version-parse
+        run: espup install --targets esp32 --toolchain-version "$ESP_TOOLCHAIN" --skip-version-parse --export-file firmware/.esp-env.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: Swatinem/rust-cache@v2
