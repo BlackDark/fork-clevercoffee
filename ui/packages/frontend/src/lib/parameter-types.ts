@@ -24,8 +24,8 @@ export interface ServerParameter {
   type: ParameterType;
   name: string;
   value: string | number | boolean;
-  min: number;
-  max: number;
+  min?: number;
+  max?: number;
   options?: ParameterOption[];
 }
 
@@ -34,8 +34,8 @@ export interface ServerParameter {
 export interface ParameterTemplate {
   type: ParameterType;
   name: string;
-  min: number;
-  max: number;
+  min?: number;
+  max?: number;
   defaultValue: string | number | boolean;
   options?: ParameterOption[];
   requiredParameters?: Record<string, string | number | boolean>;

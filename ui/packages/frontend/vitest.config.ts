@@ -1,15 +1,15 @@
-import path from "node:path";
+import { fileURLToPath, URL } from "node:url";
+import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { defineConfig } from "vitest/config";
-
 export default defineConfig({
+  plugins: [svelte()],
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
+    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+    conditions: ["browser"],
   },
   test: {
     environment: "jsdom",
-    globals: true,
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    include: ["src/**/*.test.ts"],
+    setupFiles: ["./src/test-setup.ts"],
   },
 });

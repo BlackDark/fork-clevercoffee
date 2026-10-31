@@ -11,7 +11,7 @@ Espresso machine PID firmware for the ESP32 DevKitC v4: no_std Rust on Embassy, 
 Follows https://github.com/BlackDark/agent-presets/blob/main/stack/core.md.
 Deviations:
 - Firmware toolchain is espup's `esp` channel (Xtensa), pinned in `firmware/rust-toolchain.toml`; host crates use stable from `rust-toolchain.toml`.
-- UI stays React (inherited, shared with upstream); no size-limit, `just size` guards the whole image.
+- UI is BrewUI (Svelte 5, TanStack Query), taken from `main` and trimmed to firmware-only updates; no size-limit, `just size` guards the whole image.
 
 ## Map
 

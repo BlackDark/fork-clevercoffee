@@ -1,6 +1,5 @@
 /**
- * Shared API routes - mirrors backend routes in WebServerManager.cpp and ota.cpp
- * Single source of truth for route definitions - validates parity with C++ side
+ * Shared API routes - mirrors `ROUTES` in crates/web/src/lib.rs
  */
 
 export const API_ROUTES = {
@@ -36,7 +35,6 @@ export const API_ROUTES = {
   RESTART: "/restart",
   FACTORY_RESET: "/factory-reset",
   WIFI_RESET: "/wifi-reset",
-  NVS_DEBUG: "/nvs-debug",
 
   // Maintenance
   MAINTENANCE_RESET_BACKFLUSH: "/maintenance/reset-backflush-counter",

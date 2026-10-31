@@ -8,7 +8,7 @@ trim_trailing_whitespace = true
 indent_style = space
 indent_size = 4
 
-[*.{ts,tsx,js,json,json5,yml,yaml,md}]
+[*.{ts,tsx,js,svelte,json,json5,yml,yaml,md}]
 indent_size = 2
 
 [justfile]

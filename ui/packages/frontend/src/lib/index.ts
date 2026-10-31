@@ -18,4 +18,3 @@ export * from "./parameter-types";
 export * from "./parameter-utils";
 // === UI Utilities ===
 // General utilities
-export { cn } from "./utils";
