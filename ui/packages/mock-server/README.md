@@ -29,6 +29,7 @@ The server will start on `http://localhost:3001`
 ## API Endpoints
 
 ### Machine Control
+
 - `POST /api/steam` - Toggle steam mode
 - `POST /api/pid` - Toggle PID control
 - `POST /api/backflush` - Toggle backflush mode
@@ -36,6 +37,7 @@ The server will start on `http://localhost:3001`
 - `POST /api/scale/calibration` - Start scale calibration
 
 ### Data Endpoints
+
 - `GET /api/parameters` - Get parameters (supports `?filter=hardware|behavior|other`)
 - `POST /api/parameters` - Update parameters (form data)
 - `GET /api/parameter-help?param=name` - Get parameter help text
@@ -43,6 +45,7 @@ The server will start on `http://localhost:3001`
 - `GET /api/history` - Get temperature history data
 
 ### System Endpoints
+
 - `POST /api/wifi-reset` - Reset WiFi settings
 - `GET /api/config/download` - Download configuration file
 - `POST /api/config/upload` - Upload configuration file
@@ -50,6 +53,7 @@ The server will start on `http://localhost:3001`
 - `POST /api/factory-reset` - Factory reset
 
 ### OTA Update Endpoints
+
 - `POST /api/ota/firmware` - Upload firmware for OTA update (.bin files)
 - `POST /api/ota/filesystem` - Upload filesystem for OTA update (.bin/.img files)
 - `POST /api/ota/url` - Start OTA update from URL
@@ -58,12 +62,14 @@ The server will start on `http://localhost:3001`
 ## Usage with UI Development
 
 1. **Build the UI first:**
+
    ```bash
    cd ../ui
    npm run build
    ```
 
 2. **Start the mock server:**
+
    ```bash
    cd ../mock-server
    npm start
@@ -91,6 +97,7 @@ The server maintains realistic mock data including:
 The mock server provides realistic OTA update simulation with:
 
 ### Features
+
 - **Progress Tracking**: Real-time progress updates from 0-100%
 - **Multiple Update Types**: Firmware, filesystem, and URL-based updates
 - **Realistic Timing**: Configurable upload, processing, and restart phases
@@ -99,29 +106,32 @@ The mock server provides realistic OTA update simulation with:
 - **File Validation**: Proper file type and size validation
 
 ### Configuration
+
 The OTA simulation can be configured via `OTA_CONFIG`:
 
 ```javascript
 const OTA_CONFIG = {
-  UPDATE_INTERVAL: 1000,        // Progress update frequency (ms)
-  PROCESSING_DELAY: 2000,       // Processing phase duration (ms)
-  RESTART_DELAY: 3000,          // Device restart simulation (ms)
-  ERROR_RESET_DELAY: 10000,     // Error state reset time (ms)
-  FAILURE_RATE: 0.05,           // 5% chance of simulated failure
-  MIN_PROGRESS_STEP: 5,         // Minimum progress increment (%)
-  MAX_PROGRESS_STEP: 20,        // Maximum progress increment (%)
-  MAX_FIRMWARE_SIZE: 10 * 1024 * 1024,   // 10MB limit
-  MAX_FILESYSTEM_SIZE: 5 * 1024 * 1024,  // 5MB limit
+  UPDATE_INTERVAL: 1000, // Progress update frequency (ms)
+  PROCESSING_DELAY: 2000, // Processing phase duration (ms)
+  RESTART_DELAY: 3000, // Device restart simulation (ms)
+  ERROR_RESET_DELAY: 10000, // Error state reset time (ms)
+  FAILURE_RATE: 0.05, // 5% chance of simulated failure
+  MIN_PROGRESS_STEP: 5, // Minimum progress increment (%)
+  MAX_PROGRESS_STEP: 20, // Maximum progress increment (%)
+  MAX_FIRMWARE_SIZE: 10 * 1024 * 1024, // 10MB limit
+  MAX_FILESYSTEM_SIZE: 5 * 1024 * 1024, // 5MB limit
 };
 ```
 
 ### Update Flow
+
 1. **Upload Phase**: Simulates file upload with progress updates
 2. **Processing Phase**: Brief processing simulation at 95% progress
 3. **Completion**: Success response and simulated device restart
 4. **Reset**: Status returns to idle after restart simulation
 
 ### Testing Scenarios
+
 - **Normal Updates**: Most updates complete successfully
 - **Large Files**: Test with different file sizes up to the limits
 - **Concurrent Updates**: Attempt multiple updates to test blocking
@@ -142,7 +152,7 @@ The server uses modern ES modules and can be extended easily:
 
 ```javascript
 // Add new endpoints
-app.post('/api/my-endpoint', simulateAuth, (req, res) => {
+app.post("/api/my-endpoint", simulateAuth, (req, res) => {
   res.json({ success: true, message: "Custom endpoint" });
 });
 ```

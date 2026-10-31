@@ -9,9 +9,9 @@
     "dev": "tsx watch server.ts"
   },
   "dependencies": {
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
-    "multer": "^2.2.0"
+    "cors": "2.8.6",
+    "express": "5.3.0",
+    "multer": "2.5.0"
   },
   "devDependencies": {
     "@types/cors": "2.8.19",
