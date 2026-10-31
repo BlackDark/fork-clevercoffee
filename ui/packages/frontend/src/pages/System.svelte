@@ -67,18 +67,16 @@
 </div>
 
 <div class="two-columns">
-  <Card.Root class="panel"
+  <Card.Root class="min-w-0"
+    ><Card.Header
+      ><Card.Title
+        role="heading"
+        aria-level={2}>Power & standby</Card.Title
+      ><Card.Description>Wake, sleep, or restart the device.</Card.Description
+      ><Card.Action class="text-muted-foreground"
+        ><Power size={20} /></Card.Action
+      ></Card.Header
     ><Card.Content>
-      <div class="panel-heading">
-        <div>
-          <Card.Title
-            role="heading"
-            aria-level={2}>Power & standby</Card.Title
-          >
-          <p>Wake, sleep, or restart the device.</p>
-        </div>
-        <Power size={20} />
-      </div>
       <div class="flex flex-wrap gap-2">
         <Button
           type="button"
@@ -98,18 +96,16 @@
       </div>
     </Card.Content></Card.Root
   >
-  <Card.Root class="panel"
+  <Card.Root class="min-w-0"
+    ><Card.Header
+      ><Card.Title
+        role="heading"
+        aria-level={2}>Reset options</Card.Title
+      ><Card.Description>These actions erase saved settings.</Card.Description
+      ><Card.Action class="text-muted-foreground"
+        ><TriangleAlert size={20} /></Card.Action
+      ></Card.Header
     ><Card.Content>
-      <div class="panel-heading">
-        <div>
-          <Card.Title
-            role="heading"
-            aria-level={2}>Reset options</Card.Title
-          >
-          <p>These actions erase saved settings.</p>
-        </div>
-        <TriangleAlert size={20} />
-      </div>
       <div class="flex flex-wrap gap-2">
         <Button
           type="button"
@@ -125,18 +121,16 @@
       </div>
     </Card.Content></Card.Root
   >
-  <Card.Root class="panel"
+  <Card.Root class="min-w-0"
+    ><Card.Header
+      ><Card.Title
+        role="heading"
+        aria-level={2}>Configuration backup</Card.Title
+      ><Card.Description>Download the current configuration.</Card.Description
+      ><Card.Action class="text-muted-foreground"
+        ><Download size={20} /></Card.Action
+      ></Card.Header
     ><Card.Content>
-      <div class="panel-heading">
-        <div>
-          <Card.Title
-            role="heading"
-            aria-level={2}>Configuration backup</Card.Title
-          >
-          <p>Download the current configuration.</p>
-        </div>
-        <Download size={20} />
-      </div>
       <Button
         variant="success"
         href={`${API_BASE_URL}/config/download`}
@@ -145,18 +139,17 @@
       >
     </Card.Content></Card.Root
   >
-  <Card.Root class="panel"
+  <Card.Root class="min-w-0"
+    ><Card.Header
+      ><Card.Title
+        role="heading"
+        aria-level={2}>Restore configuration</Card.Title
+      ><Card.Description
+        >Restore settings from a JSON backup (up to 8 KB).</Card.Description
+      ><Card.Action class="text-muted-foreground"
+        ><Upload size={20} /></Card.Action
+      ></Card.Header
     ><Card.Content>
-      <div class="panel-heading">
-        <div>
-          <Card.Title
-            role="heading"
-            aria-level={2}>Restore configuration</Card.Title
-          >
-          <p>Restore settings from a JSON backup (up to 8 KB).</p>
-        </div>
-        <Upload size={20} />
-      </div>
       <Label
         class="sr-only"
         for="config-file">Configuration file</Label

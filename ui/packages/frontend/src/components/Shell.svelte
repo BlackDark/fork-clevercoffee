@@ -2,8 +2,9 @@
   import * as Alert from "@/components/ui/alert";
   import { Toaster } from "./ui/sonner";
   import { Button } from "@/components/ui/button";
+  import * as Sheet from "@/components/ui/sheet";
   import { toast } from "svelte-sonner";
-  import { Menu, X, Sun, Moon } from "@lucide/svelte";
+  import { Menu, Sun, Moon } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { createMachine } from "@/lib/machine.svelte";
   import Home from "../pages/Home.svelte";
@@ -17,7 +18,6 @@
       "/",
   );
   let menuOpen = $state(false);
-  let menuButton = $state<HTMLElement | null>(null);
   let dark = $state(false);
   let theme = $state("system");
   const links = [
@@ -90,28 +90,31 @@
 
 <svelte:window
   onbeforeunload={guard}
-  onkeydown={(event) => {
-    if (event.key === "Escape" && menuOpen) {
-      menuOpen = false;
-      menuButton?.focus();
-    }
-  }}
-  onclick={(event) => {
-    if (
-      menuOpen &&
-      !event
-        .composedPath()
-        .some(
-          (node) =>
-            node instanceof Element && node.classList.contains("topbar"),
-        )
-    )
-      menuOpen = false;
-  }}
   onresize={() => {
     if (innerWidth >= 768) menuOpen = false;
   }}
 />
+
+{#snippet navLinks()}
+  {#each links as link}
+    {@const active =
+      link.href === "/"
+        ? route === "/"
+        : route.startsWith(link.href.split("/").slice(0, 2).join("/"))}
+    <Button
+      variant="ghost"
+      href={`#${link.href}`}
+      class={[
+        "max-md:w-full max-md:justify-start",
+        active ? "text-foreground" : "text-muted-foreground",
+      ]}
+      aria-current={active ? "page" : undefined}
+      onclick={() => {
+        menuOpen = false;
+      }}>{link.label}</Button
+    >
+  {/each}
+{/snippet}
 
 <a
   href="#main"
@@ -135,26 +138,10 @@
       /></a
     >
     <nav
-      id="primary-navigation"
       aria-label="Main navigation"
       class="header-nav"
-      class:open={menuOpen}
     >
-      {#each links as link}
-        {@const active =
-          link.href === "/"
-            ? route === "/"
-            : route.startsWith(link.href.split("/").slice(0, 2).join("/"))}
-        <Button
-          variant="ghost"
-          href={`#${link.href}`}
-          class={active ? "text-foreground" : "text-muted-foreground"}
-          aria-current={active ? "page" : undefined}
-          onclick={() => {
-            menuOpen = false;
-          }}>{link.label}</Button
-        >
-      {/each}
+      {@render navLinks()}
     </nav>
     <div class="header-actions">
       <span
@@ -178,20 +165,33 @@
         aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
         >{#if dark}<Sun size={18} />{:else}<Moon size={18} />{/if}</Button
       >
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        class="icon-btn menu-button"
-        bind:ref={menuButton}
-        aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
-        aria-expanded={menuOpen}
-        aria-controls="primary-navigation"
-        onclick={() => {
-          menuOpen = !menuOpen;
-        }}
-        >{#if menuOpen}<X size={20} />{:else}<Menu size={20} />{/if}</Button
-      >
+      <Sheet.Root bind:open={menuOpen}>
+        <Sheet.Trigger>
+          {#snippet child({ props })}
+            <Button
+              {...props}
+              variant="outline"
+              size="icon"
+              class="icon-btn menu-button"
+              aria-label="Open navigation menu"><Menu size={20} /></Button
+            >
+          {/snippet}
+        </Sheet.Trigger>
+        <Sheet.Content side="right">
+          <Sheet.Header>
+            <Sheet.Title>Menu</Sheet.Title>
+            <Sheet.Description class="sr-only"
+              >Go to another page.</Sheet.Description
+            >
+          </Sheet.Header>
+          <nav
+            aria-label="Main navigation"
+            class="flex flex-col gap-1 px-4"
+          >
+            {@render navLinks()}
+          </nav>
+        </Sheet.Content>
+      </Sheet.Root>
     </div>
   </header>
   <main

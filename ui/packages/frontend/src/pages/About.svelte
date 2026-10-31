@@ -11,7 +11,7 @@
     <p>CleverCoffee firmware and BrewUI.</p>
   </div>
 </div>
-<Card.Root class="panel"
+<Card.Root class="min-w-0"
   ><Card.Content>
     <Coffee
       size={40}

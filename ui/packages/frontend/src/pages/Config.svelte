@@ -1,6 +1,7 @@
 <script lang="ts">
   import * as Tabs from "@/components/ui/tabs";
   import * as Alert from "@/components/ui/alert";
+  import { Skeleton } from "@/components/ui/skeleton";
   import { Button } from "@/components/ui/button";
   import { Input } from "@/components/ui/input";
   import { Label } from "@/components/ui/label";
@@ -156,9 +157,13 @@
       ></Alert.Action
     ></Alert.Root
   >{/if}
-{#if m.parameters.isPending}<p role="status">
-    Loading parameters…
-  </p>{:else if m.parameters.isError}<Alert.Root
+{#if m.parameters.isPending}<div
+    role="status"
+    aria-label="Loading parameters"
+    class="grid gap-5"
+  >
+    <Skeleton class="h-48 rounded-xl" /><Skeleton class="h-48 rounded-xl" />
+  </div>{:else if m.parameters.isError}<Alert.Root
     role="alert"
     variant="destructive"
     class="mb-4"
@@ -180,23 +185,27 @@
     }}
   >
     {#each [...sections, ...(filter === "system" && unmapped.length ? [{ key: "other", label: "Other device parameters", items: unmapped }] : [])] as group}
-      <Card.Root class="panel parameter-panel"
+      <Card.Root class="min-w-0 parameter-panel"
+        ><Card.Header
+          ><Card.Title
+            role="heading"
+            aria-level={2}
+          >
+            <span
+              class="section-icon"
+              class:purple={/pid|mqtt/i.test(group.key)}
+              class:amber={/power|relay|switch/i.test(group.key)}
+              class:teal={/brew|water|maintenance|scale/i.test(group.key)}
+              ><Settings2 size={19} /></span
+            >{group.label}
+          </Card.Title><Card.Action
+            ><Badge variant="secondary"
+              >{group.items.length} setting{group.items.length === 1
+                ? ""
+                : "s"}</Badge
+            ></Card.Action
+          ></Card.Header
         ><Card.Content>
-          <div class="panel-heading">
-            <Card.Title
-              role="heading"
-              aria-level={2}
-            >
-              <span
-                class="section-icon"
-                class:purple={/pid|mqtt/i.test(group.key)}
-                class:amber={/power|relay|switch/i.test(group.key)}
-                class:teal={/brew|water|maintenance|scale/i.test(group.key)}
-                ><Settings2 size={19} /></span
-              >{group.label}
-            </Card.Title>
-            <Badge variant="secondary">{group.items.length} settings</Badge>
-          </div>
           <div class="parameter-grid">
             {#each group.items as parameter (parameter.name)}{@const enabled =
                 areRequiredParametersMet(parameter, parameters)}

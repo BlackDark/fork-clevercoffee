@@ -105,20 +105,20 @@
 <h1 class="sr-only">Home</h1>
 
 <div class="home-grid">
-  <Card.Root class="panel"
-    ><Card.Content>
-      <div class="panel-heading">
-        <Card.Title
-          role="heading"
-          aria-level={2}><Activity size={20} />Machine Status</Card.Title
-        >
-        <Badge variant="secondary"
+  <Card.Root class="min-w-0"
+    ><Card.Header
+      ><Card.Title
+        role="heading"
+        aria-level={2}><Activity size={20} />Machine Status</Card.Title
+      ><Card.Action
+        ><Badge variant="secondary"
           ><span
             class="status-dot"
             class:offline={stream !== "Live"}
           ></span>{stream}</Badge
-        >
-      </div>
+        ></Card.Action
+      ></Card.Header
+    ><Card.Content>
       <div class="machine-metrics">
         <div>
           <div class="stat-label">
@@ -178,14 +178,13 @@
       </form>
     </Card.Content></Card.Root
   >
-  <Card.Root class="panel"
+  <Card.Root class="min-w-0"
+    ><Card.Header
+      ><Card.Title
+        role="heading"
+        aria-level={2}><Power size={20} />Machine Functions</Card.Title
+      ></Card.Header
     ><Card.Content>
-      <div class="panel-heading">
-        <Card.Title
-          role="heading"
-          aria-level={2}><Power size={20} />Machine Functions</Card.Title
-        >
-      </div>
       {#each [{ label: "PID heating", route: "/pid", on: m.status.data?.pidEnabled ?? !!m.parameters.data?.find((p) => p.name === "pid.enabled")?.value }, { label: "Steam mode", route: "/steam", on: m.status.data?.steamMode }] as control}
         <div class="control-row">
           <div>
@@ -228,14 +227,13 @@
         </div>{/if}
     </Card.Content></Card.Root
   >
-  <Card.Root class="panel maintenance-panel"
+  <Card.Root class="min-w-0 maintenance-panel"
+    ><Card.Header
+      ><Card.Title
+        role="heading"
+        aria-level={2}><Droplets size={20} />Maintenance</Card.Title
+      ></Card.Header
     ><Card.Content>
-      <div class="panel-heading">
-        <Card.Title
-          role="heading"
-          aria-level={2}><Droplets size={20} />Maintenance</Card.Title
-        >
-      </div>
       <div class="maintenance-number">
         {shots}<span> / {threshold}</span>
       </div>
@@ -258,19 +256,18 @@
       >
     </Card.Content></Card.Root
   >
-  <Card.Root class="panel chart-panel"
+  <Card.Root class="min-w-0 chart-panel"
+    ><Card.Header
+      ><Card.Title
+        role="heading"
+        aria-level={2}
+      >
+        <Thermometer
+          size={20}
+          class="temperature-icon"
+        />Temperature History
+      </Card.Title></Card.Header
     ><Card.Content>
-      <div class="panel-heading">
-        <Card.Title
-          role="heading"
-          aria-level={2}
-        >
-          <Thermometer
-            size={20}
-            class="temperature-icon"
-          />Temperature History
-        </Card.Title>
-      </div>
       {#if history.isError}<Alert.Root
           role="alert"
           variant="destructive"
@@ -291,19 +288,18 @@
       />
     </Card.Content></Card.Root
   >
-  <Card.Root class="panel chart-panel"
+  <Card.Root class="min-w-0 chart-panel"
+    ><Card.Header
+      ><Card.Title
+        role="heading"
+        aria-level={2}
+      >
+        <Zap
+          size={20}
+          class="heater-icon"
+        />Heater Power History
+      </Card.Title></Card.Header
     ><Card.Content>
-      <div class="panel-heading">
-        <Card.Title
-          role="heading"
-          aria-level={2}
-        >
-          <Zap
-            size={20}
-            class="heater-icon"
-          />Heater Power History
-        </Card.Title>
-      </div>
       <Chart
         data={heaterChart}
         kind="heater"

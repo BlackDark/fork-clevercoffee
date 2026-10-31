@@ -308,7 +308,7 @@ test("header navigation collapses on small screens and closes after selection or
   await expect(nav).toBeHidden();
   await expect(burger).toBeFocused();
   await burger.click();
-  await page.locator("main").click({ position: { x: 10, y: 500 } });
+  await page.mouse.click(10, 500);
   await expect(nav).toBeHidden();
   await page.setViewportSize({ width: 1024, height: 900 });
   await expect(nav).toBeVisible();
@@ -447,7 +447,7 @@ test("blue controls, centered disabled badges and compact maintenance placement"
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("#/");
   const maintenance = page.locator(".maintenance-panel");
-  const status = page.locator(".home-grid > .panel").first();
+  const status = page.locator('.home-grid > [data-slot="card"]').first();
   await expect(maintenance).toBeVisible();
   const box = await maintenance.boundingBox();
   const statusBox = await status.boundingBox();

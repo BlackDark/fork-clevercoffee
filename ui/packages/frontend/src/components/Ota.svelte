@@ -61,21 +61,18 @@
   }
 </script>
 
-<Card.Root class="panel mt-6"
+<Card.Root class="min-w-0 mt-6"
+  ><Card.Header
+    ><Card.Title
+      role="heading"
+      aria-level={2}>Firmware update</Card.Title
+    ><Card.Description>
+      The firmware image includes this web interface. The device will restart
+      after a successful update.
+    </Card.Description><Card.Action class="text-muted-foreground"
+      ><HardDrive size={20} /></Card.Action
+    ></Card.Header
   ><Card.Content>
-    <div class="panel-heading">
-      <div>
-        <Card.Title
-          role="heading"
-          aria-level={2}>Firmware update</Card.Title
-        >
-        <p>
-          The firmware image includes this web interface. The device will
-          restart after a successful update.
-        </p>
-      </div>
-      <HardDrive size={20} />
-    </div>
     <Alert.Root
       variant="warning"
       class="mb-4"
