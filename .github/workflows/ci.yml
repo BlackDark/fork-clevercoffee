@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v3
         with:
-          install_args: just espup espflash
+          install_args: just github:esp-rs/espup github:esp-rs/espflash
       - name: Cache Xtensa toolchain
         id: esp-cache
         uses: actions/cache@v4
