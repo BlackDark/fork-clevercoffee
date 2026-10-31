@@ -8,6 +8,7 @@
   import { Progress } from "@/components/ui/progress";
   import SwitchField from "../components/SwitchField.svelte";
   import { toast } from "svelte-sonner";
+  import { reportError } from "@/lib/notify";
   import {
     Activity,
     Thermometer,
@@ -86,14 +87,6 @@
     });
     return () => events.close();
   });
-  async function command(route: string) {
-    try {
-      await m.command.mutateAsync(route);
-      toast.success("Device updated");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
-    }
-  }
   async function save(event: SubmitEvent) {
     event.preventDefault();
     if (!target) return;
@@ -104,7 +97,7 @@
       setpoint = undefined;
       toast.success("Brew temperature saved");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      reportError(e);
     }
   }
 </script>
@@ -205,7 +198,7 @@
             disabled={m.command.isPending ||
               m.status.isError ||
               m.status.isPending}
-            onchange={() => command(control.route)}
+            onchange={() => m.run(control.route)}
           />
         </div>{/each}
       <div class="control-row">
@@ -215,7 +208,7 @@
           disabled={m.command.isPending ||
             m.status.isError ||
             m.status.isPending}
-          onclick={() => command("/backflush")}>Toggle backflush</Button
+          onclick={() => m.run("/backflush")}>Toggle backflush</Button
         >
       </div>
       {#if m.parameters.data?.some((p) => p.name === "hardware.sensors.scale.enabled" && !!p.value)}<div
@@ -225,13 +218,12 @@
             type="button"
             variant="outline"
             disabled={m.command.isPending}
-            onclick={() => command("/scale/tare")}>Tare scale</Button
+            onclick={() => m.run("/scale/tare")}>Tare scale</Button
           ><Button
             type="button"
             variant="outline"
             disabled={m.command.isPending}
-            onclick={() => command("/scale/calibration")}
-            >Calibrate scale</Button
+            onclick={() => m.run("/scale/calibration")}>Calibrate scale</Button
           >
         </div>{/if}
     </Card.Content></Card.Root
@@ -261,7 +253,7 @@
         variant="outline"
         class="mt-4"
         disabled={m.command.isPending}
-        onclick={() => command("/maintenance/reset-backflush-counter")}
+        onclick={() => m.run("/maintenance/reset-backflush-counter")}
         ><RotateCcw size={15} />Reset counter</Button
       >
     </Card.Content></Card.Root

@@ -14,8 +14,13 @@
     Wifi,
   } from "@lucide/svelte";
   import { useMachine } from "@/lib/machine.svelte";
-  import { apiFetch, API_BASE_URL } from "@/lib/api-config";
-  import { ConfigUploadResponseSchema } from "@/lib/schemas";
+  import { API_BASE_URL } from "@/lib/api-config";
+  import { reportError } from "@/lib/notify";
+  import {
+    postDeviceAction,
+    uploadConfig,
+    type DeviceAction,
+  } from "@/lib/system-actions";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import Ota from "../components/Ota.svelte";
   const m = useMachine();
@@ -40,81 +45,16 @@
     busy = true;
     try {
       if (action === "upload") {
-        if (
-          !file ||
-          file.size === 0 ||
-          file.size > 8 * 1024 ||
-          !file.name.toLowerCase().endsWith(".json")
-        )
-          throw new Error("Choose a nonempty JSON file up to 8 KB.");
-        const content = await file.text();
-        const parsed: unknown = JSON.parse(content);
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-          throw new Error("Configuration must be a JSON object.");
-        const response = await apiFetch("/config/upload", {
-          method: "POST",
-          body: content,
-          signal: AbortSignal.timeout(30000),
-        });
-        const text = await response.text();
-        if (!response.ok) throw new Error(`HTTP ${response.status}: ${text}`);
-        let payload: unknown;
-        try {
-          payload = JSON.parse(text);
-        } catch {
-          throw new Error(
-            `Invalid configuration upload response (HTTP ${response.status}).`,
-          );
-        }
-        const parsedResult = ConfigUploadResponseSchema.safeParse(payload);
-        if (!parsedResult.success)
-          throw new Error(
-            `Invalid configuration upload response (HTTP ${response.status}).`,
-          );
-        const result = parsedResult.data;
-        if (!result.success)
-          throw new Error(result.message || "Configuration upload failed");
-        toast.success(
-          result.message || "Configuration restored. The device may restart.",
-        );
+        toast.success(await uploadConfig(file));
         await m.parameters.refetch();
       } else {
-        const response = await apiFetch(`/${action}`, {
-          method: "POST",
-          signal: AbortSignal.timeout(15000),
-        });
-        const text = await response.text();
-        if (!response.ok) throw new Error(`HTTP ${response.status}: ${text}`);
-        let result: unknown;
-        try {
-          result = JSON.parse(text);
-        } catch {
-          result = null;
-        }
-        if (
-          result &&
-          typeof result === "object" &&
-          "success" in result &&
-          result.success === false
-        )
-          throw new Error("Device refused the action");
-        toast.success(
-          "Request accepted. The device may disconnect while restarting.",
-        );
+        toast.success(await postDeviceAction(action as DeviceAction));
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      reportError(e);
     } finally {
       busy = false;
       open = false;
-    }
-  }
-  async function standby(route: string) {
-    try {
-      await m.command.mutateAsync(route);
-      toast.success("Device updated");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
     }
   }
 </script>
@@ -142,19 +82,17 @@
       <div class="flex flex-wrap gap-2">
         <Button
           type="button"
-          variant="default"
-          class="bg-green-700 text-white hover:bg-green-800"
+          variant="success"
           disabled={m.command.isPending}
-          onclick={() => standby("/wake")}><Power size={16} />Wake up</Button
+          onclick={() => m.run("/wake")}><Power size={16} />Wake up</Button
         ><Button
           type="button"
           variant="outline"
           disabled={m.command.isPending}
-          onclick={() => standby("/sleep")}><Moon size={16} />Sleep</Button
+          onclick={() => m.run("/sleep")}><Moon size={16} />Sleep</Button
         ><Button
           type="button"
-          variant="default"
-          class="bg-orange-700 text-white hover:bg-orange-800"
+          variant="warning"
           onclick={() => ask("restart")}><RotateCcw size={16} />Restart</Button
         >
       </div>
@@ -175,8 +113,7 @@
       <div class="flex flex-wrap gap-2">
         <Button
           type="button"
-          variant="default"
-          class="bg-orange-700 text-white hover:bg-orange-800"
+          variant="warning"
           onclick={() => ask("wifi-reset")}
           ><Wifi size={16} />Reset Wi-Fi</Button
         ><Button
@@ -201,8 +138,7 @@
         <Download size={20} />
       </div>
       <Button
-        variant="default"
-        class="bg-green-700 text-white hover:bg-green-800"
+        variant="success"
         href={`${API_BASE_URL}/config/download`}
         download="clevercoffee-config.json"
         ><Download size={16} />Download configuration</Button
@@ -235,8 +171,7 @@
         }}
       /><Button
         type="button"
-        variant="default"
-        class="bg-blue-700 text-white hover:bg-blue-800"
+        variant="info"
         onclick={() => ask("upload")}
         disabled={!file || busy}
         ><Upload size={16} />Restore configuration</Button

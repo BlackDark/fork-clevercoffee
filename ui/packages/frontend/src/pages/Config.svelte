@@ -8,6 +8,7 @@
   import * as Card from "@/components/ui/card";
   import ParameterHint from "../components/ParameterHint.svelte";
   import { toast } from "svelte-sonner";
+  import { reportError } from "@/lib/notify";
   import {
     Search,
     Save,
@@ -83,7 +84,7 @@
       confirm = false;
       toast.success("Parameters saved successfully.");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      reportError(e);
       confirm = false;
     }
   }

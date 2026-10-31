@@ -147,13 +147,6 @@ main {
 .panel {
   min-width: 0;
 }
-.stat-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--muted-foreground);
-}
 .stat-value {
   font-size: 38px;
   letter-spacing: -1.7px;
@@ -187,21 +180,10 @@ main {
 .uplot {
   font-family: inherit;
   font-size: 10px;
+  color: var(--foreground);
 }
 .u-legend {
   font-size: 10px;
-}
-.control-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--border);
-  padding: 12px 0;
-  font-size: 12px;
-}
-.setpoint-form {
-  margin-top: 22px;
-  font-size: 11px;
 }
 .maintenance-number {
   font-size: 30px;
@@ -372,10 +354,10 @@ footer {
   gap: 12px;
   font-size: 18px;
 }
-.panel {
-  min-width: 0;
-}
 .stat-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 14px;
   color: var(--foreground);
   font-weight: 500;
@@ -412,14 +394,14 @@ footer {
   max-width: 100px;
 }
 .control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   border: 1px solid var(--border);
   border-radius: 8px;
   margin-top: 12px;
   padding: 16px;
   font-size: 14px;
-}
-.uplot {
-  color: var(--foreground);
 }
 @media (max-width: 900px) {
   .home-grid {
@@ -466,9 +448,6 @@ footer {
   }
   .page-heading p {
     font-size: 13px;
-  }
-  .panel {
-    min-width: 0;
   }
   .panel-heading [data-slot="card-title"] {
     font-size: 16px;

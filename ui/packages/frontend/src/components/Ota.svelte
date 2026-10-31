@@ -6,6 +6,7 @@
   import * as Card from "@/components/ui/card";
   import { Progress } from "@/components/ui/progress";
   import { toast } from "svelte-sonner";
+  import { reportError } from "@/lib/notify";
   import { createMutation, createQuery } from "@tanstack/svelte-query";
   import { Upload, HardDrive, TriangleAlert, RefreshCw } from "@lucide/svelte";
   import { apiJsonFetch } from "@/lib/api-config";
@@ -53,7 +54,7 @@
     try {
       await upload.mutateAsync();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      reportError(e);
     } finally {
       open = false;
     }

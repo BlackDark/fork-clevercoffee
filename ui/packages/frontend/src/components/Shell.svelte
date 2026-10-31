@@ -60,14 +60,6 @@
       /* Storage may be disabled. */
     }
   }
-  async function wake() {
-    try {
-      await machine.command.mutateAsync("/wake");
-      toast.success("Device updated");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
-    }
-  }
   const onConfig = $derived(route.startsWith("/config/"));
   const standby = $derived(!!machine.status.data?.isStandby);
   // Stays until the machine is awake; the action keeps the toast open (preventDefault).
@@ -82,7 +74,7 @@
           label: "Wake up",
           onClick: (event) => {
             event.preventDefault();
-            void wake();
+            void machine.run("/wake");
           },
         },
       });

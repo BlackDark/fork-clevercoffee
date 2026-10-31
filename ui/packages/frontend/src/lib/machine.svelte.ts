@@ -4,7 +4,9 @@ import {
   useQueryClient,
 } from "@tanstack/svelte-query";
 import { getContext, setContext } from "svelte";
+import { toast } from "svelte-sonner";
 import { apiJsonFetch } from "./api-config";
+import { reportError } from "./notify";
 import {
   ensureCompleteParameters,
   getParameterMetadata,
@@ -110,7 +112,16 @@ export function createMachine() {
   const draft = $state({
     edits: {} as Record<string, string | number | boolean>,
   });
-  const machine = { parameters, status, save, command, draft };
+  /** Sends a command and tells the user how it went. */
+  async function run(route: string) {
+    try {
+      await command.mutateAsync(route);
+      toast.success("Device updated");
+    } catch (e) {
+      reportError(e);
+    }
+  }
+  const machine = { parameters, status, save, command, run, draft };
   setContext(KEY, machine);
   return machine;
 }
