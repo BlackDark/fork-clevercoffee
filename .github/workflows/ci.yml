@@ -92,3 +92,13 @@ jobs:
           name: firmware
           path: target/app-*.bin
           retention-days: 14
+
+  # The one check the main ruleset requires. Skipped jobs (draft PRs) count as passed.
+  check:
+    if: always()
+    needs: [host, ui, firmware]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
