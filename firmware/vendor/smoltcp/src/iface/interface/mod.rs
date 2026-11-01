@@ -1190,8 +1190,8 @@ impl InterfaceInner {
             _ => (),
         }
 
-        // The request got dispatched, limit the rate on the cache.
-        self.neighbor_cache.limit_rate(self.now);
+        // The request got dispatched, limit the rate for this address (CleverCoffee patch).
+        self.neighbor_cache.limit_rate(dst_addr, self.now);
         Err(DispatchError::NeighborPending)
     }
 
