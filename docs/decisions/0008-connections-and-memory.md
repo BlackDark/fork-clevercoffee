@@ -49,3 +49,9 @@ Measured on the bench with two UI tabs open (each holds a worker for its event s
 - **JSON in 4 KB windows that stop early**: each 1 KB window rendered the whole body (22 renders for 21 KB); now a window stops rendering once it is full (about 3 renders). Buffering the body whole was 0.06 s faster but took 25 KB of heap per request.
 - **`minFreeHeap` is exact**: esp-alloc's `internal-heap-stats` records the high-water mark; the 10 s sample missed every peak (it read 75 KB where the true low was 21 KB).
 
+## Revision 2026-11-01: ARP requests are rate limited per address
+
+The web UI answered only in short windows (or not at all, 70 to 190 s after a boot) while the MQTT broker was an on-subnet host that did not answer ARP. Bisected on the bench with `just provision`: broker disabled, or off-subnet (`192.0.2.1`), UI reachable 2 s after boot; broker `10.0.1.250` (absent), never.
+
+- smoltcp 0.13 keeps one ARP rate-limit timer for the whole neighbor cache, and smoltcp learns a peer's MAC only from ARP packets, not from the SYN a browser sends. The SYN-ACK to the browser needs an ARP request of its own, and it was refused whenever another socket's request (MQTT, retrying every second) had just started the single timer. Both sockets retry on the same 1 s clock and the MQTT socket comes first in the socket set: the browser starved until MQTT gave up (60 s connect timeout, then 10 s without a socket).
+- The vendored smoltcp keeps one timer per address (four at a time). Test `test_hush_is_per_address`.
