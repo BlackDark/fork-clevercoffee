@@ -79,4 +79,4 @@ Same PR, only what the change touches:
 - `requires rustc 1.99` on `just build`: esp toolchain outdated, run the `espup install` line from `just setup`. It writes `firmware/.esp-env.sh` (git-ignored); recipes source it, else `~/export-esp.sh`.
 - `mise install` fails with 404: pinned espup version has no GitHub release; pin an existing one.
 - `slow_firmware_upload_is_not_cut_off` (`crates/web/tests/http.rs`) flakes under full `just check` load; passes alone.
-- `firmware/vendor/` holds patched `xtensa-lx-rt` (boot), `smoltcp` and `embassy-net` (listen backlog); each patch is marked `CleverCoffee patch`, `just vendor-test` runs smoltcp's tests. Remove when upstream fixes them (docs/todo.md).
+- `firmware/vendor/` holds patched `xtensa-lx-rt` (boot), `smoltcp` (listen backlog, ARP rate limit per address) and `embassy-net` (listen backlog); each patch is marked `CleverCoffee patch`, `just vendor-test` runs smoltcp's tests. Remove when upstream fixes them (docs/todo.md).

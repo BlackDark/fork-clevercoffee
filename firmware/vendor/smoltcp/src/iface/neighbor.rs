@@ -45,8 +45,16 @@ impl Answer {
 #[derive(Debug)]
 pub struct Cache {
     storage: LinearMap<IpAddress, Neighbor, IFACE_NEIGHBOR_CACHE_COUNT>,
-    silent_until: Instant,
+    // CleverCoffee patch (ADR 0008): one timer per address instead of one for the whole
+    // cache. A host that never answers ARP kept the single timer running for its own
+    // requests, and a socket waiting for any other address (a browser's SYN-ACK) was
+    // rate limited every time, forever.
+    silent_until: [Option<(IpAddress, Instant)>; SILENT_SLOTS],
 }
+
+/// Addresses with a running discovery timer at once. More requests at the same time
+/// replace the oldest timer, which only allows one more request for that address.
+const SILENT_SLOTS: usize = 4;
 
 impl Cache {
     /// Minimum delay between discovery requests, in milliseconds.
@@ -59,7 +67,7 @@ impl Cache {
     pub fn new() -> Self {
         Self {
             storage: LinearMap::new(),
-            silent_until: Instant::from_millis(0),
+            silent_until: [None; SILENT_SLOTS],
         }
     }
 
@@ -158,19 +166,41 @@ impl Cache {
             return Answer::Found(hardware_addr);
         }
 
-        if timestamp < self.silent_until {
+        let limited = self
+            .silent_until
+            .iter()
+            .flatten()
+            .any(|&(addr, until)| addr == *protocol_addr && timestamp < until);
+        if limited {
             Answer::RateLimited
         } else {
             Answer::NotFound
         }
     }
 
-    pub(crate) fn limit_rate(&mut self, timestamp: Instant) {
-        self.silent_until = timestamp + Self::SILENT_TIME;
+    pub(crate) fn limit_rate(&mut self, protocol_addr: IpAddress, timestamp: Instant) {
+        let until = timestamp + Self::SILENT_TIME;
+        // This address's slot, else a free or expired one, else the oldest.
+        let slot = self
+            .silent_until
+            .iter()
+            .position(|e| matches!(e, Some((addr, _)) if *addr == protocol_addr))
+            .or_else(|| {
+                self.silent_until
+                    .iter()
+                    .position(|e| !matches!(e, Some((_, u)) if timestamp < *u))
+            })
+            .unwrap_or_else(|| {
+                (0..SILENT_SLOTS)
+                    .min_by_key(|&i| self.silent_until[i].map(|(_, u)| u))
+                    .unwrap_or(0)
+            });
+        self.silent_until[slot] = Some((protocol_addr, until));
     }
 
     pub(crate) fn flush(&mut self) {
-        self.storage.clear()
+        self.storage.clear();
+        self.silent_until = [None; SILENT_SLOTS];
     }
 }
 
@@ -305,7 +335,7 @@ mod test {
             Answer::NotFound
         );
 
-        cache.limit_rate(Instant::from_millis(0));
+        cache.limit_rate(MOCK_IP_ADDR_1.into(), Instant::from_millis(0));
         assert_eq!(
             cache.lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(100)),
             Answer::RateLimited
@@ -313,6 +343,41 @@ mod test {
         assert_eq!(
             cache.lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(2000)),
             Answer::NotFound
+        );
+    }
+
+    // CleverCoffee patch: a request for one address must not silence requests for others,
+    // or a host that never answers ARP starves every other socket (ADR 0008).
+    #[test]
+    fn test_hush_is_per_address() {
+        let mut cache = Cache::new();
+
+        cache.limit_rate(MOCK_IP_ADDR_1.into(), Instant::from_millis(0));
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(100)),
+            Answer::RateLimited
+        );
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(100)),
+            Answer::NotFound
+        );
+        // Every address keeps its own timer, also with several in flight.
+        cache.limit_rate(MOCK_IP_ADDR_2.into(), Instant::from_millis(100));
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(200)),
+            Answer::RateLimited
+        );
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(200)),
+            Answer::RateLimited
+        );
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(1050)),
+            Answer::NotFound
+        );
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(1050)),
+            Answer::RateLimited
         );
     }
 
