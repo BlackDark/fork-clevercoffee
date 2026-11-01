@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/BlackDark/fork-clevercoffee/compare/v2.0.0...v2.0.1) (2026-11-01)
+
+
+### Bug Fixes
+
+* **firmware:** rate limit ARP requests per address ([#137](https://github.com/BlackDark/fork-clevercoffee/issues/137)) ([5d4332e](https://github.com/BlackDark/fork-clevercoffee/commit/5d4332e8ce348a066e785caba508761f82897560))
+
 ## [2.0.0](https://github.com/BlackDark/fork-clevercoffee/compare/v2.0.0-alpha.2...v2.0.0) (2026-10-31)
 
 
