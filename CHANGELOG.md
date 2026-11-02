@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.2](https://github.com/BlackDark/fork-clevercoffee/compare/v2.0.1...v2.0.2) (2026-11-02)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @lucide/svelte to v1.64.0 ([#139](https://github.com/BlackDark/fork-clevercoffee/issues/139)) ([70a5b96](https://github.com/BlackDark/fork-clevercoffee/commit/70a5b968b4c035117fb89b16fe13941b01d12393))
+
 ## [2.0.1](https://github.com/BlackDark/fork-clevercoffee/compare/v2.0.0...v2.0.1) (2026-11-01)
 
 
