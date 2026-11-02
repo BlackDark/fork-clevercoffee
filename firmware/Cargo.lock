@@ -172,14 +172,14 @@ dependencies = [
 
 [[package]]
 name = "cc-abp2"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "embedded-hal 1.0.0",
 ]
 
 [[package]]
 name = "cc-api"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "cc-core",
  "heapless 0.9.3",
@@ -188,11 +188,11 @@ dependencies = [
 
 [[package]]
 name = "cc-blescale"
-version = "2.0.1"
+version = "2.0.2"
 
 [[package]]
 name = "cc-core"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "cc-pid",
  "heapless 0.9.3",
@@ -202,7 +202,7 @@ dependencies = [
 
 [[package]]
 name = "cc-display"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "cc-core",
  "embedded-graphics",
@@ -213,14 +213,14 @@ dependencies = [
 
 [[package]]
 name = "cc-hx711"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "embedded-hal 1.0.0",
 ]
 
 [[package]]
 name = "cc-mqtt"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "cc-api",
  "cc-core",
@@ -229,29 +229,29 @@ dependencies = [
 
 [[package]]
 name = "cc-oled"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "embedded-hal 1.0.0",
 ]
 
 [[package]]
 name = "cc-onewire"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "embedded-hal 1.0.0",
 ]
 
 [[package]]
 name = "cc-pid"
-version = "2.0.1"
+version = "2.0.2"
 
 [[package]]
 name = "cc-tsic"
-version = "2.0.1"
+version = "2.0.2"
 
 [[package]]
 name = "cc-web"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "cc-api",
  "cc-core",
@@ -267,7 +267,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
 name = "clevercoffee-firmware"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "bt-hci",
  "cc-abp2",
