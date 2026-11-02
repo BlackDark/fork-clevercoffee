@@ -1,7 +1,7 @@
 [package]
 name = "clevercoffee-firmware"
 description = "CleverCoffee firmware for the ESP32 (Xtensa, no_std, Embassy)"
-version = "2.0.1"
+version = "2.0.2"
 edition = "2024"
 license = "GPL-2.0-only"
 publish = false
