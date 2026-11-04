@@ -767,3 +767,76 @@ fn idle_for_restart_waits_for_shots_steam_and_hot_water() {
     assert_eq!(s.state(), State::Steam);
     assert!(!idle(&s));
 }
+
+// The PID has a persisted flag (`pid.enabled`) and a runtime flag (what the UI shows).
+// MQTT, the parameters API and config uploads set only the first; the machine kept
+// the old runtime state, and `/api/pid` toggled the persisted flag, so the switch in
+// the UI did nothing every other time.
+#[test]
+fn fix_pid_enabled_set_outside_the_pid_command_applies_at_runtime() {
+    let mut s = Sim::ready();
+    assert_eq!(s.cmd(Command::SetPid(false)), Reply::Pid(false));
+    s.run(100);
+    assert_eq!(s.state(), State::PidDisabled);
+
+    s.cfg.pid_enabled = true; // as MQTT or POST /api/parameters do
+    assert_eq!(s.cmd(Command::ConfigUpdated), Reply::Ok);
+    s.run(100);
+    assert_eq!(s.state(), State::PidNormal);
+
+    s.cfg.pid_enabled = false;
+    assert_eq!(s.cmd(Command::ConfigUpdated), Reply::Ok);
+    s.run(100);
+    assert_eq!(s.state(), State::PidDisabled);
+}
+
+#[test]
+fn fix_pid_toggle_flips_what_the_ui_shows() {
+    let mut s = Sim::ready();
+    assert_eq!(s.cmd(Command::SetPid(false)), Reply::Pid(false));
+    s.run(100);
+    // The persisted flag says on, the machine runs off (not yet synced, or in standby).
+    s.cfg.pid_enabled = true;
+    assert!(!s.m.status(&s.cfg).pid_runtime);
+    assert_eq!(s.cmd(Command::TogglePid), Reply::Pid(true));
+    s.run(100);
+    assert_eq!(s.state(), State::PidNormal);
+    assert_eq!(s.cmd(Command::TogglePid), Reply::Pid(false));
+    s.run(100);
+    assert_eq!(s.state(), State::PidDisabled);
+}
+
+// The state used to reset the runtime flag on every tick, so once the PID was off,
+// nothing but waking from standby could switch it on again: `/api/pid` answered
+// `pidEnabled: true` and the machine stayed in PID_DISABLED.
+#[test]
+fn fix_pid_can_be_switched_on_again() {
+    let mut s = Sim::ready();
+    assert_eq!(s.cmd(Command::SetPid(false)), Reply::Pid(false));
+    s.run(100);
+    assert_eq!(s.state(), State::PidDisabled);
+    assert_eq!(s.cmd(Command::SetPid(true)), Reply::Pid(true));
+    s.run(100);
+    assert_eq!(s.state(), State::PidNormal);
+    assert!(s.m.status(&s.cfg).pid_runtime);
+}
+
+// Standby keeps the heater off whatever `pid.enabled` says, and the setting applies
+// when standby ends.
+#[test]
+fn fix_pid_setting_changed_in_standby_applies_after_waking() {
+    let mut s = Sim::ready();
+    s.cmd(Command::Sleep);
+    s.run(20);
+    assert_eq!(s.state(), State::Standby);
+
+    s.cfg.pid_enabled = false; // as a config upload does, no command
+    s.run(100);
+    assert_eq!(s.state(), State::Standby);
+    assert!(!s.out().heater);
+
+    s.brew(true);
+    s.brew(false);
+    s.run(100);
+    assert_eq!(s.state(), State::PidDisabled);
+}
