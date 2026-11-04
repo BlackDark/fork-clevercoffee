@@ -820,3 +820,23 @@ fn fix_pid_can_be_switched_on_again() {
     assert_eq!(s.state(), State::PidNormal);
     assert!(s.m.status(&s.cfg).pid_runtime);
 }
+
+// Standby keeps the heater off whatever `pid.enabled` says, and the setting applies
+// when standby ends.
+#[test]
+fn fix_pid_setting_changed_in_standby_applies_after_waking() {
+    let mut s = Sim::ready();
+    s.cmd(Command::Sleep);
+    s.run(20);
+    assert_eq!(s.state(), State::Standby);
+
+    s.cfg.pid_enabled = false; // as a config upload does, no command
+    s.run(100);
+    assert_eq!(s.state(), State::Standby);
+    assert!(!s.out().heater);
+
+    s.brew(true);
+    s.brew(false);
+    s.run(100);
+    assert_eq!(s.state(), State::PidDisabled);
+}
