@@ -1179,6 +1179,28 @@
     ]
   },
   {
+    "name": "system.wifi.ssid",
+    "displayName": "WiFi SSID",
+    "section": 9,
+    "position": 1204,
+    "hasHelpText": true,
+    "show": true,
+    "type": 4,
+    "value": "",
+    "maxLength": 32
+  },
+  {
+    "name": "system.wifi.password",
+    "displayName": "WiFi Password",
+    "section": 9,
+    "position": 1205,
+    "hasHelpText": true,
+    "show": true,
+    "type": 4,
+    "value": "",
+    "maxLength": 64
+  },
+  {
     "name": "system.offline_mode",
     "displayName": "Offline Mode",
     "section": 9,

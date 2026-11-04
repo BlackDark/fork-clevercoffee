@@ -78,6 +78,11 @@ export const parameterLabelsEN = new Map<string, string>([
   ["mqtt.hassio.enabled", "Hass.io enabled"],
   ["mqtt.hassio.prefix", "Hass.io Prefix"],
 
+  // WiFi
+  ["system.wifi.ssid", "WiFi Network (SSID)"],
+  ["system.wifi.password", "WiFi Password"],
+  ["system.offline_mode", "Offline mode (setup network only)"],
+
   // System Settings
   ["system.hostname", "Hostname"],
   ["system.ota_password", "OTA Password"],

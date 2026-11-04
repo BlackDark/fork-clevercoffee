@@ -95,6 +95,12 @@ export const parameterHelpTexts: Record<string, string> = {
   "mqtt.hassio.enabled":
     "Enables Home Assistant integration, requires a restart",
   "mqtt.hassio.prefix": "Custom MQTT topic prefix, changes require a restart",
+  "system.wifi.ssid":
+    "Name of your home WiFi network. Changes require a restart; the machine then joins it and the CleverCoffee-XXXX setup network closes.",
+  "system.wifi.password":
+    "Password of your home WiFi network. Changes require a restart.",
+  "system.offline_mode":
+    "Keeps the WiFi off the home network and opens the CleverCoffee-XXXX setup network only, changes require a restart.",
   "system.hostname": "Hostname of your machine, changes require a restart",
   "system.ota_password":
     "Password for over-the-air updates, changes require a restart",

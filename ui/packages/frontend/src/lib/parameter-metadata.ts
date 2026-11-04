@@ -400,6 +400,27 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     defaultValue: "clevercoffee",
   },
   {
+    name: "system.wifi.ssid",
+    type: ParameterTypes.STRING,
+    min: 0,
+    max: 32,
+    defaultValue: "",
+  },
+  {
+    name: "system.wifi.password",
+    type: ParameterTypes.STRING,
+    min: 0,
+    max: 64,
+    defaultValue: "",
+  },
+  {
+    name: "system.offline_mode",
+    type: ParameterTypes.BOOL,
+    min: 0,
+    max: 1,
+    defaultValue: false,
+  },
+  {
     name: "system.ota_password",
     type: ParameterTypes.STRING,
     min: 0,
