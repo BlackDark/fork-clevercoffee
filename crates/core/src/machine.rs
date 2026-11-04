@@ -275,6 +275,9 @@ pub struct Machine {
     /// The sensor error began in standby: recovery goes back there, not to heating.
     fault_from_standby: bool,
     pid_runtime: bool,
+    /// `cfg.pid_enabled` as of the last tick: a change that did not come from
+    /// [`Command::SetPid`] (MQTT, parameters, config upload) is applied at runtime.
+    pid_cfg_seen: bool,
     backflush_mode: bool,
     backflush_cycle: i32,
     switches: Switches,
@@ -357,6 +360,7 @@ impl Machine {
             standby_requested: false,
             fault_from_standby: false,
             pid_runtime: cfg.pid_enabled,
+            pid_cfg_seen: cfg.pid_enabled,
             backflush_mode: false,
             backflush_cycle: 1,
             switches,
@@ -400,6 +404,7 @@ impl Machine {
         let now = inp.now_ms;
         self.now_ms = now;
 
+        self.follow_pid_setting(cfg);
         self.read_sensors(cfg, inp, &mut ev);
         self.handle_switches(cfg, inp, &mut ev);
         self.standby.update(cfg, now);
@@ -419,6 +424,17 @@ impl Machine {
         ev
     }
 
+    /// `pid.enabled` changed behind the machine's back: the runtime flag follows it. Standby
+    /// and the emergency stop restore the flag from the setting when they end.
+    fn follow_pid_setting(&mut self, cfg: &Config) {
+        if cfg.pid_enabled != self.pid_cfg_seen {
+            self.pid_cfg_seen = cfg.pid_enabled;
+            if !matches!(self.state, State::Standby | State::EmergencyStop) {
+                self.pid_runtime = cfg.pid_enabled;
+            }
+        }
+    }
+
     /// Applies a user command. Commands that change `cfg` push [`Event::ConfigChanged`].
     pub fn command(&mut self, cmd: Command, cfg: &mut Config, ev: &mut Events) -> Reply {
         let now = self.now_ms;
@@ -429,10 +445,12 @@ impl Machine {
                     let _ = ev.push(Event::ConfigChanged);
                 }
                 self.pid_runtime = on;
+                self.pid_cfg_seen = on;
                 self.activity(cfg);
                 Reply::Pid(on)
             }
-            Command::TogglePid => self.command(Command::SetPid(!cfg.pid_enabled), cfg, ev),
+            // What the UI shows is the runtime flag, so that is what flips.
+            Command::TogglePid => self.command(Command::SetPid(!self.pid_runtime), cfg, ev),
             Command::SetSteam(on) => {
                 if on {
                     self.req.steam_start = true;
@@ -784,7 +802,6 @@ impl Machine {
                 self.brew_time_ms = base + elapsed;
             }
             State::ManualFlush => self.brew_time_ms = elapsed,
-            State::PidDisabled => self.pid_runtime = false,
             _ => {}
         }
 
