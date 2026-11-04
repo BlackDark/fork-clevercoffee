@@ -5,8 +5,11 @@
 //! line stays low for 50 % of the bit period for the start bit, 25 % for a 1 and 75 %
 //! for a 0. The start bit's low time is therefore the 1/0 threshold.
 //!
-//! The decoder is fed edge timestamps (from a GPIO interrupt) and has no timing of
-//! its own, so it is fully testable on a PC.
+//! The decoder is fed edge timestamps and has no timing of its own, so it is fully
+//! testable on a PC. The firmware measures the pulses with the RMT peripheral (1 µs
+//! resolution in hardware); [`decode_pulses`] turns one captured frame into a value.
+//! Timestamping edges in a GPIO interrupt was tried first and lost a quarter of the
+//! frames to interrupt jitter (see `docs/decisions/0004-behaviour-changes.md`).
 
 #![no_std]
 
@@ -90,6 +93,46 @@ impl Decoder {
         }
         self.index = Some(i + 1);
         None
+    }
+}
+
+/// Pulses in one captured frame: 20 falling and 20 rising edges make 40, but the
+/// capture ends at the idle high after the last low, so that high is missing.
+pub const FRAME_PULSES: core::ops::RangeInclusive<usize> = 39..=40;
+
+/// Decodes one frame captured as `(level_is_high, length_µs)` pulses, starting at the
+/// first falling edge. Anything but a complete frame is a framing error, so a capture
+/// that began in the middle of a frame cannot pass for a value.
+pub fn decode_pulses(pulses: impl IntoIterator<Item = (bool, u16)>) -> Result<u16, Error> {
+    let mut decoder = Decoder::new();
+    let mut t = 0u32;
+    let (mut count, mut high) = (0usize, true);
+    let mut result = None;
+    // Low time of the two start bits: one sensor clock, so equal within a few percent.
+    let mut starts = [0u16; 2];
+    for (level, len) in pulses {
+        match count {
+            0 if level => return Err(Error::Framing),
+            0 => starts[0] = len,
+            20 => starts[1] = len,
+            _ => {}
+        }
+        count += 1;
+        high = level;
+        result = decoder.edge(level, t).or(result);
+        t = t.wrapping_add(u32::from(len));
+    }
+    if !high {
+        // The rising edge that closes a last low pulse is not part of the capture.
+        result = decoder.edge(true, t).or(result);
+    }
+    // A capture armed while the first start bit was already low has a short one.
+    if starts[0].abs_diff(starts[1]) > starts[0].max(starts[1]) / 4 {
+        return Err(Error::Framing);
+    }
+    match result {
+        Some(r) if FRAME_PULSES.contains(&count) => r,
+        _ => Err(Error::Framing),
     }
 }
 
@@ -203,6 +246,75 @@ mod tests {
             .map(|(r, t)| (r, t * 11 / 10))
             .collect();
         assert_eq!(decode(&mut d, &edges), std::vec![Ok(1500)]);
+    }
+
+    /// Pulses of a frame as the RMT delivers them, after a capture from the bench (bit
+    /// period about 105 µs, 52 µs start bit): the gap between the packets is part of
+    /// the last high of the first one, and the idle high after the frame is missing.
+    fn pulses(raw: u16) -> Vec<(bool, u16)> {
+        let mut v: Vec<(bool, u16)> = Vec::new();
+        for byte in [(raw >> 8) as u8, raw as u8] {
+            let mut bits: Vec<bool> = (0..8).rev().map(|b| byte >> b & 1 == 1).collect();
+            bits.push(byte.count_ones() % 2 == 1);
+            v.extend([(false, 52), (true, 53)]);
+            for bit in bits {
+                v.extend(if bit {
+                    [(false, 26), (true, 78)]
+                } else {
+                    [(false, 78), (true, 26)]
+                });
+            }
+            if v.len() == 20 {
+                v.last_mut().unwrap().1 += 110; // gap between the packets
+            }
+        }
+        v.pop();
+        v
+    }
+
+    #[test]
+    fn fix_tsic_decodes_an_rmt_capture() {
+        let p = pulses(0x2ab);
+        assert_eq!(p.len(), 39);
+        assert_eq!(decode_pulses(p), Ok(0x2ab));
+        // A capture that kept the closing high decodes the same.
+        let mut p = pulses(0x2ab);
+        p.push((true, 26));
+        assert_eq!(decode_pulses(p), Ok(0x2ab));
+    }
+
+    #[test]
+    fn decodes_any_strobe_the_sensor_may_use() {
+        // 4 kHz (bit period 250 µs) and 8 kHz (125 µs) around the bench's 105 µs.
+        for scale in [105u32, 125, 250] {
+            let p: Vec<(bool, u16)> = pulses(0x2ab)
+                .into_iter()
+                .map(|(l, len)| (l, (u32::from(len) * scale / 105) as u16))
+                .collect();
+            assert_eq!(decode_pulses(p), Ok(0x2ab), "bit period {scale} us");
+        }
+    }
+
+    #[test]
+    fn rejects_a_truncated_start_bit_and_other_wrong_shapes() {
+        let mut p = pulses(0x2ab);
+        p[0].1 = 22; // armed while the start bit was already low
+        assert_eq!(decode_pulses(p), Err(Error::Framing));
+        let mut p = pulses(0x2ab);
+        p.insert(0, (true, 300)); // starts high
+        assert_eq!(decode_pulses(p), Err(Error::Framing));
+        let mut p = pulses(0x2ab);
+        p.extend([(false, 26), (true, 78)]); // 41 pulses
+        assert_eq!(decode_pulses(p), Err(Error::Framing));
+    }
+
+    #[test]
+    fn rejects_incomplete_captures() {
+        let full = pulses(0x2ab);
+        // Started mid-frame, or cut short.
+        assert_eq!(decode_pulses(full[3..].to_vec()), Err(Error::Framing));
+        assert_eq!(decode_pulses(full[..20].to_vec()), Err(Error::Framing));
+        assert_eq!(decode_pulses(Vec::new()), Err(Error::Framing));
     }
 
     #[test]

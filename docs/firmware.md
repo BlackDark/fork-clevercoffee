@@ -67,13 +67,13 @@ The machine is then reachable at `http://<hostname>.local`.
 | Task | Executor | Period | Does |
 | --- | --- | --- | --- |
 | control | interrupt, priority 3 | 10 ms | switches, `Machine::tick`, relays, LEDs, watchdog, history |
-| tsic / ds18b20 | thread | 20 ms / ~400 ms | temperature |
+| tsic / ds18b20 | thread | per frame (~100 ms) / ~400 ms | temperature |
 | hx711, pressure, ble scale | thread | 100 ms / 100 ms / notifications | scale, pressure |
 | display | thread | 100 ms | render, flush when changed |
 | storage | thread | on change (+2 s) | save settings and shot counter; restarts |
 | wifi, net ×2, web ×4 (×2 with a BLE scale, shared by home network and portal), dns, dhcp, mdns, mqtt | thread | | network (ADR 0008) |
 
-GPIO and timing: the TSIC is decoded from edge timestamps taken in the GPIO interrupt; DS18B20 and HX711 bit slots run with interrupts off (≤ 70 µs each).
+GPIO and timing: the TSIC pulses are measured by the RMT peripheral (channel 4, 1 µs, one reception per frame) and decoded in `cc_tsic::decode_pulses`, so interrupt latency cannot disturb the bit timing (ADR 0004); DS18B20 and HX711 bit slots run with interrupts off (≤ 70 µs each).
 
 ## Pins (ESP32 DevKitC v4, unchanged from the C++ firmware)
 
