@@ -72,12 +72,13 @@ pub fn install_tsic(io: &mut esp_hal::gpio::Io<'_>, mut pin: Input<'static>) {
 #[embassy_executor::task]
 pub async fn tsic_task() -> ! {
     let mut decoder = cc_tsic::Decoder::new();
+    let mut spike_filter = cc_tsic::SpikeFilter::new();
     let mut ticker = Ticker::every(Duration::from_millis(20));
     let mut last_ok = Instant::now();
     let mut errors = 0u32;
     // What the log says about the sensor: a summary when frames went wrong, and the
     // moments it is declared faulty and fine again.
-    let (mut ok, mut parity, mut framing) = (0u32, 0u32, 0u32);
+    let (mut ok, mut parity, mut framing, mut spikes) = (0u32, 0u32, 0u32, 0u32);
     let mut faulty = false;
     let mut last_report = Instant::now();
     loop {
@@ -96,11 +97,16 @@ pub async fn tsic_task() -> ! {
         for &(rising, t) in &batch[..n] {
             match decoder.edge(rising, t) {
                 Some(Ok(raw)) => {
-                    let c = f64::from(cc_tsic::celsius(raw));
-                    shared::publish(|p| {
-                        p.temperature = Some(c);
-                        p.temperature_fault = false;
-                    });
+                    // A frame with disturbed timing can pass the parity check with a wrong
+                    // value; the median of three drops a single one.
+                    if let Some((raw, spike)) = spike_filter.push(raw) {
+                        let c = f64::from(cc_tsic::celsius(raw));
+                        shared::publish(|p| {
+                            p.temperature = Some(c);
+                            p.temperature_fault = false;
+                        });
+                        spikes += u32::from(spike);
+                    }
                     last_ok = Instant::now();
                     errors = 0;
                     ok += 1;
@@ -121,6 +127,8 @@ pub async fn tsic_task() -> ! {
             shared::publish(|p| p.temperature_fault = true);
             if !faulty {
                 faulty = true;
+                // After an outage the old readings must not take part in the median.
+                spike_filter = cc_tsic::SpikeFilter::new();
                 warn!(
                     "tsic: fault, {} ms since the last good frame, {errors} bad frames in a row",
                     last_ok.elapsed().as_millis()
@@ -133,12 +141,12 @@ pub async fn tsic_task() -> ! {
         if last_report.elapsed() >= Duration::from_secs(10) {
             last_report = Instant::now();
             let overruns = EDGE_OVERRUNS.swap(0, core::sync::atomic::Ordering::Relaxed);
-            if parity + framing + overruns > 0 {
+            if parity + framing + overruns + spikes > 0 {
                 warn!(
-                    "tsic: in 10 s {ok} good frames, {parity} parity and {framing} framing errors, {overruns} edges lost"
+                    "tsic: in 10 s {ok} good frames, {spikes} dropped as spikes, {parity} parity and {framing} framing errors, {overruns} edges lost"
                 );
             }
-            (ok, parity, framing) = (0, 0, 0);
+            (ok, parity, framing, spikes) = (0, 0, 0, 0);
         }
     }
 }
