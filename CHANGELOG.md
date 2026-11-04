@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.1.0](https://github.com/BlackDark/fork-clevercoffee/compare/v2.0.1...v2.1.0) (2026-11-04)
+
+
+### Features
+
+* **firmware:** read the log over WiFi, and log what the TSIC decoder sees ([#146](https://github.com/BlackDark/fork-clevercoffee/issues/146)) ([994541f](https://github.com/BlackDark/fork-clevercoffee/commit/994541f814eb56b049203872de10719b6b585882))
+
+
+### Bug Fixes
+
+* **core:** switch the PID on again and keep the stored setting in step ([#145](https://github.com/BlackDark/fork-clevercoffee/issues/145)) ([4100443](https://github.com/BlackDark/fork-clevercoffee/commit/410044397130435b7b62cdf6a2bfc708489aea01))
+* **deps:** update dependency @lucide/svelte to v1.64.0 ([#139](https://github.com/BlackDark/fork-clevercoffee/issues/139)) ([70a5b96](https://github.com/BlackDark/fork-clevercoffee/commit/70a5b968b4c035117fb89b16fe13941b01d12393))
+* **firmware:** build for ESP32 revision v1.0 and up ([661c0f1](https://github.com/BlackDark/fork-clevercoffee/commit/661c0f1bd2313446be47e45e19c9781d0e0f176f))
+* **firmware:** keep the access point up when no WiFi is configured ([374faeb](https://github.com/BlackDark/fork-clevercoffee/commit/374faeb886effef2bd2885da28f65b4ff6a757f6))
+* **tsic:** drop single-frame temperature spikes with a median of three ([#147](https://github.com/BlackDark/fork-clevercoffee/issues/147)) ([5c9addb](https://github.com/BlackDark/fork-clevercoffee/commit/5c9addbf039545637bc53443bd07b9b6ed2d1e0f))
+* **tsic:** measure the pulses with the RMT instead of GPIO interrupts ([#148](https://github.com/BlackDark/fork-clevercoffee/issues/148)) ([f668201](https://github.com/BlackDark/fork-clevercoffee/commit/f66820107ff8f91ba32c3c7c873b5673edc8e745))
+* **ui:** WiFi settings on the System tab, with a restart notice ([0935b23](https://github.com/BlackDark/fork-clevercoffee/commit/0935b23295dfca8713f5c9ca3b52619644f430f3))
+
 ## [2.0.1](https://github.com/BlackDark/fork-clevercoffee/compare/v2.0.0...v2.0.1) (2026-11-01)
 
 
