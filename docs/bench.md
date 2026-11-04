@@ -6,7 +6,7 @@ An ESP32 DevKitC v4 with LEDs and buttons in place of relays and a machine. It p
 
 | Part | GPIO | Notes |
 | --- | --- | --- |
-| DS18B20 + 4.7 kΩ pull-up | 16 | The TSIC path shares the pin and is not exercised. |
+| DS18B20 + 4.7 kΩ pull-up | 16 | The TSIC path shares the pin and is not exercised. A TSIC 306 instead (VDD 3V3, signal GPIO16, no pull-up, 100 nF across VDD and GND, `hardware.sensors.temperature.type=0`): the log line `tsic: in 10 s …` appears only when frames went wrong. |
 | SSD1306 128×64 I²C | 21 SDA, 22 SCL | |
 | Brew button, **momentary** | 34 | 10 kΩ pull-down, button to 3V3 |
 | Steam button, **toggle** | 35 | as above |

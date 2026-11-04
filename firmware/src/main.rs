@@ -36,7 +36,7 @@ use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::gpio::{DriveMode, Flex, Input, InputConfig, Io, Output, OutputConfig, Pull};
+use esp_hal::gpio::{DriveMode, Flex, Input, InputConfig, Output, OutputConfig, Pull};
 use esp_hal::interrupt::Priority;
 use esp_hal::rng::Rng;
 use esp_hal::timer::timg::{MwdtStage, TimerGroup};
@@ -223,9 +223,16 @@ async fn main(spawner: Spawner) -> ! {
     // Sensors.
     match temp_type {
         TempSensorType::Tsic306 => {
-            let mut gpio = Io::new(p.IO_MUX);
-            sensors::install_tsic(&mut gpio, Input::new(pins.temp_sensor, InputConfig::default()));
-            spawner.spawn(sensors::tsic_task().unwrap());
+            use esp_hal::rmt::{Rmt, RxChannelCreator};
+            let rmt = Rmt::new(p.RMT, esp_hal::time::Rate::from_mhz(80))
+                .expect("rmt")
+                .into_async();
+            let channel = rmt
+                .channel4
+                .configure_rx(&sensors::tsic_rx_config())
+                .expect("rmt rx")
+                .with_pin(pins.temp_sensor);
+            spawner.spawn(sensors::tsic_task(channel).unwrap());
         }
         TempSensorType::Ds18b20 => {
             let mut pin = Flex::new(pins.temp_sensor);

@@ -1,12 +1,8 @@
 //! Sensor tasks. Each publishes fresh readings to [`shared::publish`]; the control
 //! loop takes them on its next tick.
 
-use core::cell::RefCell;
-
-use critical_section::Mutex;
-use embassy_time::{Delay, Duration, Instant, Ticker, Timer};
-use esp_hal::gpio::{Event, Flex, Input};
-use esp_hal::handler;
+use embassy_time::{Delay, Duration, Instant, Timer, with_timeout};
+use esp_hal::gpio::Flex;
 use log::{info, warn};
 
 use crate::shared;
@@ -17,109 +13,81 @@ const FAULT_AFTER_ERRORS: u32 = 10;
 
 // --- TSIC 306 (ZACwire) -------------------------------------------------------------
 //
-// The sensor sends a 20-bit frame every 100 ms; bits are 125 µs long. Edges are
-// timestamped in the GPIO interrupt and decoded in a task.
+// The sensor sends a 20-bit frame every 100 ms. The RMT peripheral measures the pulse
+// lengths in hardware at 1 µs, so interrupt latency cannot disturb the bit timing (a
+// GPIO interrupt did, and lost a quarter of the frames); `cc_tsic` decodes the pulses.
 
-const EDGE_RING: usize = 128;
+/// How long the RMT waits for the line to stay high before it ends a reception: longer
+/// than the gap between the two packets of a frame (about one bit), far shorter than
+/// the pause between frames.
+const FRAME_IDLE_US: u16 = 500;
 
-struct Edges {
-    buf: [(bool, u32); EDGE_RING],
-    head: usize,
-    len: usize,
-}
-
-/// Edges lost because the decoder task fell more than the ring behind.
-static EDGE_OVERRUNS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
-
-static TSIC_PIN: Mutex<RefCell<Option<Input<'static>>>> = Mutex::new(RefCell::new(None));
-static EDGES: Mutex<RefCell<Edges>> = Mutex::new(RefCell::new(Edges {
-    buf: [(false, 0); EDGE_RING],
-    head: 0,
-    len: 0,
-}));
-
-#[handler]
-fn gpio_interrupt() {
-    let t = Instant::now().as_micros() as u32;
-    critical_section::with(|cs| {
-        let mut pin = TSIC_PIN.borrow_ref_mut(cs);
-        let Some(pin) = pin.as_mut() else { return };
-        if !pin.is_interrupt_set() {
-            return;
-        }
-        let rising = pin.is_high();
-        pin.clear_interrupt();
-        let mut e = EDGES.borrow_ref_mut(cs);
-        let at = (e.head + e.len) % EDGE_RING;
-        e.buf[at] = (rising, t);
-        if e.len < EDGE_RING {
-            e.len += 1;
-        } else {
-            e.head = (e.head + 1) % EDGE_RING;
-            EDGE_OVERRUNS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        }
-    });
-}
-
-pub fn install_tsic(io: &mut esp_hal::gpio::Io<'_>, mut pin: Input<'static>) {
-    io.set_interrupt_handler(gpio_interrupt);
-    critical_section::with(|cs| {
-        pin.listen(Event::AnyEdge);
-        TSIC_PIN.borrow_ref_mut(cs).replace(pin);
-    });
+/// Receiver without glitch filter: the filter would eat into the 26 µs bit margins.
+pub fn tsic_rx_config() -> esp_hal::rmt::RxChannelConfig {
+    esp_hal::rmt::RxChannelConfig::default()
+        .with_clk_divider(80)
+        .with_idle_threshold(FRAME_IDLE_US)
+        .with_memsize(1)
 }
 
 #[embassy_executor::task]
-pub async fn tsic_task() -> ! {
-    let mut decoder = cc_tsic::Decoder::new();
+pub async fn tsic_task(mut channel: esp_hal::rmt::Channel<'static, esp_hal::Async, esp_hal::rmt::Rx>) -> ! {
+    use esp_hal::gpio::Level;
+    use esp_hal::rmt::PulseCode;
+
     let mut spike_filter = cc_tsic::SpikeFilter::new();
-    let mut ticker = Ticker::every(Duration::from_millis(20));
+    let mut codes = [PulseCode::default(); 64];
     let mut last_ok = Instant::now();
     let mut errors = 0u32;
     // What the log says about the sensor: a summary when frames went wrong, and the
     // moments it is declared faulty and fine again.
-    let (mut ok, mut parity, mut framing, mut spikes) = (0u32, 0u32, 0u32, 0u32);
+    let (mut ok, mut parity, mut framing, mut rx_errors, mut spikes) = (0u32, 0u32, 0u32, 0u32, 0u32);
+    let mut last_rx_error = None;
     let mut faulty = false;
     let mut last_report = Instant::now();
     loop {
-        ticker.next().await;
-        let mut batch = [(false, 0u32); EDGE_RING];
-        let n = critical_section::with(|cs| {
-            let mut e = EDGES.borrow_ref_mut(cs);
-            let n = e.len;
-            for (i, slot) in batch.iter_mut().take(n).enumerate() {
-                *slot = e.buf[(e.head + i) % EDGE_RING];
-            }
-            e.head = (e.head + n) % EDGE_RING;
-            e.len = 0;
-            n
-        });
-        for &(rising, t) in &batch[..n] {
-            match decoder.edge(rising, t) {
-                Some(Ok(raw)) => {
-                    // A frame with disturbed timing can pass the parity check with a wrong
-                    // value; the median of three drops a single one.
-                    if let Some((raw, spike)) = spike_filter.push(raw) {
-                        let c = f64::from(cc_tsic::celsius(raw));
-                        shared::publish(|p| {
-                            p.temperature = Some(c);
-                            p.temperature_fault = false;
-                        });
-                        spikes += u32::from(spike);
+        codes.fill(PulseCode::default());
+        // A timeout only lets the fault check below run while the line is silent.
+        match with_timeout(Duration::from_millis(300), channel.receive(&mut codes)).await {
+            Ok(Ok(n)) => {
+                // A pulse code holds two pulses; a length of 0 ends the capture.
+                let pulses = codes[..n.min(codes.len())]
+                    .iter()
+                    .flat_map(|c| [(c.level1(), c.length1()), (c.level2(), c.length2())])
+                    .take_while(|&(_, len)| len != 0)
+                    .map(|(level, len)| (level == Level::High, len));
+                match cc_tsic::decode_pulses(pulses) {
+                    Ok(raw) => {
+                        // Parity cannot catch two flipped bits; the median of three drops
+                        // a single wrong value.
+                        if let Some((raw, spike)) = spike_filter.push(raw) {
+                            let c = f64::from(cc_tsic::celsius(raw));
+                            shared::publish(|p| {
+                                p.temperature = Some(c);
+                                p.temperature_fault = false;
+                            });
+                            spikes += u32::from(spike);
+                        }
+                        last_ok = Instant::now();
+                        errors = 0;
+                        ok += 1;
                     }
-                    last_ok = Instant::now();
-                    errors = 0;
-                    ok += 1;
-                }
-                Some(Err(e)) => {
-                    errors += 1;
-                    match e {
-                        cc_tsic::Error::Parity => parity += 1,
-                        cc_tsic::Error::Framing => framing += 1,
+                    Err(e) => {
+                        errors += 1;
+                        match e {
+                            cc_tsic::Error::Parity => parity += 1,
+                            cc_tsic::Error::Framing => framing += 1,
+                        }
                     }
                 }
-                None => {}
             }
+            Ok(Err(e)) => {
+                errors += 1;
+                rx_errors += 1;
+                last_rx_error = Some(e);
+                Timer::after(Duration::from_millis(5)).await;
+            }
+            Err(_) => {}
         }
         // No frames at all: the sensor is missing or its wire is broken.
         let silent = last_ok.elapsed() > Duration::from_secs(1);
@@ -140,13 +108,12 @@ pub async fn tsic_task() -> ! {
         }
         if last_report.elapsed() >= Duration::from_secs(10) {
             last_report = Instant::now();
-            let overruns = EDGE_OVERRUNS.swap(0, core::sync::atomic::Ordering::Relaxed);
-            if parity + framing + overruns + spikes > 0 {
+            if parity + framing + rx_errors + spikes > 0 {
                 warn!(
-                    "tsic: in 10 s {ok} good frames, {spikes} dropped as spikes, {parity} parity and {framing} framing errors, {overruns} edges lost"
+                    "tsic: in 10 s {ok} good frames, {spikes} dropped as spikes, {parity} parity, {framing} framing and {rx_errors} receiver errors ({last_rx_error:?})"
                 );
             }
-            (ok, parity, framing, spikes) = (0, 0, 0, 0);
+            (ok, parity, framing, rx_errors, spikes) = (0, 0, 0, 0, 0);
         }
     }
 }
@@ -275,7 +242,7 @@ pub use hx711::{dual as hx711_dual_task, single as hx711_single_task};
 pub async fn pressure_task(i2c: crate::I2cDev) -> ! {
     // ABP2LANT010BG2A3XX: 0..10 bar gauge.
     let mut sensor = cc_abp2::Abp2::new(i2c, cc_abp2::DEFAULT_ADDRESS, 0.0, 10.0);
-    let mut ticker = Ticker::every(Duration::from_millis(100));
+    let mut ticker = embassy_time::Ticker::every(Duration::from_millis(100));
     let mut errors = 0u32;
     loop {
         ticker.next().await;
