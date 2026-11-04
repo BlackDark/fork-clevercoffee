@@ -18,9 +18,9 @@ const FAULT_AFTER_ERRORS: u32 = 10;
 // GPIO interrupt did, and lost a quarter of the frames); `cc_tsic` decodes the pulses.
 
 /// How long the RMT waits for the line to stay high before it ends a reception: longer
-/// than the gap between the two packets of a frame (about one bit), far shorter than
-/// the pause between frames.
-const FRAME_IDLE_US: u16 = 500;
+/// than the gap between the two packets of a frame (about one bit, 250 µs at the
+/// slowest 4 kHz strobe), far shorter than the pause between frames (about 80 ms).
+const FRAME_IDLE_US: u16 = 2000;
 
 /// Receiver without glitch filter: the filter would eat into the 26 µs bit margins.
 pub fn tsic_rx_config() -> esp_hal::rmt::RxChannelConfig {
@@ -87,6 +87,7 @@ pub async fn tsic_task(mut channel: esp_hal::rmt::Channel<'static, esp_hal::Asyn
                 last_rx_error = Some(e);
                 Timer::after(Duration::from_millis(5)).await;
             }
+            // Silence is judged below by the time since the last good frame.
             Err(_) => {}
         }
         // No frames at all: the sensor is missing or its wire is broken.

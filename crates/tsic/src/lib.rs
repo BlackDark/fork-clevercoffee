@@ -108,7 +108,15 @@ pub fn decode_pulses(pulses: impl IntoIterator<Item = (bool, u16)>) -> Result<u1
     let mut t = 0u32;
     let (mut count, mut high) = (0usize, true);
     let mut result = None;
+    // Low time of the two start bits: one sensor clock, so equal within a few percent.
+    let mut starts = [0u16; 2];
     for (level, len) in pulses {
+        match count {
+            0 if level => return Err(Error::Framing),
+            0 => starts[0] = len,
+            20 => starts[1] = len,
+            _ => {}
+        }
         count += 1;
         high = level;
         result = decoder.edge(level, t).or(result);
@@ -117,6 +125,10 @@ pub fn decode_pulses(pulses: impl IntoIterator<Item = (bool, u16)>) -> Result<u1
     if !high {
         // The rising edge that closes a last low pulse is not part of the capture.
         result = decoder.edge(true, t).or(result);
+    }
+    // A capture armed while the first start bit was already low has a short one.
+    if starts[0].abs_diff(starts[1]) > starts[0].max(starts[1]) / 4 {
+        return Err(Error::Framing);
     }
     match result {
         Some(r) if FRAME_PULSES.contains(&count) => r,
@@ -269,6 +281,31 @@ mod tests {
         let mut p = pulses(0x2ab);
         p.push((true, 26));
         assert_eq!(decode_pulses(p), Ok(0x2ab));
+    }
+
+    #[test]
+    fn decodes_any_strobe_the_sensor_may_use() {
+        // 4 kHz (bit period 250 µs) and 8 kHz (125 µs) around the bench's 105 µs.
+        for scale in [105u32, 125, 250] {
+            let p: Vec<(bool, u16)> = pulses(0x2ab)
+                .into_iter()
+                .map(|(l, len)| (l, (u32::from(len) * scale / 105) as u16))
+                .collect();
+            assert_eq!(decode_pulses(p), Ok(0x2ab), "bit period {scale} us");
+        }
+    }
+
+    #[test]
+    fn rejects_a_truncated_start_bit_and_other_wrong_shapes() {
+        let mut p = pulses(0x2ab);
+        p[0].1 = 22; // armed while the start bit was already low
+        assert_eq!(decode_pulses(p), Err(Error::Framing));
+        let mut p = pulses(0x2ab);
+        p.insert(0, (true, 300)); // starts high
+        assert_eq!(decode_pulses(p), Err(Error::Framing));
+        let mut p = pulses(0x2ab);
+        p.extend([(false, 26), (true, 78)]); // 41 pulses
+        assert_eq!(decode_pulses(p), Err(Error::Framing));
     }
 
     #[test]
