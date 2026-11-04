@@ -125,6 +125,26 @@ flash p=profile: (build p)
 monitor:
     espflash monitor --chip esp32 $([ -t 0 ] || echo --non-interactive)
 
+# The device's recent log over WiFi, followed until Ctrl-C (no USB cable needed):
+# `just logs`, `just logs 10.0.1.195`, `just logs silvia.local admin:secret` with website
+# authentication on. The device keeps about 6 KB; this polls once a second.
+logs host="silvia.local" auth="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    next=0
+    headers=$(mktemp)
+    trap 'rm -f "$headers"' EXIT
+    while :; do
+      body=$(curl -sf ${auth:+-u "$auth"} -D "$headers" "http://{{ host }}/api/logs?since=$next" || true)
+      new=$(tr -d '\r' < "$headers" | awk -F': ' 'tolower($1)=="x-log-next" {print $2}')
+      if [ -n "$new" ]; then
+        [ "$new" -lt "$next" ] && echo "--- device restarted ---"
+        [ -n "$body" ] && printf '%s\n' "$body"
+        next=$new
+      fi
+      sleep 1
+    done
+
 # Settings applied at next boot: `just provision --ssid Home --password secret system.hostname=silvia`.
 # Arguments are passed as given: an SSID with spaces stays one argument.
 [positional-arguments]

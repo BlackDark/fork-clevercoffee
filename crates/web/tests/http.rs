@@ -18,6 +18,7 @@ struct Fake {
     machine: RefCell<Machine>,
     history: RefCell<History>,
     ota: RefCell<Vec<u8>>,
+    logs: RefCell<cc_web::LogRing>,
     ota_done: RefCell<bool>,
     restarted: RefCell<bool>,
 }
@@ -45,6 +46,11 @@ impl Fake {
             machine: RefCell::new(m),
             history: RefCell::new(History::new()),
             ota: RefCell::new(Vec::new()),
+            logs: RefCell::new({
+                let mut ring = cc_web::LogRing::new(64).unwrap();
+                ring.push(b"boot\nwifi up\n");
+                ring
+            }),
             ota_done: RefCell::new(false),
             restarted: RefCell::new(false),
         }
@@ -59,6 +65,11 @@ impl Backend for Fake {
     }
     fn history<R>(&self, f: impl FnOnce(&History) -> R) -> R {
         f(&self.history.borrow())
+    }
+    fn logs(&self, since: u64) -> Option<(u64, Vec<u8>)> {
+        let mut out = Vec::new();
+        let next = self.logs.borrow().read_since(since, &mut out)?;
+        Some((next, out))
     }
     fn command(&self, cmd: Command) -> Reply {
         let mut ev = heapless::Vec::new();
@@ -571,6 +582,26 @@ async fn low_heap_answers_503_but_health() {
         assert_eq!(get(port, "/api/health").await.status, 200);
         FAKE_HEAP.with(|h| h.set(None));
         assert_eq!(get(port, "/api/parameters").await.status, 200);
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn logs_are_served_as_text_and_resumable() {
+    with_server(ready(), |port| async move {
+        let r = get(port, "/api/logs").await;
+        assert_eq!(r.status, 200);
+        assert_eq!(r.header("Content-Type"), Some("text/plain; charset=utf-8"));
+        assert_eq!(r.body, b"boot\nwifi up\n");
+        assert_eq!(r.header("X-Log-Next"), Some("13"));
+        let r = get(port, "/api/logs?since=5").await;
+        assert_eq!(r.body, b"wifi up\n");
+        let r = get(port, "/api/logs?since=13").await;
+        assert!(r.body.is_empty());
+        assert_eq!(r.header("X-Log-Next"), Some("13"));
+        // An offset from before a restart starts over.
+        let r = get(port, "/api/logs?since=9999").await;
+        assert_eq!(r.body, b"boot\nwifi up\n");
     })
     .await;
 }

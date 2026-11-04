@@ -12,6 +12,12 @@
 
 extern crate alloc;
 
+#[cfg(test)]
+extern crate std;
+
+pub mod logring;
+pub use logring::LogRing;
+
 use core::fmt::Write as _;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
@@ -88,6 +94,9 @@ pub trait Backend {
     /// Runs `f` with the current configuration, status and live values.
     fn read<R>(&self, f: impl FnOnce(&Config, &Status, &Live) -> R) -> R;
     fn history<R>(&self, f: impl FnOnce(&History) -> R) -> R;
+    /// The log lines since offset `since` and the offset to ask for next (see
+    /// [`LogRing::read_since`]); `None` when the heap cannot spare the copy.
+    fn logs(&self, since: u64) -> Option<(u64, alloc::vec::Vec<u8>)>;
     /// Applies a command to the machine.
     fn command(&self, cmd: Command) -> Reply;
     /// Changes the configuration; the backend validates nothing more, persists if
@@ -308,6 +317,22 @@ impl Content for Owned {
     }
 }
 
+struct OwnedBytes {
+    data: alloc::vec::Vec<u8>,
+    content_type: &'static str,
+}
+impl Content for OwnedBytes {
+    fn content_type(&self) -> &'static str {
+        self.content_type
+    }
+    fn content_length(&self) -> usize {
+        self.data.len()
+    }
+    async fn write_content<W: Write>(self, mut writer: W) -> Result<(), W::Error> {
+        writer.write_all(&self.data).await
+    }
+}
+
 struct Bytes {
     data: &'static [u8],
     content_type: &'static str,
@@ -493,6 +518,32 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                 reply!(json(StatusCode::OK, move |w| {
                     cc_api::write_history(&h[0], &mut Writer::new(w))
                 }));
+            }
+            // Plain text, one line per log entry, newest last. `?since=<X-Log-Next of the last
+            // reply>` returns only what is new; a smaller `X-Log-Next` than asked for means the
+            // device restarted.
+            ("GET", "/api/logs") => {
+                let mut v = [0u8; 24];
+                let since = cc_api::form_value(raw_query, "since", &mut v)
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(0);
+                let Some((next, text)) = b.logs(since) else {
+                    reply!(message(StatusCode::new(503), false, "Busy, try again"));
+                };
+                let mut next_s: heapless::String<20> = heapless::String::new();
+                let _ = write!(next_s, "{next}");
+                reply!(
+                    Response::ok(OwnedBytes {
+                        data: text,
+                        content_type: "text/plain; charset=utf-8",
+                    })
+                    .with_headers([
+                        ("X-Log-Next", next_s.as_str()),
+                        ("Cache-Control", "no-store"),
+                        ("Access-Control-Allow-Origin", "*"),
+                        ("Access-Control-Expose-Headers", "X-Log-Next"),
+                    ])
+                );
             }
             ("GET", "/api/parameters") => {
                 let cfg = alloc::boxed::Box::new(b.read(|c, _, _| c.clone()));
@@ -837,6 +888,7 @@ pub const ROUTES: &[(&str, &str)] = &[
     ("GET", "/api/health"),
     ("GET", "/api/temperatures"),
     ("GET", "/api/history"),
+    ("GET", "/api/logs"),
     ("GET", "/api/parameters"),
     ("POST", "/api/parameters"),
     ("GET", "/api/parameter-help"),

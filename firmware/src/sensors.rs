@@ -7,7 +7,7 @@ use critical_section::Mutex;
 use embassy_time::{Delay, Duration, Instant, Ticker, Timer};
 use esp_hal::gpio::{Event, Flex, Input};
 use esp_hal::handler;
-use log::warn;
+use log::{info, warn};
 
 use crate::shared;
 
@@ -27,6 +27,9 @@ struct Edges {
     head: usize,
     len: usize,
 }
+
+/// Edges lost because the decoder task fell more than the ring behind.
+static EDGE_OVERRUNS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 static TSIC_PIN: Mutex<RefCell<Option<Input<'static>>>> = Mutex::new(RefCell::new(None));
 static EDGES: Mutex<RefCell<Edges>> = Mutex::new(RefCell::new(Edges {
@@ -53,6 +56,7 @@ fn gpio_interrupt() {
             e.len += 1;
         } else {
             e.head = (e.head + 1) % EDGE_RING;
+            EDGE_OVERRUNS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         }
     });
 }
@@ -71,6 +75,11 @@ pub async fn tsic_task() -> ! {
     let mut ticker = Ticker::every(Duration::from_millis(20));
     let mut last_ok = Instant::now();
     let mut errors = 0u32;
+    // What the log says about the sensor: a summary when frames went wrong, and the
+    // moments it is declared faulty and fine again.
+    let (mut ok, mut parity, mut framing) = (0u32, 0u32, 0u32);
+    let mut faulty = false;
+    let mut last_report = Instant::now();
     loop {
         ticker.next().await;
         let mut batch = [(false, 0u32); EDGE_RING];
@@ -94,14 +103,42 @@ pub async fn tsic_task() -> ! {
                     });
                     last_ok = Instant::now();
                     errors = 0;
+                    ok += 1;
                 }
-                Some(Err(_)) => errors += 1,
+                Some(Err(e)) => {
+                    errors += 1;
+                    match e {
+                        cc_tsic::Error::Parity => parity += 1,
+                        cc_tsic::Error::Framing => framing += 1,
+                    }
+                }
                 None => {}
             }
         }
         // No frames at all: the sensor is missing or its wire is broken.
-        if last_ok.elapsed() > Duration::from_secs(1) || errors > FAULT_AFTER_ERRORS {
+        let silent = last_ok.elapsed() > Duration::from_secs(1);
+        if silent || errors > FAULT_AFTER_ERRORS {
             shared::publish(|p| p.temperature_fault = true);
+            if !faulty {
+                faulty = true;
+                warn!(
+                    "tsic: fault, {} ms since the last good frame, {errors} bad frames in a row",
+                    last_ok.elapsed().as_millis()
+                );
+            }
+        } else if faulty && errors == 0 {
+            faulty = false;
+            info!("tsic: frames are good again");
+        }
+        if last_report.elapsed() >= Duration::from_secs(10) {
+            last_report = Instant::now();
+            let overruns = EDGE_OVERRUNS.swap(0, core::sync::atomic::Ordering::Relaxed);
+            if parity + framing + overruns > 0 {
+                warn!(
+                    "tsic: in 10 s {ok} good frames, {parity} parity and {framing} framing errors, {overruns} edges lost"
+                );
+            }
+            (ok, parity, framing) = (0, 0, 0);
         }
     }
 }

@@ -36,6 +36,10 @@ impl Backend for Device {
         shared::with(|s| f(&s.history))
     }
 
+    fn logs(&self, since: u64) -> Option<(u64, alloc::vec::Vec<u8>)> {
+        crate::logbuf::read_since(since)
+    }
+
     fn command(&self, cmd: Command) -> Reply {
         let (reply, events) = shared::with(|s| {
             let mut ev = cc_core::machine::Events::new();
