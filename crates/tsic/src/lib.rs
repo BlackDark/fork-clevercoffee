@@ -93,6 +93,40 @@ impl Decoder {
     }
 }
 
+/// A reading further than this (raw units, about 1 °C) from the median is counted as a spike.
+pub const SPIKE_RAW: u16 = 10;
+
+/// Median of the last three readings. The line has one parity bit per packet, so a frame
+/// whose timing was disturbed (a delayed edge flips a bit; two flips keep the parity
+/// right) decodes to a plausible but wrong value; on a real machine single frames showed
+/// 50-99 °C among readings of 56 °C. A boiler cannot move that far in 100 ms, and a
+/// median of three drops any single bad frame at the price of one frame of delay.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SpikeFilter {
+    last: [u16; 3],
+    seen: u8,
+}
+
+impl SpikeFilter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Takes a decoded reading; returns the filtered one and whether this reading was
+    /// a spike. `None` until three readings are in.
+    pub fn push(&mut self, raw: u16) -> Option<(u16, bool)> {
+        self.last = [self.last[1], self.last[2], raw];
+        self.seen = (self.seen + 1).min(3);
+        if self.seen < 3 {
+            return None;
+        }
+        let mut sorted = self.last;
+        sorted.sort_unstable();
+        let median = sorted[1];
+        Some((median, raw.abs_diff(median) > SPIKE_RAW))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     extern crate std;
@@ -176,5 +210,44 @@ mod tests {
         assert!((celsius(0) + 50.0).abs() < 1e-4);
         assert!((celsius(2047) - 150.0).abs() < 1e-4);
         assert!((celsius(1488) - 95.38).abs() < 0.01);
+    }
+
+    fn filtered(inputs: &[u16]) -> Vec<(u16, bool)> {
+        let mut f = SpikeFilter::new();
+        inputs.iter().filter_map(|&r| f.push(r)).collect()
+    }
+
+    #[test]
+    fn needs_three_readings_first() {
+        let mut f = SpikeFilter::new();
+        assert_eq!(f.push(1000), None);
+        assert_eq!(f.push(1000), None);
+        assert_eq!(f.push(1000), Some((1000, false)));
+    }
+
+    #[test]
+    fn removes_a_single_spike_in_either_direction() {
+        // 57.08, 53.86, 56.99 and 91.77, 96.07, 91.77 degrees, as on the machine.
+        let raw = |c: f32| ((c + 50.0) * 2047.0 / 200.0) as u16;
+        let out = filtered(&[raw(57.0), raw(57.1), raw(53.9), raw(57.0), raw(57.0)]);
+        assert!(out.iter().all(|&(v, _)| (raw(57.0)..=raw(57.1)).contains(&v)));
+        assert!(out.iter().any(|&(_, spike)| spike));
+        let out = filtered(&[raw(91.8), raw(91.8), raw(96.1), raw(91.8), raw(91.8)]);
+        assert!(out.iter().all(|&(v, _)| v == raw(91.8)));
+    }
+
+    #[test]
+    fn follows_a_real_change_after_two_readings() {
+        let out: Vec<u16> = filtered(&[1000, 1000, 1000, 1200, 1200, 1200])
+            .into_iter()
+            .map(|(v, _)| v)
+            .collect();
+        assert_eq!(out, std::vec![1000, 1000, 1200, 1200]);
+    }
+
+    #[test]
+    fn a_slow_ramp_is_not_a_spike() {
+        let ramp: Vec<u16> = (0..20).map(|i| 1000 + i * 2).collect();
+        assert!(filtered(&ramp).iter().all(|&(_, spike)| !spike));
     }
 }
