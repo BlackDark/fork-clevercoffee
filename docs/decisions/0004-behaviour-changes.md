@@ -33,6 +33,7 @@ The C++ firmware v1.3.4 and its tests were the specification. Porting them line 
 | Filesystem and URL updates. | Firmware upload only; the UI is inside it (ADR 0005). |
 | Settings survived updates in NVS. | New storage, no import from C++ (ADR 0005). |
 | WiFiManager portal. | Own portal with the same UI (`CleverCoffee-XXXX`, password `CleverCoffee`); the full UI is reachable on the access point. When the home network comes back the device restarts once idle, which closes the access point. |
+| A TSIC frame with disturbed timing could decode to a wrong value that passed parity (50-99 °C among 56 °C readings in the history). | The temperature is the median of the last three frames (`SpikeFilter`, `fix_tsic_removes_a_single_spike_in_either_direction`): one reading of delay, a single wrong frame never reaches the control loop, and the filter restarts after a sensor fault. Two wrong frames in a row would still pass. |
 | Unlimited server-sent event streams (AsyncWebServer). | Two (one with a Bluetooth scale); a further `/events` gets 503 and the UI polls (ADR 0008, `server_sent_events`). |
 | MQTT 3.1.1. | MQTT 5. |
 

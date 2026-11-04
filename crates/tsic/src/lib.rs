@@ -218,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn needs_three_readings_first() {
+    fn fix_tsic_needs_three_readings_first() {
         let mut f = SpikeFilter::new();
         assert_eq!(f.push(1000), None);
         assert_eq!(f.push(1000), None);
@@ -226,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn removes_a_single_spike_in_either_direction() {
+    fn fix_tsic_removes_a_single_spike_in_either_direction() {
         // 57.08, 53.86, 56.99 and 91.77, 96.07, 91.77 degrees, as on the machine.
         let raw = |c: f32| ((c + 50.0) * 2047.0 / 200.0) as u16;
         let out = filtered(&[raw(57.0), raw(57.1), raw(53.9), raw(57.0), raw(57.0)]);
@@ -237,7 +237,19 @@ mod tests {
     }
 
     #[test]
-    fn follows_a_real_change_after_two_readings() {
+    fn a_fresh_filter_forgets_the_readings_from_before_an_outage() {
+        let mut f = SpikeFilter::new();
+        for _ in 0..3 {
+            f.push(1000);
+        }
+        f = SpikeFilter::new();
+        assert_eq!(f.push(1500), None);
+        assert_eq!(f.push(1500), None);
+        assert_eq!(f.push(1500), Some((1500, false)));
+    }
+
+    #[test]
+    fn fix_tsic_follows_a_real_change_after_two_readings() {
         let out: Vec<u16> = filtered(&[1000, 1000, 1000, 1200, 1200, 1200])
             .into_iter()
             .map(|(v, _)| v)
@@ -246,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn a_slow_ramp_is_not_a_spike() {
+    fn fix_tsic_a_slow_ramp_is_not_a_spike() {
         let ramp: Vec<u16> = (0..20).map(|i| 1000 + i * 2).collect();
         assert!(filtered(&ramp).iter().all(|&(_, spike)| !spike));
     }

@@ -127,6 +127,8 @@ pub async fn tsic_task() -> ! {
             shared::publish(|p| p.temperature_fault = true);
             if !faulty {
                 faulty = true;
+                // After an outage the old readings must not take part in the median.
+                spike_filter = cc_tsic::SpikeFilter::new();
                 warn!(
                     "tsic: fault, {} ms since the last good frame, {errors} bad frames in a row",
                     last_ok.elapsed().as_millis()
