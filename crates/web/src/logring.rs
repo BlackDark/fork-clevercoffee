@@ -77,7 +77,7 @@ mod tests {
         assert_eq!(read(&r, 0), (8, "one\ntwo\n".into()));
         r.push(b"three\n");
         assert_eq!(read(&r, 8), (14, "three\n".into()));
-        assert_eq!(read(&r, 14), (14, "".into()));
+        assert_eq!(read(&r, 14), (14, std::string::String::new()));
     }
 
     #[test]
@@ -109,6 +109,6 @@ mod tests {
     fn a_zero_capacity_ring_keeps_nothing() {
         let mut r = LogRing::new(0).unwrap();
         r.push(b"x");
-        assert_eq!(read(&r, 0), (0, "".into()));
+        assert_eq!(read(&r, 0), (0, std::string::String::new()));
     }
 }

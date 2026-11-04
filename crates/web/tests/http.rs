@@ -597,7 +597,7 @@ async fn logs_are_served_as_text_and_resumable() {
         let r = get(port, "/api/logs?since=5").await;
         assert_eq!(r.body, b"wifi up\n");
         let r = get(port, "/api/logs?since=13").await;
-        assert!(r.body.is_empty());
+        assert_eq!(r.body, b"");
         assert_eq!(r.header("X-Log-Next"), Some("13"));
         // An offset from before a restart starts over.
         let r = get(port, "/api/logs?since=9999").await;
