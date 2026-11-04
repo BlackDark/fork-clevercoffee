@@ -746,3 +746,19 @@ test("standby shows a permanent toast with a Wake up action until awake", async 
   await toast.getByRole("button", { name: "Wake up" }).click();
   await expect(toast).toBeHidden({ timeout: 10000 });
 });
+
+test("WiFi settings are on the System tab and ask for a restart once saved", async ({
+  page,
+}) => {
+  await page.goto("#/config/system");
+  await expect(
+    page.getByRole("heading", { name: "WiFi", exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("WiFi Network (SSID)").fill("Home");
+  await page.getByLabel("WiFi Password").fill("secret123");
+  await page.getByRole("button", { name: "Review & save" }).click();
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(
+    page.getByText("Some saved settings need a reboot", { exact: false }),
+  ).toBeVisible();
+});

@@ -33,7 +33,7 @@ just flash         # build, flash, open the serial monitor (profile: just flash 
 
 `just flash` also erases `otadata`: after an update over the web the bootloader would keep starting the other slot, not the image just flashed.
 
-A release `clevercoffee-<profile>.bin` is a merged image: `espflash write-bin --chip esp32 0x0 <file>`.
+A release `clevercoffee-<profile>.bin` is a merged image: `espflash write-bin --chip esp32 0x0 <file>`. It covers the whole flash, so it also erases the settings (WiFi included); `just flash` and web updates keep them.
 
 Later updates: web UI → System → Firmware Update, upload `target/app-<profile>.bin` (`just size <profile>` writes it) or the release `app-<profile>.bin`. The device writes the inactive slot, switches and restarts; heater, pump and valve stay off meanwhile.
 

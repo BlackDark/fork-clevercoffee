@@ -9,7 +9,13 @@ export const groups2: Record<string, Array<string>> = {
     "maintenance",
     "powerSettings",
   ],
-  system: ["mqttSettings", "systemSettings", "systemAuth", "runtimeControls"],
+  system: [
+    "wifiSettings",
+    "mqttSettings",
+    "systemSettings",
+    "systemAuth",
+    "runtimeControls",
+  ],
   hardware: [
     "oledDisplay",
     "relays",
@@ -123,6 +129,15 @@ export const parameterGroups: ParameterGroup[] = [
     key: "powerSettings",
     label: "Power Settings",
     parameters: ["standby.enabled", "standby.time"],
+  },
+  {
+    key: "wifiSettings",
+    label: "WiFi",
+    parameters: [
+      "system.wifi.ssid",
+      "system.wifi.password",
+      "system.offline_mode",
+    ],
   },
   {
     key: "mqttSettings",
