@@ -18,12 +18,14 @@ struct Fake {
     machine: RefCell<Machine>,
     history: RefCell<History>,
     ota: RefCell<Vec<u8>>,
+    logs: RefCell<cc_web::LogRing>,
     ota_done: RefCell<bool>,
     restarted: RefCell<bool>,
 }
 
 thread_local! {
     /// Free heap the fake reports; tests run on one thread (current_thread runtime).
+    static LOGS_BUSY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static FAKE_HEAP: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
 }
 
@@ -45,6 +47,11 @@ impl Fake {
             machine: RefCell::new(m),
             history: RefCell::new(History::new()),
             ota: RefCell::new(Vec::new()),
+            logs: RefCell::new({
+                let mut ring = cc_web::LogRing::new(64).unwrap();
+                ring.push(b"boot\nwifi up\n");
+                ring
+            }),
             ota_done: RefCell::new(false),
             restarted: RefCell::new(false),
         }
@@ -59,6 +66,14 @@ impl Backend for Fake {
     }
     fn history<R>(&self, f: impl FnOnce(&History) -> R) -> R {
         f(&self.history.borrow())
+    }
+    fn logs(&self, since: u64) -> Option<(u64, Vec<u8>)> {
+        if LOGS_BUSY.get() {
+            return None;
+        }
+        let mut out = Vec::new();
+        let next = self.logs.borrow().read_since(since, &mut out)?;
+        Some((next, out))
     }
     fn command(&self, cmd: Command) -> Reply {
         let mut ev = heapless::Vec::new();
@@ -571,6 +586,37 @@ async fn low_heap_answers_503_but_health() {
         assert_eq!(get(port, "/api/health").await.status, 200);
         FAKE_HEAP.with(|h| h.set(None));
         assert_eq!(get(port, "/api/parameters").await.status, 200);
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn logs_are_served_as_text_and_resumable() {
+    with_server(ready(), |port| async move {
+        let r = get(port, "/api/logs").await;
+        assert_eq!(r.status, 200);
+        assert_eq!(r.header("Content-Type"), Some("text/plain; charset=utf-8"));
+        assert_eq!(r.body, b"boot\nwifi up\n");
+        assert_eq!(r.header("X-Log-Next"), Some("13"));
+        let r = get(port, "/api/logs?since=5").await;
+        assert_eq!(r.body, b"wifi up\n");
+        let r = get(port, "/api/logs?since=13").await;
+        assert_eq!(r.body, b"");
+        assert_eq!(r.header("X-Log-Next"), Some("13"));
+        // An offset from before a restart starts over.
+        let r = get(port, "/api/logs?since=9999").await;
+        assert_eq!(r.body, b"boot\nwifi up\n");
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn logs_answer_503_when_the_copy_does_not_fit() {
+    with_server(ready(), |port| async move {
+        LOGS_BUSY.set(true);
+        let r = get(port, "/api/logs").await;
+        LOGS_BUSY.set(false);
+        assert_eq!(r.status, 503);
     })
     .await;
 }

@@ -14,6 +14,7 @@ mod control;
 #[cfg(feature = "display")]
 mod display;
 mod flash;
+mod logbuf;
 mod net;
 mod ota;
 mod sensors;
@@ -91,7 +92,7 @@ async fn main(spawner: Spawner) -> ! {
     // Before anything deep runs: the high-water mark counts from here.
     stackmon::paint();
     // Info until the settings are loaded; then `system.log_level` applies.
-    esp_println::logger::init_logger(LevelFilter::Info);
+    logbuf::init_logger(LevelFilter::Info);
     let p = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
 
     // ADR 0001: the reclaimed bootloader RAM plus a main-RAM region.
@@ -104,6 +105,7 @@ async fn main(spawner: Spawner) -> ! {
 
     let timg0 = TimerGroup::new(p.TIMG0);
     esp_rtos::start(timg0.timer0, p.FROM_CPU_INTR0);
+    logbuf::start_ring();
 
     info!("CleverCoffee {} starting", env!("CARGO_PKG_VERSION"));
 

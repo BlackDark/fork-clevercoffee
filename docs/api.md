@@ -12,6 +12,7 @@ With `system.auth.enabled`, every route needs HTTP basic auth.
 | GET | `/api/health` | liveness |
 | GET | `/api/temperatures` | `currentTemp`, `targetTemp`, `heaterPower` |
 | GET | `/api/history` | last 30 min of temperature, setpoint and heater power |
+| GET | `/api/logs` | the newest log lines as text *(new)*; `?since=<X-Log-Next of the last reply>` returns only what is new, a smaller `X-Log-Next` than asked for means the device restarted (a restart that logged more than `since` bytes before the next poll goes unnoticed); about 6 KB, a few minutes of a quiet machine |
 | GET | `/api/parameters` | all parameters with metadata (`?filter=all`; secrets are blanked) |
 | POST | `/api/parameters` | `key=value&…` form or query; all-or-nothing validation |
 | GET | `/api/parameter-help?param=<key>` | help text |

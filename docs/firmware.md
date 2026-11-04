@@ -108,4 +108,4 @@ Control loop (`full`, `system.timing_debug.enabled`): a tick takes ≤ 1 ms; tic
 
 ## Logs
 
-Serial at 115200 (`just monitor`). Level: parameter `system.log_level`. `system.timing_debug.enabled` logs the slowest control tick and the longest gap between two ticks every 10 s.
+Serial at 115200 (`just monitor`), and over WiFi without a cable: `just logs [host]` follows `GET /api/logs`, the newest ~6 KB kept in RAM (lost at a restart). Level: parameter `system.log_level`. `system.timing_debug.enabled` logs the slowest control tick and the longest gap between two ticks every 10 s.
