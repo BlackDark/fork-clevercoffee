@@ -7,6 +7,10 @@ target = "xtensa-esp32-none-elf"
 
 [env]
 ESP_LOG = "info"
+# esp-hal defaults to ESP32 revision v3.0 and up (300) and writes that into the image, so the
+# bootloader refuses older chips ("chip revision check failed. Required >= v3.0, found v1.0").
+# 0 builds the errata workarounds of older revisions in: v1.0 boards boot, v3.0 are unaffected.
+ESP_HAL_CONFIG_MIN_CHIP_REVISION = "0"
 
 [unstable]
 build-std = ["alloc", "core"]
