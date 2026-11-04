@@ -25,6 +25,7 @@ struct Fake {
 
 thread_local! {
     /// Free heap the fake reports; tests run on one thread (current_thread runtime).
+    static LOGS_BUSY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static FAKE_HEAP: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
 }
 
@@ -67,6 +68,9 @@ impl Backend for Fake {
         f(&self.history.borrow())
     }
     fn logs(&self, since: u64) -> Option<(u64, Vec<u8>)> {
+        if LOGS_BUSY.get() {
+            return None;
+        }
         let mut out = Vec::new();
         let next = self.logs.borrow().read_since(since, &mut out)?;
         Some((next, out))
@@ -602,6 +606,17 @@ async fn logs_are_served_as_text_and_resumable() {
         // An offset from before a restart starts over.
         let r = get(port, "/api/logs?since=9999").await;
         assert_eq!(r.body, b"boot\nwifi up\n");
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn logs_answer_503_when_the_copy_does_not_fit() {
+    with_server(ready(), |port| async move {
+        LOGS_BUSY.set(true);
+        let r = get(port, "/api/logs").await;
+        LOGS_BUSY.set(false);
+        assert_eq!(r.status, 503);
     })
     .await;
 }

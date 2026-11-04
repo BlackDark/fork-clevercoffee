@@ -72,7 +72,9 @@ pub fn start_ring() {
 
 /// The lines since offset `since` (see [`LogRing::read_since`]).
 pub fn read_since(since: u64) -> Option<(u64, alloc::vec::Vec<u8>)> {
+    // Reserved before the lock: the copy inside it must not allocate.
     let mut out = alloc::vec::Vec::new();
+    out.try_reserve(RING_BYTES).ok()?;
     let next = RING.lock(|r| r.borrow().as_ref().map(|ring| ring.read_since(since, &mut out)))??;
     Some((next, out))
 }

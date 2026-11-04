@@ -4,9 +4,14 @@ use alloc::vec::Vec;
 
 /// A byte ring that remembers how many bytes ever went through it, so a reader can ask
 /// for "everything since offset N" and notice when it missed some or the device restarted.
+///
+/// Pushing and reading copy whole slices: the firmware holds a critical section while
+/// it calls them.
 #[derive(Debug)]
 pub struct LogRing {
     buf: Vec<u8>,
+    /// Index the next byte goes to.
+    head: usize,
     total: u64,
 }
 
@@ -16,7 +21,11 @@ impl LogRing {
         let mut buf = Vec::new();
         buf.try_reserve_exact(capacity).ok()?;
         buf.resize(capacity, 0);
-        Some(Self { buf, total: 0 })
+        Some(Self {
+            buf,
+            head: 0,
+            total: 0,
+        })
     }
 
     /// Bytes ever pushed; the offset the next push gets.
@@ -24,15 +33,21 @@ impl LogRing {
         self.total
     }
 
-    pub fn push(&mut self, bytes: &[u8]) {
+    pub fn push(&mut self, mut bytes: &[u8]) {
         let cap = self.buf.len();
         if cap == 0 {
             return;
         }
-        for &b in bytes {
-            self.buf[(self.total % cap as u64) as usize] = b;
-            self.total += 1;
+        self.total += bytes.len() as u64;
+        // Only the last `cap` bytes can survive.
+        if bytes.len() > cap {
+            bytes = &bytes[bytes.len() - cap..];
+            self.head = 0;
         }
+        let first = bytes.len().min(cap - self.head);
+        self.buf[self.head..self.head + first].copy_from_slice(&bytes[..first]);
+        self.buf[..bytes.len() - first].copy_from_slice(&bytes[first..]);
+        self.head = (self.head + bytes.len()) % cap;
     }
 
     /// Appends what was logged since offset `since` to `out` and returns the offset to ask
@@ -41,21 +56,27 @@ impl LogRing {
     ///
     /// `None` when `out` cannot grow.
     pub fn read_since(&self, since: u64, out: &mut Vec<u8>) -> Option<u64> {
-        let cap = self.buf.len() as u64;
-        let oldest = self.total.saturating_sub(cap);
+        let cap = self.buf.len();
+        let oldest = self.total.saturating_sub(cap as u64);
         let lost = since < oldest || since > self.total;
-        let mut start = if lost { oldest } else { since };
-        out.try_reserve((self.total - start) as usize).ok()?;
-        let mut at_line_start = start == 0 || !lost;
-        while start < self.total {
-            let b = self.buf[(start % cap) as usize];
-            start += 1;
-            if !at_line_start {
-                at_line_start = b == b'\n';
-                continue;
-            }
-            out.push(b);
-        }
+        let start = if lost { oldest } else { since };
+        let len = (self.total - start) as usize;
+        out.try_reserve(len).ok()?;
+        // Where `start` sits: the ring is full (oldest byte at `head`) or not yet wrapped.
+        let at = if self.total > cap as u64 {
+            (self.head + (start - oldest) as usize) % cap
+        } else {
+            start as usize
+        };
+        let first = len.min(cap - at);
+        let (a, b) = (&self.buf[at..at + first], &self.buf[..len - first]);
+        // A lost reader begins at a line start; the cut line is dropped.
+        let skip = if lost && start > 0 {
+            a.iter().chain(b).position(|&c| c == b'\n').map_or(len, |i| i + 1)
+        } else {
+            0
+        };
+        out.extend(a.iter().chain(b).skip(skip));
         Some(self.total)
     }
 }
@@ -103,6 +124,26 @@ mod tests {
         r.push(b"abc\n");
         r.push(b"defg\nh");
         assert_eq!(read(&r, 4), (10, "defg\nh".into()));
+    }
+
+    #[test]
+    fn a_push_longer_than_the_ring_keeps_the_end() {
+        let mut r = LogRing::new(8).unwrap();
+        r.push(b"x\n");
+        r.push(b"0123456789\nabc\n");
+        assert_eq!(read(&r, 0), (17, "abc\n".into()));
+        r.push(b"d\n");
+        assert_eq!(read(&r, 17), (19, "d\n".into()));
+    }
+
+    #[test]
+    fn an_exact_fill_and_the_push_after_it() {
+        let mut r = LogRing::new(8).unwrap();
+        r.push(b"abc\ndef\n");
+        assert_eq!(read(&r, 0), (8, "abc\ndef\n".into()));
+        r.push(b"gh\n");
+        assert_eq!(read(&r, 8), (11, "gh\n".into()));
+        assert_eq!(read(&r, 0), (11, "def\ngh\n".into()));
     }
 
     #[test]

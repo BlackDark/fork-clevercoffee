@@ -131,11 +131,19 @@ monitor:
 logs host="silvia.local" auth="":
     #!/usr/bin/env bash
     set -euo pipefail
+    auth='{{ auth }}'
     next=0
     headers=$(mktemp)
     trap 'rm -f "$headers"' EXIT
     while :; do
-      body=$(curl -sf ${auth:+-u "$auth"} -D "$headers" "http://{{ host }}/api/logs?since=$next" || true)
+      # The credentials go through a config on stdin, not into the process list.
+      if ! body=$(printf 'user = "%s"\n' "$auth" | curl -sf -m 5 ${auth:+-K -} -D "$headers" "http://{{ host }}/api/logs?since=$next"); then
+        [ -n "${failed:-}" ] || echo "--- {{ host }} does not answer ---"
+        failed=1
+        sleep 1
+        continue
+      fi
+      failed=
       new=$(tr -d '\r' < "$headers" | awk -F': ' 'tolower($1)=="x-log-next" {print $2}')
       if [ -n "$new" ]; then
         [ "$new" -lt "$next" ] && echo "--- device restarted ---"
