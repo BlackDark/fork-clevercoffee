@@ -151,7 +151,8 @@ pub async fn wifi_task(
     if w.ssid.is_empty() || w.offline {
         info!("wifi: no network configured, access point {ap_name} open");
         shared::with(|s| s.net.ap_active = true);
-        return;
+        // Dropping the controller stops the driver, and with it the access point.
+        core::future::pending::<()>().await;
     }
     let mut ap_open = false;
     let mut ap_clients = 0u8;
