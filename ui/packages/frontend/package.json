@@ -19,7 +19,7 @@
     "check:types:ts6": "svelte-check --tsconfig ./tsconfig.app.json --fail-on-warnings"
   },
   "dependencies": {
-    "@lucide/svelte": "1.64.0",
+    "@lucide/svelte": "1.69.0",
     "@tailwindcss/vite": "4.3.4",
     "@tanstack/svelte-query": "6.3.11",
     "bits-ui": "2.20.6",
@@ -33,7 +33,7 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@playwright/test": "1.64.1",
+    "@playwright/test": "1.65.0",
     "@sveltejs/vite-plugin-svelte": "7.3.1",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/svelte": "5.4.2",
@@ -43,10 +43,10 @@
     "prettier": "3.9.10",
     "prettier-plugin-svelte": "4.1.1",
     "rollup-plugin-gzip": "4.2.1",
-    "shadcn-svelte": "1.7.2",
+    "shadcn-svelte": "1.8.0",
     "svelte-check": "4.7.8",
     "typescript": "6.0.3",
     "vite": "8.3.6",
-    "vitest": "5.0.5"
+    "vitest": "5.1.0"
   }
 }
