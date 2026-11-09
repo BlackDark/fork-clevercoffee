@@ -3,7 +3,7 @@
 [tools]
 just = "1.59.0"
 node = "26.13.0"
-pnpm = "12.16.1"
+pnpm = "12.18.0"
 "github:esp-rs/espup" = "0.19.0"
 "github:esp-rs/espflash" = "4.7.0"
 
