@@ -127,3 +127,39 @@ fn inverted_display_is_rotated_180() {
         }
     }
 }
+
+#[test]
+fn boot_banner_fits_every_template_and_language() {
+    let banners = [Banner {
+        line1: "CC-Rust",
+        line2: "2.1.0",
+    }];
+    let mut problems = Vec::new();
+    for (tname, template) in TEMPLATES {
+        for (lang_v, _) in Language::OPTIONS {
+            let lang = Language::from_i32(*lang_v).unwrap();
+            let cfg = Config {
+                display_template: template,
+                display_language: lang,
+                ..Config::default()
+            };
+            for banner in banners {
+                let st = status(State::PidNormal);
+                let mut f = Frame::default();
+                let view = View {
+                    status: &st,
+                    cfg: &cfg,
+                    net: net(),
+                    uptime_ms: 0,
+                    ota: None,
+                    banner: Some(banner),
+                };
+                let r = render(&mut f, &view);
+                if r.clipped || r.missing_glyph {
+                    problems.push(format!("{tname}/{lang:?}/{}: {r:?}", banner.line2));
+                }
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{problems:#?}");
+}
