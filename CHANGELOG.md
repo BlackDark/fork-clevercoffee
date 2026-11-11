@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.2.0](https://github.com/BlackDark/clevercoffee-rs/compare/v2.1.0...v2.2.0) (2026-11-11)
+
+
+### Features
+
+* clevercoffee-rs logo on OLED boot screen and web UI ([#160](https://github.com/BlackDark/clevercoffee-rs/issues/160)) ([c1ec866](https://github.com/BlackDark/clevercoffee-rs/commit/c1ec866a87a883a46ccd079df39186a6aeb06b39))
+* **display:** show the station IP in the boot banner ([#161](https://github.com/BlackDark/clevercoffee-rs/issues/161)) ([c3a4615](https://github.com/BlackDark/clevercoffee-rs/commit/c3a4615cfef8c8e6315823c96a7ae6cde8e1a21d))
+
+
+### Bug Fixes
+
+* **deps:** update all minor updates ([#154](https://github.com/BlackDark/clevercoffee-rs/issues/154)) ([569821a](https://github.com/BlackDark/clevercoffee-rs/commit/569821a37811bc780e5ad3b7d41554ac06c4da69))
+* **deps:** update all patch/pin/digest updates ([#153](https://github.com/BlackDark/clevercoffee-rs/issues/153)) ([f7de1f5](https://github.com/BlackDark/clevercoffee-rs/commit/f7de1f5fbc3f40fbc0c1e114563cb649368baa55))
+
+
+### Documentation
+
+* **readme:** follow agent-presets template, link upstream ([#158](https://github.com/BlackDark/clevercoffee-rs/issues/158)) ([2299f32](https://github.com/BlackDark/clevercoffee-rs/commit/2299f3258dd0d724dd0c4558f9eef3f47306ce4e))
+
 ## [2.1.0](https://github.com/BlackDark/fork-clevercoffee/compare/v2.0.1...v2.1.0) (2026-11-04)
 
 
