@@ -96,8 +96,12 @@ impl OtaError {
 pub trait Backend {
     /// Runs `f` with the current configuration, status and live values.
     fn read<R>(&self, f: impl FnOnce(&Config, &Status, &Live) -> R) -> R;
-    /// Adds the firmware's counters to `live` (`/api/metrics` only; the other reads
-    /// stay cheap).
+    /// The live values alone. The default builds the status too; the firmware skips it.
+    fn live(&self) -> Live {
+        self.read(|_, _, l| *l)
+    }
+    /// Adds the firmware's counters to `live` (`/api/metrics` and the metrics stream;
+    /// the other reads stay cheap).
     fn load_metrics(&self, _live: &mut Live) {}
     fn history<R>(&self, f: impl FnOnce(&History) -> R) -> R;
     /// The log lines since offset `since` and the offset to ask for next (see
@@ -416,7 +420,7 @@ struct Events<'b, B> {
 
 /// The live values plus the firmware counters, as `/api/metrics` reports them.
 fn live_metrics<B: Backend>(b: &B) -> Live {
-    let mut live = b.read(|_, _, l| *l);
+    let mut live = b.live();
     b.load_metrics(&mut live);
     live.low_heap_refusals = LOW_HEAP_REFUSALS.load(Ordering::Relaxed);
     live
@@ -428,7 +432,6 @@ impl<B: Backend> EventSource for Events<'_, B> {
         loop {
             self.backend.sleep_ms(EVENT_INTERVAL_MS).await;
             if self.metrics {
-                // A diagnostics stream carries only the counters.
                 let mut m: heapless::String<640> = heapless::String::new();
                 if cc_api::write_metrics(&live_metrics(self.backend), &mut Writer::new(&mut m)).is_ok() {
                     writer.write_event("metrics", m.as_str()).await?;

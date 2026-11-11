@@ -24,7 +24,7 @@ With `system.auth.enabled`, every route needs HTTP basic auth.
 | POST | `/api/ota/firmware` | multipart field `firmware`: streams into the inactive slot, restarts |
 | GET | `/api/ota/status` | `status` (`idle`, `uploading`, `complete`, `error`), `progress`, `updateInProgress` |
 | POST | `/api/restart`, `/api/factory-reset`, `/api/wifi-reset` | answered, then executed |
-| GET | `/events` | server-sent events, 1 s: `new_temps`, `weight` *(new)*; `?metrics=1` sends only `metrics` *(new)*; at most two streams (one with a Bluetooth scale), then `503` *(new)* |
+| GET | `/events` | server-sent events, 1 s: `new_temps`, `weight` *(new)*; `?metrics=1` sends `hello`, then only `metrics` *(new)*, the `/api/metrics` body each second; at most two streams (one with a Bluetooth scale), then `503` *(new)* |
 | GET | `/ui/…` | the embedded web UI; `/` redirects there |
 | POST | `/api/debug/hang` | `bench` builds only *(new)* |
 
