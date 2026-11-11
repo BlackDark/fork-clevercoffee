@@ -1,6 +1,9 @@
 <div align="center">
 
-# CleverCoffee (Rust)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/images/logo-horizontal-on-dark.svg">
+  <img alt="clevercoffee-rs" src=".github/images/logo-horizontal-on-light.svg" height="64">
+</picture>
 
 **PID temperature control firmware for espresso machines (Rancilio Silvia, Gaggia and others) on the ESP32, written in Rust.**<br>
 Brew-by-time and by-weight, steam, hot water, backflush, OLED display, web UI, MQTT with Home Assistant discovery, HX711 and Bluetooth scales.

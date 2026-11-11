@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><title>clevercoffee-rs</title><rect width="64" height="64" rx="14" fill="#1e2327"/>
+<g transform="translate(6.4 6.4) scale(0.8)">
+  <path d="M10 27 C13 27 14 7 23 7 C31 7 31 17 37 17 C43 17 43 13 54 13"
+        fill="none" stroke="#e0772e" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M11 32 H47 V38 C47 49 39 56 29 56 C19 56 11 49 11 38 Z" fill="#f4ece1"/>
+  <path d="M47 35.5 H50.5 C57 35.5 57 47 50 47 H45.5" fill="none" stroke="#f4ece1" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="7" y="59" width="44" height="3.2" rx="1.6" fill="#e0772e"/>
+</g>
+</svg>
