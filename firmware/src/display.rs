@@ -54,7 +54,9 @@ pub async fn task(i2c: I2cDev) -> ! {
                 ble_scale_connected: s.net.ble_scale_connected,
             };
             (*cfg).clone_from(&s.cfg);
-            (s.machine.status(&s.cfg), net, s.net.ip)
+            // A dropped link keeps its last address in shared state; show none.
+            let ip = if s.net.wifi_connected { s.net.ip } else { [0; 4] };
+            (s.machine.status(&s.cfg), net, ip)
         });
         // Boot only: logo and version, plus the address when known.
         let wifi_set_up = !cfg.system_wifi_ssid.is_empty();
