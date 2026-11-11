@@ -1,13 +1,14 @@
-//! MQTT client: publishes the [`cc_mqtt::ENTITIES`] (only changed values), applies
-//! `<name>/set` messages, sends Home Assistant discovery and keeps `status`
-//! (`online`, last will `offline`) current.
+//! MQTT client: publishes the [`cc_mqtt::ENTITIES`] (only changed values; diagnostics
+//! on their own minute timer), applies `<name>/set` messages, sends Home Assistant
+//! discovery and keeps `status` (`online`, last will `offline`) current.
 
 use core::fmt::Write as _;
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+use cc_api::Live;
 use cc_api::json::Writer;
 use cc_core::{Command, Config};
-use cc_mqtt::{ChangeFilter, ENTITIES, Incoming};
+use cc_mqtt::{ChangeFilter, ENTITIES, Incoming, Source};
 use embassy_futures::select::{Either, select};
 use embassy_net::Stack;
 use embassy_net::dns::DnsQueryType;
@@ -25,7 +26,7 @@ use rust_mqtt::client::options::{
 use rust_mqtt::config::KeepAlive;
 use rust_mqtt::types::{MqttBinary, MqttString, QoS, TopicFilter, TopicName};
 
-use crate::shared;
+use crate::{metrics, shared};
 
 type Mqtt<'a> = Client<'a, 'a, TcpSocket<'a>, AllocBuffer, 1, 1, 1, 0, 0, 0, 0>;
 
@@ -128,6 +129,7 @@ async fn session(socket: TcpSocket<'_>, cfg: &Config) -> Result<(), End> {
 
     let mut changes = ChangeFilter::default();
     let mut next_publish = Instant::now();
+    let mut next_diagnostics = Instant::now();
     let mut next_discovery = Instant::now();
     let mut keep_alive = cc_mqtt::KeepAlive::new(KEEP_ALIVE_S, Instant::now().as_millis());
     loop {
@@ -138,6 +140,12 @@ async fn session(socket: TcpSocket<'_>, cfg: &Config) -> Result<(), End> {
             if sent {
                 keep_alive.sent(now.as_millis());
             }
+        }
+        if now >= next_diagnostics {
+            if publish_diagnostics(&mut client, &mut changes).await? {
+                keep_alive.sent(now.as_millis());
+            }
+            next_diagnostics = now + Duration::from_millis(cc_mqtt::DIAGNOSTICS_INTERVAL_MS);
         }
         if now >= next_discovery {
             let hassio = shared::with(|s| s.cfg.mqtt_hassio_enabled);
@@ -151,7 +159,12 @@ async fn session(socket: TcpSocket<'_>, cfg: &Config) -> Result<(), End> {
             keep_alive.sent(now.as_millis());
         }
         let ping_at = Instant::from_millis(keep_alive.ping_at_ms());
-        let wait = Timer::at(next_publish.min(next_discovery).min(ping_at));
+        let wait = Timer::at(
+            next_publish
+                .min(next_diagnostics)
+                .min(next_discovery)
+                .min(ping_at),
+        );
         match select(client.poll_header(), wait).await {
             Either::First(header) => {
                 let header = header.map_err(|_| End::Io)?;
@@ -189,6 +202,9 @@ async fn publish_changed(client: &mut Mqtt<'_>, changes: &mut ChangeFilter) -> R
     let mut interval = cc_mqtt::INTERVAL_MS;
     let mut sent = false;
     for (i, e) in ENTITIES.iter().enumerate() {
+        if matches!(e.source, Source::Diagnostic(_)) {
+            continue;
+        }
         let mut topic: String<128> = String::new();
         let mut payload: String<64> = String::new();
         let due = shared::with(|s| {
@@ -198,7 +214,7 @@ async fn publish_changed(client: &mut Mqtt<'_>, changes: &mut ChangeFilter) -> R
             let st = s.machine.status(&s.cfg);
             interval = cc_mqtt::interval_ms(&st);
             let _ = cc_mqtt::topic(&s.cfg, e.topic, None, &mut topic);
-            let _ = cc_mqtt::payload(e, &s.cfg, &st, &mut payload);
+            let _ = cc_mqtt::payload(e, &s.cfg, &st, &Live::default(), &mut payload);
             true
         });
         if due && changes.changed(i, &payload) {
@@ -207,6 +223,30 @@ async fn publish_changed(client: &mut Mqtt<'_>, changes: &mut ChangeFilter) -> R
         }
     }
     Ok((interval, sent))
+}
+
+/// Publishes the diagnostic entities whose shown value changed; returns whether anything
+/// was sent.
+async fn publish_diagnostics(client: &mut Mqtt<'_>, changes: &mut ChangeFilter) -> Result<bool, End> {
+    let live = metrics::live_now();
+    let mut sent = false;
+    for (i, e) in ENTITIES.iter().enumerate() {
+        if !matches!(e.source, Source::Diagnostic(_)) {
+            continue;
+        }
+        let mut topic: String<128> = String::new();
+        let mut payload: String<64> = String::new();
+        shared::with(|s| {
+            let st = s.machine.status(&s.cfg);
+            let _ = cc_mqtt::topic(&s.cfg, e.topic, None, &mut topic);
+            let _ = cc_mqtt::payload(e, &s.cfg, &st, &live, &mut payload);
+        });
+        if changes.changed(i, &payload) {
+            publish(client, &topic, &payload, false).await?;
+            sent = true;
+        }
+    }
+    Ok(sent)
 }
 
 /// Publishes the Home Assistant discovery; `true` if anything was sent.
