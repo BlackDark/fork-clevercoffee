@@ -87,7 +87,7 @@ fn main() -> std::io::Result<()> {
                 )?;
             }
             let banner = Banner {
-                line1: "CleverCoffee",
+                line1: "CC-Rust",
                 line2: env!("CARGO_PKG_VERSION"),
             };
             let view = View {

@@ -131,7 +131,7 @@ fn inverted_display_is_rotated_180() {
 #[test]
 fn boot_banner_fits_every_template_and_language() {
     let banners = [Banner {
-        line1: "CleverCoffee",
+        line1: "CC-Rust",
         line2: "2.1.0",
     }];
     let mut problems = Vec::new();

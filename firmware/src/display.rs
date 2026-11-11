@@ -62,7 +62,7 @@ pub async fn task(i2c: I2cDev) -> ! {
             None
         };
         let banner = (start.elapsed() < SPLASH).then_some(Banner {
-            line1: "CleverCoffee",
+            line1: "CC-Rust",
             line2: env!("CARGO_PKG_VERSION"),
         });
         let view = View {
