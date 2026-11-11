@@ -5,9 +5,9 @@
 **PID temperature control firmware for espresso machines (Rancilio Silvia, Gaggia and others) on the ESP32, written in Rust.**<br>
 Brew-by-time and by-weight, steam, hot water, backflush, OLED display, web UI, MQTT with Home Assistant discovery, HX711 and Bluetooth scales.
 
-[![CI](https://github.com/BlackDark/fork-clevercoffee/actions/workflows/ci.yml/badge.svg)](https://github.com/BlackDark/fork-clevercoffee/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/BlackDark/fork-clevercoffee)](https://github.com/BlackDark/fork-clevercoffee/releases/latest)
-[![License](https://img.shields.io/github/license/BlackDark/fork-clevercoffee)](LICENSE)
+[![CI](https://github.com/BlackDark/clevercoffee-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/BlackDark/clevercoffee-rs/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/BlackDark/clevercoffee-rs)](https://github.com/BlackDark/clevercoffee-rs/releases/latest)
+[![License](https://img.shields.io/github/license/BlackDark/clevercoffee-rs)](LICENSE)
 [![Upstream](https://img.shields.io/badge/upstream-rancilio--pid%2Fclevercoffee-555?logo=github)](https://github.com/rancilio-pid/clevercoffee)
 
 <img src=".github/images/frontend-home.webp" alt="CleverCoffee web UI: boiler temperature chart, setpoint and machine state" width="900">
@@ -67,7 +67,7 @@ The ESP32 DevKitC v4 (classic ESP32, 4 MB flash) with the CleverCoffee pin layou
 Requires [mise](https://mise.jdx.dev) and [rustup](https://rustup.rs).
 
 ```bash
-git clone https://github.com/BlackDark/fork-clevercoffee && cd fork-clevercoffee
+git clone https://github.com/BlackDark/clevercoffee-rs && cd clevercoffee-rs
 mise install
 mise exec -- just setup   # tools, Xtensa toolchain, UI dependencies
 mise run check
@@ -80,7 +80,7 @@ Issues and PRs are welcome; run `mise run check` first. Layout, conventions and 
 
 <div align="center"><sub>
 
-[Report a bug](https://github.com/BlackDark/fork-clevercoffee/issues/new) · License: [GPL-2.0](LICENSE)<br>
+[Report a bug](https://github.com/BlackDark/clevercoffee-rs/issues/new) · License: [GPL-2.0](LICENSE)<br>
 Upstream: [rancilio-pid/clevercoffee](https://github.com/rancilio-pid/clevercoffee). Bluetooth scale protocols from [AcaiaArduinoBLE](https://github.com/tatemazer/AcaiaArduinoBLE) (MIT).<br>
 Not affiliated with Rancilio, Gaggia or the scale makers.
 

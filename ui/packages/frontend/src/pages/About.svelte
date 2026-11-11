@@ -38,7 +38,7 @@
         rel="noreferrer">CleverCoffee <ExternalLink size={15} /></Button
       ><Button
         variant="outline"
-        href="https://github.com/BlackDark/fork-clevercoffee"
+        href="https://github.com/BlackDark/clevercoffee-rs"
         target="_blank"
         rel="noreferrer">This project</Button
       ><Button
