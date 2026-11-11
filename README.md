@@ -68,9 +68,10 @@ Requires [mise](https://mise.jdx.dev) and [rustup](https://rustup.rs).
 
 ```bash
 git clone https://github.com/BlackDark/fork-clevercoffee && cd fork-clevercoffee
-mise install && just setup   # tools, Xtensa toolchain, UI dependencies
+mise install
+mise exec -- just setup   # tools, Xtensa toolchain, UI dependencies
 mise run check
-just ui && just flash
+mise exec -- just ui && mise exec -- just flash
 ```
 
 Issues and PRs are welcome; run `mise run check` first. Layout, conventions and decisions: [AGENTS.md](AGENTS.md), [docs/decisions](docs/decisions).
