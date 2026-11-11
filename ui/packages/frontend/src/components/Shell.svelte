@@ -11,6 +11,7 @@
   import Config from "../pages/Config.svelte";
   import System from "../pages/System.svelte";
   import About from "../pages/About.svelte";
+  import Diagnostics from "../pages/Diagnostics.svelte";
   const machine = createMachine();
   let route = $state(
     location.hash.slice(1) ||
@@ -24,6 +25,7 @@
     { href: "/", label: "Home" },
     { href: "/config/behavior", label: "Configuration" },
     { href: "/system", label: "System" },
+    { href: "/diagnostics", label: "Diagnostics" },
     { href: "/about", label: "About" },
   ];
   onMount(() => {
@@ -229,6 +231,7 @@
       />{:else if route.startsWith("/config/")}<Config
         filter={route.split("/")[2]}
       />{:else if route === "/system"}<System
+      />{:else if route === "/diagnostics"}<Diagnostics
       />{:else if route === "/about"}<About />{:else}<h1>Page not found</h1>
       <Button
         href="#/"

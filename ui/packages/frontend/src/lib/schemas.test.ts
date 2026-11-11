@@ -1,12 +1,47 @@
 import { describe, expect, it } from "vitest";
 import {
   HistoryDataSchema,
+  MetricsSchema,
   PidResponseSchema,
   SteamResponseSchema,
   TemperatureDataSchema,
 } from "./schemas";
 
 describe("API Schemas", () => {
+  describe("MetricsSchema", () => {
+    it("accepts the /api/metrics payload", () => {
+      const parsed = MetricsSchema.parse({
+        firmwareVersion: "2.2.0",
+        resetReason: 1,
+        uptime: 1000,
+        freeHeap: 1,
+        minFreeHeap: 1,
+        minFreeStack: 1,
+        lowHeapRefusals: 0,
+        loopGapMaxUs: 1,
+        loopTickMaxUs: 1,
+        loopLateTicks: 0,
+        tsicGoodFrames: 0,
+        tsicBadFrames: 0,
+        tsicLastGoodMs: 0,
+        ds18b20ReadErrors: 0,
+        settingsSaves: 0,
+        settingsSaveFailures: 0,
+        settingsLastSave: 0,
+        logBytes: 0,
+        wifiConnected: false,
+        wifiRssi: 0,
+        wifiReconnects: 0,
+        mqttConnected: false,
+      });
+      expect(parsed.firmwareVersion).toBe("2.2.0");
+    });
+
+    it("rejects a missing counter", () => {
+      expect(() => MetricsSchema.parse({ firmwareVersion: "x" })).toThrow();
+    });
+  });
+
   describe("TemperatureDataSchema", () => {
     it("parses valid temperature data", () => {
       const data = {

@@ -118,3 +118,30 @@ export const MachineStatusSchema = z.object({
   backflushReminderThreshold: z.optional(z.number()),
   backflushReminderDue: z.optional(z.boolean()),
 });
+
+/** `GET /api/metrics`: controller health counters since boot. */
+export const MetricsSchema = z.object({
+  firmwareVersion: z.string(),
+  resetReason: z.number(),
+  uptime: z.number(),
+  freeHeap: z.number(),
+  minFreeHeap: z.number(),
+  minFreeStack: z.number(),
+  lowHeapRefusals: z.number(),
+  loopGapMaxUs: z.number(),
+  loopTickMaxUs: z.number(),
+  loopLateTicks: z.number(),
+  tsicGoodFrames: z.number(),
+  tsicBadFrames: z.number(),
+  tsicLastGoodMs: z.number(),
+  ds18b20ReadErrors: z.number(),
+  settingsSaves: z.number(),
+  settingsSaveFailures: z.number(),
+  settingsLastSave: z.number(),
+  logBytes: z.number(),
+  wifiConnected: z.boolean(),
+  wifiRssi: z.number(),
+  wifiReconnects: z.number(),
+  mqttConnected: z.boolean(),
+});
+export type Metrics = z.infer<typeof MetricsSchema>;

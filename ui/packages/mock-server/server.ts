@@ -275,6 +275,14 @@ app.post(
   },
 );
 
+app.get("/api/logs", simulateAuth, (_req: Request, res: Response): void => {
+  res.type("text/plain").send("mock log: no device attached\n");
+});
+
+app.get("/api/metrics", simulateAuth, (_req: Request, res: Response): void => {
+  res.json(mockMetrics());
+});
+
 app.get("/api/status", simulateAuth, (_req: Request, res: Response): void => {
   const thresholdParam = mockState.parameters.find(
     (p) => p.name === "maintenance.backflush_reminder.threshold",
@@ -981,7 +989,35 @@ app.get("/api/health", simulateAuth, (_req: Request, res: Response): void => {
 });
 
 // SSE endpoint for temperature and heater power
+function mockMetrics() {
+  return {
+    firmwareVersion: "2.2.0",
+    resetReason: 1,
+    uptime: Math.round(process.uptime() * 1000),
+    freeHeap: 68704,
+    minFreeHeap: 58504,
+    minFreeStack: 19368,
+    lowHeapRefusals: 0,
+    loopGapMaxUs: 71000,
+    loopTickMaxUs: 850,
+    loopLateTicks: 1,
+    tsicGoodFrames: 0,
+    tsicBadFrames: 0,
+    tsicLastGoodMs: 0,
+    ds18b20ReadErrors: 4,
+    settingsSaves: 2,
+    settingsSaveFailures: 0,
+    settingsLastSave: 1,
+    logBytes: 12409,
+    wifiConnected: true,
+    wifiRssi: -49,
+    wifiReconnects: 0,
+    mqttConnected: false,
+  };
+}
+
 app.get("/events", (req: Request, res: Response) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
@@ -989,21 +1025,33 @@ app.get("/events", (req: Request, res: Response) => {
   // Send initial hello event
   res.write(`event: ping\ndata: hello\n\n`);
 
-  // Send temperature data every 2 seconds
-  const interval = setInterval(() => {
-    const variation = (Math.random() - 0.5) * 0.5;
-    mockState.currentTemp = Math.round((93.5 + variation) * 100) / 100;
-    mockState.heaterPower = Math.round((75 + Math.random() * 25) * 100) / 100;
-    const tempData = {
-      currentTemp: mockState.currentTemp,
-      targetTemp: mockState.targetTemp,
-      heaterPower: mockState.heaterPower,
-    };
-    res.write(`event: new_temps\ndata: ${JSON.stringify(tempData)}\n\n`);
-  }, 2000);
+  // Temperatures every 2 seconds, not for `?metrics=1` (the device sends metrics only).
+  const metricsOnly = req.query.metrics === "1";
+  const interval = metricsOnly
+    ? undefined
+    : setInterval(() => {
+        const variation = (Math.random() - 0.5) * 0.5;
+        mockState.currentTemp = Math.round((93.5 + variation) * 100) / 100;
+        mockState.heaterPower =
+          Math.round((75 + Math.random() * 25) * 100) / 100;
+        const tempData = {
+          currentTemp: mockState.currentTemp,
+          targetTemp: mockState.targetTemp,
+          heaterPower: mockState.heaterPower,
+        };
+        res.write(`event: new_temps\ndata: ${JSON.stringify(tempData)}\n\n`);
+      }, 2000);
+
+  // Metrics once a second, only for `?metrics=1`.
+  const metricsInterval = metricsOnly
+    ? setInterval(() => {
+        res.write(`event: metrics\ndata: ${JSON.stringify(mockMetrics())}\n\n`);
+      }, 1000)
+    : undefined;
 
   req.on("close", () => {
-    clearInterval(interval);
+    if (interval) clearInterval(interval);
+    if (metricsInterval) clearInterval(metricsInterval);
     res.end();
   });
 });
