@@ -6,13 +6,17 @@ use cc_core::config::OledType;
 use cc_display::canvas::Frame;
 use cc_display::{Banner, Net, Ota, View};
 use cc_oled::{Controller, Oled};
+use core::fmt::Write;
 use embassy_time::{Duration, Instant, Ticker};
+use heapless::String;
 use log::warn;
 
 use crate::{I2cDev, ota, shared};
 
 /// The boot logo stays this long.
 const SPLASH: Duration = Duration::from_millis(1500);
+/// With WiFi set up, the boot banner runs this long, so a late address still shows.
+const BOOT_WITH_WIFI: Duration = Duration::from_secs(5);
 
 #[embassy_executor::task]
 pub async fn task(i2c: I2cDev) -> ! {
@@ -40,7 +44,7 @@ pub async fn task(i2c: I2cDev) -> ! {
         ticker.next().await;
         let ota = ota::status();
         // Copy under the lock, render outside it: the lock is a critical section.
-        let (st, net) = shared::with(|s| {
+        let (st, net, ip) = shared::with(|s| {
             let net = Net {
                 offline: s.cfg.system_offline_mode,
                 wifi_connected: s.net.wifi_connected,
@@ -50,8 +54,16 @@ pub async fn task(i2c: I2cDev) -> ! {
                 ble_scale_connected: s.net.ble_scale_connected,
             };
             (*cfg).clone_from(&s.cfg);
-            (s.machine.status(&s.cfg), net)
+            (s.machine.status(&s.cfg), net, s.net.ip)
         });
+        // Boot only: logo and version, plus the address when known.
+        let wifi_set_up = !cfg.system_wifi_ssid.is_empty();
+        let boot = if wifi_set_up { BOOT_WITH_WIFI } else { SPLASH };
+        let booting = start.elapsed() < boot;
+        let mut ip_text: String<15> = String::new();
+        if ip != [0; 4] {
+            let _ = write!(ip_text, "{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3]);
+        }
         let ota_view = if ota.in_progress {
             Some(Ota::Running {
                 percent: ota.progress,
@@ -61,9 +73,10 @@ pub async fn task(i2c: I2cDev) -> ! {
         } else {
             None
         };
-        let banner = (start.elapsed() < SPLASH).then_some(Banner {
+        let banner = booting.then_some(Banner {
             line1: "CC-Rust",
             line2: env!("CARGO_PKG_VERSION"),
+            ip: (ip != [0; 4]).then_some(ip_text.as_str()),
         });
         let view = View {
             status: &st,

@@ -32,6 +32,7 @@ static PROFONT11: FontRenderer = FontRenderer::new::<fonts::u8g2_font_profont11_
 static PROFONT12: FontRenderer = FontRenderer::new::<fonts::u8g2_font_profont12_tr>();
 static PROFONT15: FontRenderer = FontRenderer::new::<fonts::u8g2_font_profont15_tf>();
 static PROFONT17: FontRenderer = FontRenderer::new::<fonts::u8g2_font_profont17_tf>();
+static PROFONT4X6: FontRenderer = FontRenderer::new::<fonts::u8g2_font_4x6_tf>();
 static PROFONT22: FontRenderer = FontRenderer::new::<fonts::u8g2_font_profont22_tr>();
 static FUB17: FontRenderer = FontRenderer::new::<fonts::u8g2_font_fub17_tr>();
 static FUB20: FontRenderer = FontRenderer::new::<fonts::u8g2_font_fub20_tr>();
@@ -65,6 +66,8 @@ pub enum Ota<'a> {
 pub struct Banner<'a> {
     pub line1: &'a str,
     pub line2: &'a str,
+    /// Station address, once known.
+    pub ip: Option<&'a str>,
 }
 
 /// Everything a refresh needs.
@@ -668,10 +671,16 @@ impl Screens<'_, '_> {
                 c.text_centered(&PROFONT10, y, word);
                 y += 10;
             }
+            if let Some(ip) = b.ip {
+                c.text_centered(&PROFONT4X6, y, ip);
+            }
         } else {
             c.xbm(48, 0, &bm::MARK_LOGO);
-            c.text_centered(&PROFONT11, 42, b.line1);
-            c.text_centered(&PROFONT11, 53, b.line2);
+            c.text_centered(&PROFONT11, 34, b.line1);
+            c.text_centered(&PROFONT11, 45, b.line2);
+            if let Some(ip) = b.ip {
+                c.text_centered(&PROFONT4X6, 57, ip);
+            }
         }
     }
 
