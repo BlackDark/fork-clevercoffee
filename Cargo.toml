@@ -10,7 +10,7 @@ version = "2.1.0"
 edition = "2024"
 rust-version = "1.99"
 license = "GPL-2.0-only"
-repository = "https://github.com/BlackDark/fork-clevercoffee"
+repository = "https://github.com/BlackDark/clevercoffee-rs"
 publish = false
 
 [workspace.dependencies]
