@@ -21,7 +21,7 @@ impl Backend for Device {
         let heap = esp_alloc::HEAP.stats();
         shared::with(|s| {
             let st = s.machine.status(&s.cfg);
-            let live = Live {
+            let mut live = Live {
                 mqtt_connected: s.net.mqtt_connected,
                 free_heap: (heap.size - heap.current_usage) as u32,
                 min_free_heap: shared::MIN_FREE_HEAP.load(core::sync::atomic::Ordering::Relaxed),
@@ -29,6 +29,7 @@ impl Backend for Device {
                 wifi_reconnects: s.net.reconnects,
                 ..s.live
             };
+            crate::metrics::fill(&mut live);
             f(&s.cfg, &st, &live)
         })
     }

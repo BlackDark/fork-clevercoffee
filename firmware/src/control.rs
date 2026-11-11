@@ -11,6 +11,7 @@ use esp_hal::peripherals::TIMG1;
 use esp_hal::timer::timg::Wdt;
 use log::{info, warn};
 
+use crate::metrics;
 use crate::shared::{self, RestartKind};
 
 pub struct Io {
@@ -85,7 +86,8 @@ pub async fn run(mut io: Io, polarity: Polarity, mut wdt: Wdt<TIMG1<'static>>) -
     loop {
         ticker.next().await;
         let t0 = Instant::now();
-        longest_gap_us = longest_gap_us.max(t0.duration_since(last_start).as_micros());
+        let gap_us = t0.duration_since(last_start).as_micros();
+        longest_gap_us = longest_gap_us.max(gap_us);
         last_start = t0;
         let now_ms = t0.duration_since(start).as_millis();
         let pending = shared::take_pending();
@@ -166,6 +168,7 @@ pub async fn run(mut io: Io, polarity: Polarity, mut wdt: Wdt<TIMG1<'static>>) -
 
         wdt.feed();
         let took = t0.elapsed().as_micros();
+        metrics::control_tick(gap_us, took);
         if took > slowest_us {
             slowest_us = took;
         }

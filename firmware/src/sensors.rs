@@ -5,7 +5,11 @@ use embassy_time::{Delay, Duration, Instant, Timer, with_timeout};
 use esp_hal::gpio::Flex;
 use log::{info, warn};
 
-use crate::shared;
+use crate::{metrics, shared};
+
+fn now_ms() -> u64 {
+    Instant::now().as_millis()
+}
 
 /// A reading older than this counts as missing (the machine then reports a sensor
 /// error after its own timeout).
@@ -58,6 +62,7 @@ pub async fn tsic_task(mut channel: esp_hal::rmt::Channel<'static, esp_hal::Asyn
                     .map(|(level, len)| (level == Level::High, len));
                 match cc_tsic::decode_pulses(pulses) {
                     Ok(raw) => {
+                        metrics::tsic_good(now_ms());
                         // Parity cannot catch two flipped bits; the median of three drops
                         // a single wrong value.
                         if let Some((raw, spike)) = spike_filter.push(raw) {
@@ -74,6 +79,7 @@ pub async fn tsic_task(mut channel: esp_hal::rmt::Channel<'static, esp_hal::Asyn
                     }
                     Err(e) => {
                         errors += 1;
+                        metrics::tsic_bad();
                         match e {
                             cc_tsic::Error::Parity => parity += 1,
                             cc_tsic::Error::Framing => framing += 1,
@@ -84,6 +90,7 @@ pub async fn tsic_task(mut channel: esp_hal::rmt::Channel<'static, esp_hal::Asyn
             Ok(Err(e)) => {
                 errors += 1;
                 rx_errors += 1;
+                metrics::tsic_bad();
                 last_rx_error = Some(e);
                 Timer::after(Duration::from_millis(5)).await;
             }
@@ -162,6 +169,7 @@ pub async fn ds18b20_task(pin: Flex<'static>) -> ! {
             }
             Err(e) => {
                 errors += 1;
+                metrics::ds18b20_read_error();
                 if errors == 1 || errors.is_multiple_of(100) {
                     warn!("ds18b20: {e:?}");
                 }

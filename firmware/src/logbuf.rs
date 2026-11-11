@@ -46,6 +46,7 @@ impl Log for Tee {
             record.level(),
             record.args()
         );
+        crate::metrics::log_line(line.len() + 1);
         RING.lock(|r| {
             if let Some(ring) = r.borrow_mut().as_mut() {
                 ring.push(line.as_bytes());
