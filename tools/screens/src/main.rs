@@ -89,6 +89,7 @@ fn main() -> std::io::Result<()> {
             let banner = Banner {
                 line1: "CC-Rust",
                 line2: env!("CARGO_PKG_VERSION"),
+                ip: None,
             };
             let view = View {
                 status: &st,
@@ -99,6 +100,16 @@ fn main() -> std::io::Result<()> {
                 banner: Some(banner),
             };
             problems += emit(&out, &mut html, &format!("{tname}-{lname}-boot"), &view, template)?;
+            let banner = Banner {
+                line1: "CC-Rust",
+                line2: env!("CARGO_PKG_VERSION"),
+                ip: Some("192.168.178.100"),
+            };
+            let view = View {
+                banner: Some(banner),
+                ..view
+            };
+            problems += emit(&out, &mut html, &format!("{tname}-{lname}-ip"), &view, template)?;
         }
     }
     fs::write(out.join("index.html"), html)?;

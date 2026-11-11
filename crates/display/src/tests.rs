@@ -129,11 +129,19 @@ fn inverted_display_is_rotated_180() {
 }
 
 #[test]
-fn boot_banner_fits_every_template_and_language() {
-    let banners = [Banner {
-        line1: "CC-Rust",
-        line2: "2.1.0",
-    }];
+fn boot_banner_with_ip_fits_every_template_and_language() {
+    let banners = [
+        Banner {
+            line1: "CC-Rust",
+            line2: "2.1.0",
+            ip: None,
+        },
+        Banner {
+            line1: "CC-Rust",
+            line2: "2.1.0",
+            ip: Some("192.168.178.100"),
+        },
+    ];
     let mut problems = Vec::new();
     for (tname, template) in TEMPLATES {
         for (lang_v, _) in Language::OPTIONS {
@@ -156,7 +164,7 @@ fn boot_banner_fits_every_template_and_language() {
                 };
                 let r = render(&mut f, &view);
                 if r.clipped || r.missing_glyph {
-                    problems.push(format!("{tname}/{lang:?}/{}: {r:?}", banner.line2));
+                    problems.push(format!("{tname}/{lang:?}/{:?}: {r:?}", banner.ip));
                 }
             }
         }
