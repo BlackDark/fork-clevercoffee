@@ -665,7 +665,7 @@ impl Screens<'_, '_> {
                 .chain(b.line2.split(' '))
                 .filter(|w| !w.is_empty())
             {
-                c.text(&PROFONT11, 0, y, word);
+                c.text_centered(&PROFONT10, y, word);
                 y += 10;
             }
         } else {
