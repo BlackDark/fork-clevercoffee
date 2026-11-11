@@ -657,7 +657,7 @@ impl Screens<'_, '_> {
 
     fn banner(&self, c: &mut Canvas<'_>, b: Banner<'_>) {
         if self.upright {
-            c.xbm(11, 4, &bm::CLEVERCOFFEE_LOGO);
+            c.xbm(16, 4, &bm::MARK_LOGO);
             let mut y = 47;
             for word in b
                 .line1
@@ -669,7 +669,7 @@ impl Screens<'_, '_> {
                 y += 10;
             }
         } else {
-            c.xbm(44, 0, &bm::CLEVERCOFFEE_LOGO);
+            c.xbm(48, 0, &bm::MARK_LOGO);
             c.text_centered(&PROFONT11, 42, b.line1);
             c.text_centered(&PROFONT11, 53, b.line2);
         }
