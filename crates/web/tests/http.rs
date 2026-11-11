@@ -591,6 +591,25 @@ async fn low_heap_answers_503_but_health() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn metrics_report_health_and_count_heap_refusals() {
+    with_server(ready(), |port| async move {
+        let r = get(port, "/api/metrics").await;
+        assert_eq!(r.status, 200);
+        let before = r.json()["lowHeapRefusals"].as_u64().unwrap();
+        assert!(r.json().get("freeHeap").is_some());
+        assert!(r.json().get("wifiReconnects").is_some());
+        FAKE_HEAP.with(|h| h.set(Some(cc_web::MIN_FREE_HEAP - 1)));
+        assert_eq!(get(port, "/api/metrics").await.status, 503);
+        FAKE_HEAP.with(|h| h.set(None));
+        let after = get(port, "/api/metrics").await.json()["lowHeapRefusals"]
+            .as_u64()
+            .unwrap();
+        assert!(after > before, "{before} -> {after}");
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn logs_are_served_as_text_and_resumable() {
     with_server(ready(), |port| async move {
         let r = get(port, "/api/logs").await;

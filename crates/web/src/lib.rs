@@ -19,7 +19,7 @@ pub mod logring;
 pub use logring::LogRing;
 
 use core::fmt::Write as _;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use cc_api::json::Writer;
 use cc_api::{FormPairs, Live, multipart};
@@ -44,6 +44,9 @@ pub const UPLOAD_TIMEOUT_MS: u64 = 180_000;
 /// the WiFi driver, which allocates its packet buffers from the same heap. A failed
 /// allocation is a panic and a reboot; a 503 is a retry.
 pub const MIN_FREE_HEAP: usize = 8 * 1024;
+
+/// Requests the low-heap gate refused since boot (`/api/metrics`).
+pub static LOW_HEAP_REFUSALS: AtomicU32 = AtomicU32::new(0);
 
 /// The 503 for a full heap: static, it needs no allocation.
 const LOW_MEMORY: &[u8] = br#"{"success":false,"message":"Low on memory, try again"}"#;
@@ -479,6 +482,7 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
 
         // Health stays answerable: it allocates nothing.
         if path != "/api/health" && b.heap_free() < MIN_FREE_HEAP {
+            LOW_HEAP_REFUSALS.fetch_add(1, Ordering::Relaxed);
             reply!(
                 Response::new(
                     StatusCode::new(503),
@@ -509,6 +513,13 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                 let st = b.read(|_, s, _| *s);
                 reply!(json(StatusCode::OK, move |w| {
                     cc_api::write_temperatures(&st, &mut Writer::new(w))
+                }));
+            }
+            ("GET", "/api/metrics") => {
+                let mut live = b.read(|_, _, l| *l);
+                live.low_heap_refusals = LOW_HEAP_REFUSALS.load(Ordering::Relaxed);
+                reply!(json(StatusCode::OK, move |w| {
+                    cc_api::write_metrics(&live, &mut Writer::new(w))
                 }));
             }
             ("GET", "/api/history") => {
@@ -888,6 +899,7 @@ pub const ROUTES: &[(&str, &str)] = &[
     ("GET", "/api/health"),
     ("GET", "/api/temperatures"),
     ("GET", "/api/history"),
+    ("GET", "/api/metrics"),
     ("GET", "/api/logs"),
     ("GET", "/api/parameters"),
     ("POST", "/api/parameters"),

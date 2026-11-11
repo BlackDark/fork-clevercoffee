@@ -26,6 +26,7 @@ impl Backend for Device {
                 free_heap: (heap.size - heap.current_usage) as u32,
                 min_free_heap: shared::MIN_FREE_HEAP.load(core::sync::atomic::Ordering::Relaxed),
                 min_free_stack: crate::stackmon::last(),
+                wifi_reconnects: s.net.reconnects,
                 ..s.live
             };
             f(&s.cfg, &st, &live)

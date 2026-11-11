@@ -101,6 +101,9 @@ pub struct Live {
     pub min_free_heap: u32,
     /// Main stack never touched since boot (0: not measured).
     pub min_free_stack: u32,
+    pub wifi_reconnects: u32,
+    /// Requests answered 503 by the low-heap gate since boot.
+    pub low_heap_refusals: u32,
 }
 
 /// `GET /api/status`. Fields as in the C++, plus a few diagnostics.
@@ -148,6 +151,21 @@ pub fn write_status(st: &Status, cfg: &Config, live: &Live, w: &mut Writer<impl 
     w.kv_int("freeHeap", i64::from(live.free_heap))?;
     w.kv_int("minFreeHeap", i64::from(live.min_free_heap))?;
     w.kv_int("minFreeStack", i64::from(live.min_free_stack))?;
+    w.end_object()
+}
+
+/// `GET /api/metrics`: controller health in one small reply, readable without USB.
+pub fn write_metrics(live: &Live, w: &mut Writer<impl Write>) -> fmt::Result {
+    w.begin_object()?;
+    w.kv_int("uptime", live.uptime_ms as i64)?;
+    w.kv_int("freeHeap", i64::from(live.free_heap))?;
+    w.kv_int("minFreeHeap", i64::from(live.min_free_heap))?;
+    w.kv_int("minFreeStack", i64::from(live.min_free_stack))?;
+    w.kv_int("lowHeapRefusals", i64::from(live.low_heap_refusals))?;
+    w.kv_bool("wifiConnected", live.wifi_connected)?;
+    w.kv_int("wifiRssi", i64::from(live.wifi_rssi))?;
+    w.kv_int("wifiReconnects", i64::from(live.wifi_reconnects))?;
+    w.kv_bool("mqttConnected", live.mqtt_connected)?;
     w.end_object()
 }
 
@@ -529,6 +547,31 @@ mod tests {
         assert_eq!(p.next_pair(&mut kb, &mut vb), None);
         let mut b = [0u8; 16];
         assert_eq!(form_value("x=1&value=88.5", "value", &mut b), Some("88.5"));
+    }
+
+    #[test]
+    fn metrics_carry_the_health_counters() {
+        let live = Live {
+            free_heap: 1000,
+            low_heap_refusals: 2,
+            wifi_reconnects: 3,
+            ..Live::default()
+        };
+        let s = render(|w| write_metrics(&live, w));
+        let v: serde_json::Value = serde_json::from_str(&s).unwrap();
+        assert_eq!(v["freeHeap"], 1000);
+        assert_eq!(v["lowHeapRefusals"], 2);
+        assert_eq!(v["wifiReconnects"], 3);
+        for k in [
+            "uptime",
+            "minFreeHeap",
+            "minFreeStack",
+            "wifiConnected",
+            "wifiRssi",
+            "mqttConnected",
+        ] {
+            assert!(v.get(k).is_some(), "{k}");
+        }
     }
 
     #[test]
