@@ -410,6 +410,16 @@ fn base64_decode<'b>(s: &str, out: &'b mut [u8]) -> Option<&'b str> {
 
 struct Events<'b, B> {
     backend: &'b B,
+    /// `?metrics=1`: send only the health counters each interval, no temperatures.
+    metrics: bool,
+}
+
+/// The live values plus the firmware counters, as `/api/metrics` reports them.
+fn live_metrics<B: Backend>(b: &B) -> Live {
+    let mut live = b.read(|_, _, l| *l);
+    b.load_metrics(&mut live);
+    live.low_heap_refusals = LOW_HEAP_REFUSALS.load(Ordering::Relaxed);
+    live
 }
 
 impl<B: Backend> EventSource for Events<'_, B> {
@@ -417,6 +427,14 @@ impl<B: Backend> EventSource for Events<'_, B> {
         writer.write_event("hello", "Connected to CleverCoffee").await?;
         loop {
             self.backend.sleep_ms(EVENT_INTERVAL_MS).await;
+            if self.metrics {
+                // A diagnostics stream carries only the counters.
+                let mut m: heapless::String<640> = heapless::String::new();
+                if cc_api::write_metrics(&live_metrics(self.backend), &mut Writer::new(&mut m)).is_ok() {
+                    writer.write_event("metrics", m.as_str()).await?;
+                }
+                continue;
+            }
             let mut s: heapless::String<160> = heapless::String::new();
             let scale = self.backend.read(|cfg, st, _| {
                 let _ = cc_api::write_temperatures(st, &mut Writer::new(&mut s));
@@ -519,9 +537,7 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                 }));
             }
             ("GET", "/api/metrics") => {
-                let mut live = b.read(|_, _, l| *l);
-                b.load_metrics(&mut live);
-                live.low_heap_refusals = LOW_HEAP_REFUSALS.load(Ordering::Relaxed);
+                let live = live_metrics(b);
                 reply!(json(StatusCode::OK, move |w| {
                     cc_api::write_metrics(&live, &mut Writer::new(w))
                 }));
@@ -833,17 +849,20 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                         "Too many open event streams"
                     ));
                 };
-                // Boxed: the stream's future (3 KB) is the largest response and would
-                // set the size of every worker's static future. It lives as long as a
-                // UI tab is open.
+                // Boxed: the stream's future (with its metrics buffer) is the largest
+                // response and would set the size of every worker's static future.
+                // It lives as long as a UI tab is open.
                 let connection = request.body_connection.finalize().await?;
                 let write: core::pin::Pin<
                     alloc::boxed::Box<dyn core::future::Future<Output = Result<ResponseSent, W::Error>> + '_>,
                 > = alloc::boxed::Box::pin(async move {
                     let _slot = slot;
-                    EventStream(Events { backend: b })
-                        .write_to(connection, response_writer)
-                        .await
+                    EventStream(Events {
+                        backend: b,
+                        metrics: raw_query.split('&').any(|p| p == "metrics=1"),
+                    })
+                    .write_to(connection, response_writer)
+                    .await
                 });
                 write.await
             }

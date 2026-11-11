@@ -521,6 +521,30 @@ async fn ui_is_served_from_the_firmware() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn server_sent_events_send_metrics_only_on_request() {
+    with_server(ready(), |port| async move {
+        let mut s = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        s.write_all(b"GET /events?metrics=1 HTTP/1.1\r\nHost: x\r\n\r\n")
+            .await
+            .unwrap();
+        let mut seen = String::new();
+        let mut buf = [0u8; 2048];
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        while !seen.contains("event:metrics") && tokio::time::Instant::now() < deadline {
+            let n = tokio::time::timeout(Duration::from_secs(1), s.read(&mut buf))
+                .await
+                .unwrap_or(Ok(0))
+                .unwrap();
+            seen.push_str(&String::from_utf8_lossy(&buf[..n]));
+        }
+        assert!(seen.contains("event:metrics"), "{seen}");
+        assert!(seen.contains("\"firmwareVersion\""), "{seen}");
+        assert!(!seen.contains("event:new_temps"), "{seen}");
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn server_sent_events() {
     with_server(ready(), |port| async move {
         let mut s = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
@@ -541,6 +565,10 @@ async fn server_sent_events() {
         assert!(seen.contains("event:hello"));
         assert!(seen.contains("event:new_temps"));
         assert!(seen.contains("\"targetTemp\":95"));
+        assert!(
+            !seen.contains("event:metrics"),
+            "metrics sent without ?metrics=1: {seen}"
+        );
 
         // The test server allows one stream: a second is turned away, not queued.
         assert_eq!(get(port, "/events").await.status, 503);
