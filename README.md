@@ -81,10 +81,12 @@ Issues and PRs are welcome; run `mise run check` first. Layout, conventions and 
 
 ---
 
-<div align="center"><sub>
+<div align="center">
 
-[Report a bug](https://github.com/BlackDark/clevercoffee-rs/issues/new) · License: [GPL-2.0](LICENSE)<br>
-Upstream: [rancilio-pid/clevercoffee](https://github.com/rancilio-pid/clevercoffee). Bluetooth scale protocols from [AcaiaArduinoBLE](https://github.com/tatemazer/AcaiaArduinoBLE) (MIT).<br>
-Not affiliated with Rancilio, Gaggia or the scale makers.
+<p align="center"><sub><a href="https://github.com/BlackDark/clevercoffee-rs/issues/new">Report a bug</a> · License: <a href="LICENSE">GPL-2.0</a></sub></p>
 
-</sub></div>
+<p align="center"><sub>Upstream: <a href="https://github.com/rancilio-pid/clevercoffee">rancilio-pid/clevercoffee</a>. Bluetooth scale protocols from <a href="https://github.com/tatemazer/AcaiaArduinoBLE">AcaiaArduinoBLE</a> (MIT).</sub></p>
+
+<p align="center"><sub>Not affiliated with Rancilio, Gaggia or the scale makers.</sub></p>
+
+</div>
