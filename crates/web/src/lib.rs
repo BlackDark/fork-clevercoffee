@@ -96,6 +96,9 @@ impl OtaError {
 pub trait Backend {
     /// Runs `f` with the current configuration, status and live values.
     fn read<R>(&self, f: impl FnOnce(&Config, &Status, &Live) -> R) -> R;
+    /// Adds the firmware's counters to `live` (`/api/metrics` only; the other reads
+    /// stay cheap).
+    fn load_metrics(&self, _live: &mut Live) {}
     fn history<R>(&self, f: impl FnOnce(&History) -> R) -> R;
     /// The log lines since offset `since` and the offset to ask for next (see
     /// [`LogRing::read_since`]); `None` when the heap cannot spare the copy.
@@ -517,6 +520,7 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
             }
             ("GET", "/api/metrics") => {
                 let mut live = b.read(|_, _, l| *l);
+                b.load_metrics(&mut live);
                 live.low_heap_refusals = LOW_HEAP_REFUSALS.load(Ordering::Relaxed);
                 reply!(json(StatusCode::OK, move |w| {
                     cc_api::write_metrics(&live, &mut Writer::new(w))

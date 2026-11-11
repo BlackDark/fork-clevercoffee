@@ -21,7 +21,7 @@ impl Backend for Device {
         let heap = esp_alloc::HEAP.stats();
         shared::with(|s| {
             let st = s.machine.status(&s.cfg);
-            let mut live = Live {
+            let live = Live {
                 mqtt_connected: s.net.mqtt_connected,
                 free_heap: (heap.size - heap.current_usage) as u32,
                 min_free_heap: shared::MIN_FREE_HEAP.load(core::sync::atomic::Ordering::Relaxed),
@@ -29,13 +29,16 @@ impl Backend for Device {
                 wifi_reconnects: s.net.reconnects,
                 ..s.live
             };
-            crate::metrics::fill(&mut live);
             f(&s.cfg, &st, &live)
         })
     }
 
     fn history<R>(&self, f: impl FnOnce(&History) -> R) -> R {
         shared::with(|s| f(&s.history))
+    }
+
+    fn load_metrics(&self, live: &mut Live) {
+        crate::metrics::fill(live);
     }
 
     fn logs(&self, since: u64) -> Option<(u64, alloc::vec::Vec<u8>)> {
