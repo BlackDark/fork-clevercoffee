@@ -679,7 +679,7 @@ impl Screens<'_, '_> {
             c.text_centered(&PROFONT11, 34, b.line1);
             c.text_centered(&PROFONT11, 45, b.line2);
             if let Some(ip) = b.ip {
-                c.text_centered(&PROFONT4X6, 57, ip);
+                c.text_centered(&PROFONT11, 55, ip);
             }
         }
     }
