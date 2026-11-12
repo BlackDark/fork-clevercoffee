@@ -119,7 +119,8 @@ pub async fn run(mut io: Io, polarity: Polarity, mut wdt: Wdt<TIMG1<'static>>) -
                     setpoint: st.setpoint as f32,
                     heater_power: st.heater_power as f32,
                 });
-                s.live.uptime_ms = now_ms;
+                // Boot clock, the same origin as the TSIC timestamps in metrics.
+                s.live.uptime_ms = t0.as_millis();
             }
             for e in &events {
                 match e {
