@@ -228,7 +228,6 @@
   "home_calibrate_scale": "Calibrate scale",
   "home_maintenance": "Maintenance",
   "home_shots_since_last_backflush": "Shots since last backflush",
-  "home_cleaning_recommended": " · Cleaning recommended",
   "home_shots_since_backflush": "Shots since backflush",
   "home_reset_counter": "Reset counter",
   "home_temperature_history": "Temperature History",
@@ -466,5 +465,6 @@
   "chart_target": "Target",
   "chart_heater_power": "Heater power",
   "chart_temperature_history": "Temperature history chart",
-  "chart_heater_power_history": "Heater power history chart"
+  "chart_heater_power_history": "Heater power history chart",
+  "home_shots_since_backflush_cleaning": "Shots since last backflush · Cleaning recommended"
 }

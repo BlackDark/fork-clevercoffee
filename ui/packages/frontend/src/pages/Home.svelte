@@ -47,7 +47,14 @@
   let live = $state<ReturnType<typeof TemperatureDataSchema.parse> | null>(
     null,
   );
-  let stream = $state(m.home_connecting());
+  type StreamState = "connecting" | "live" | "reconnecting" | "invalid";
+  const streamText: Record<StreamState, () => string> = {
+    connecting: m.home_connecting,
+    live: m.home_live,
+    reconnecting: m.home_reconnecting,
+    invalid: m.home_invalid_telemetry,
+  };
+  let stream = $state<StreamState>("connecting");
   let chart = $state.raw<ChartData>([[], [], [], []]);
   let setpoint = $state<number | undefined>();
   const current = $derived(live ?? initial.data);
@@ -66,26 +73,26 @@
   onMount(() => {
     const events = new EventSource(`${SERVER_BASE_URL}/events`);
     events.onopen = () => {
-      stream = m.home_live();
+      stream = "live";
     };
     events.onerror = () => {
-      stream = m.home_reconnecting();
+      stream = "reconnecting";
     };
     events.addEventListener("new_temps", (event) => {
       let payload: unknown;
       try {
         payload = JSON.parse(event.data || "null");
       } catch {
-        stream = m.home_invalid_telemetry();
+        stream = "invalid";
         return;
       }
       const parsed = TemperatureDataSchema.safeParse(payload);
       if (!parsed.success) {
-        stream = m.home_invalid_telemetry();
+        stream = "invalid";
         return;
       }
       live = parsed.data;
-      stream = m.home_live();
+      stream = "live";
       chart = appendSample(chart, parsed.data);
     });
     return () => events.close();
@@ -118,8 +125,8 @@
         ><Badge variant="secondary"
           ><span
             class="status-dot"
-            class:offline={stream !== m.home_live()}
-          ></span>{stream}</Badge
+            class:offline={stream !== "live"}
+          ></span>{streamText[stream]()}</Badge
         ></Card.Action
       ></Card.Header
     ><Card.Content>
@@ -248,10 +255,9 @@
         {shots}<span> / {threshold}</span>
       </div>
       <p class="text-sm text-muted-foreground mb-3">
-        {m.home_shots_since_last_backflush()}{machine.status.data
-          ?.backflushReminderDue
-          ? m.home_cleaning_recommended()
-          : ""}
+        {machine.status.data?.backflushReminderDue
+          ? m.home_shots_since_backflush_cleaning()
+          : m.home_shots_since_last_backflush()}
       </p>
       <Progress
         max={Math.max(1, threshold)}
