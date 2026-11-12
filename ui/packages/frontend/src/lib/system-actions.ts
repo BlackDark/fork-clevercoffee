@@ -41,7 +41,12 @@ export async function uploadConfig(file: File | null): Promise<string> {
   )
     throw new Error(m.action_choose_json());
   const content = await file.text();
-  const parsed: unknown = JSON.parse(content);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error(m.action_config_invalid_json());
+  }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
     throw new Error(m.action_config_must_be_object());
   const response = await apiFetch("/config/upload", {

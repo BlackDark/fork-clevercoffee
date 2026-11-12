@@ -466,5 +466,9 @@
   "chart_heater_power": "Heater power",
   "chart_temperature_history": "Temperature history chart",
   "chart_heater_power_history": "Heater power history chart",
-  "home_shots_since_backflush_cleaning": "Shots since last backflush · Cleaning recommended"
+  "home_shots_since_backflush_cleaning": "Shots since last backflush · Cleaning recommended",
+  "about_language": "Interface language",
+  "about_language_desc": "Changes the web UI only. The device display language is set under Config.",
+  "action_http_status": "Request failed with status {status}.",
+  "action_config_invalid_json": "The file is not valid JSON."
 }

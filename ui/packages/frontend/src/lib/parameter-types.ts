@@ -16,7 +16,7 @@ export type ParameterType =
 
 export interface ParameterOption {
   value: number;
-  label: string;
+  label?: string;
 }
 
 // Server parameter type - minimal data from backend

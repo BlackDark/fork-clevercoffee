@@ -41,9 +41,11 @@ export async function apiJsonFetch<T = unknown>(
         ? String(data.message)
         : data && typeof data === "object" && "error" in data
           ? String(data.error)
-          : response.statusText;
+          : undefined;
     throw new Error(
-      m.action_http_error({ status: response.status, text: message }),
+      message
+        ? m.action_http_error({ status: response.status, text: message })
+        : m.action_http_status({ status: response.status }),
     );
   }
   return data as T;

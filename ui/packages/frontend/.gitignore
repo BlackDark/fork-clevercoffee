@@ -28,3 +28,4 @@ test-results/
 
 .svelte-check/
 src/paraglide/
+project.inlang/cache/

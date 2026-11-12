@@ -37,14 +37,14 @@ export const groups2: Record<string, Array<string>> = {
 
 type ParameterGroup = {
   key: string;
-  label: string;
+  label: () => string;
   parameters: string[];
 };
 
 export const parameterGroups: ParameterGroup[] = [
   {
     key: "pidParameters",
-    label: m.status_pid_parameters(),
+    label: m.status_pid_parameters,
     parameters: [
       "pid.enabled",
       "pid.use_ponm",
@@ -58,7 +58,7 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "temperatureControl",
-    label: m.status_temperature_control(),
+    label: m.status_temperature_control,
     parameters: [
       // "TEMP",
       "brew.setpoint",
@@ -68,7 +68,7 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "brewPidSection",
-    label: m.status_brew_pid_parameters(),
+    label: m.status_brew_pid_parameters,
     parameters: [
       "pid.bd.enabled",
       "brew.pid_delay",
@@ -79,7 +79,7 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "brewControl",
-    label: m.status_brew_control(),
+    label: m.status_brew_control,
     parameters: [
       "brew.mode",
       "brew.by_time.enabled",
@@ -94,14 +94,14 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "scaleParameters",
-    label: m.status_scale_parameters(),
+    label: m.status_scale_parameters,
     parameters: [
       // Scale parameters are listed under hardware (Scale Sensors).
     ],
   },
   {
     key: "displaySettings",
-    label: m.status_display_settings(),
+    label: m.status_display_settings,
     parameters: [
       "display.template",
       "display.inverted",
@@ -117,7 +117,7 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "maintenance",
-    label: m.status_maintenance(),
+    label: m.status_maintenance,
     parameters: [
       "backflush.cycles",
       "backflush.fill_time",
@@ -128,12 +128,12 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "powerSettings",
-    label: m.status_power_settings(),
+    label: m.status_power_settings,
     parameters: ["standby.enabled", "standby.time"],
   },
   {
     key: "wifiSettings",
-    label: m.status_wifi(),
+    label: m.status_wifi,
     parameters: [
       "system.wifi.ssid",
       "system.wifi.password",
@@ -142,7 +142,7 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "mqttSettings",
-    label: m.status_mqtt_settings(),
+    label: m.status_mqtt_settings,
     parameters: [
       "mqtt.enabled",
       "mqtt.broker",
@@ -156,7 +156,7 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "systemSettings",
-    label: m.status_system_settings(),
+    label: m.status_system_settings,
     parameters: [
       "system.hostname",
       "system.ota_password",
@@ -167,7 +167,7 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "systemAuth",
-    label: m.status_system_authentication(),
+    label: m.status_system_authentication,
     parameters: [
       "system.auth.enabled",
       "system.auth.username",
@@ -176,7 +176,7 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "runtimeControls",
-    label: m.status_runtime_controls(),
+    label: m.status_runtime_controls,
     parameters: [
       "STEAM_MODE",
       "BACKFLUSH_ON",
@@ -187,7 +187,7 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "oledDisplay",
-    label: m.status_oled_display(),
+    label: m.status_oled_display,
     parameters: [
       "hardware.oled.enabled",
       "hardware.oled.type",
@@ -196,7 +196,7 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "relays",
-    label: m.status_relays(),
+    label: m.status_relays,
     parameters: [
       "hardware.relays.heater.trigger_type",
       "hardware.relays.valve.trigger_type",
@@ -205,7 +205,7 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "switchesBrew",
-    label: m.status_brew_switches(),
+    label: m.status_brew_switches,
     parameters: [
       "hardware.switches.brew.enabled",
       "hardware.switches.brew.type",
@@ -214,7 +214,7 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "switchesSteam",
-    label: m.status_steam_switches(),
+    label: m.status_steam_switches,
     parameters: [
       "hardware.switches.steam.enabled",
       "hardware.switches.steam.type",
@@ -223,7 +223,7 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "switchesPower",
-    label: m.status_power_switches(),
+    label: m.status_power_switches,
     parameters: [
       "hardware.switches.power.enabled",
       "hardware.switches.power.type",
@@ -232,7 +232,7 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "switchesHotWater",
-    label: m.status_hot_water_switches(),
+    label: m.status_hot_water_switches,
     parameters: [
       "hardware.switches.hot_water.enabled",
       "hardware.switches.hot_water.type",
@@ -241,7 +241,7 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "ledsStatus",
-    label: m.status_status_leds(),
+    label: m.status_status_leds,
     parameters: [
       "hardware.leds.status.enabled",
       "hardware.leds.status.inverted",
@@ -249,27 +249,27 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "ledsBrew",
-    label: m.status_brew_leds(),
+    label: m.status_brew_leds,
     parameters: ["hardware.leds.brew.enabled", "hardware.leds.brew.inverted"],
   },
   {
     key: "ledsSteam",
-    label: m.status_steam_leds(),
+    label: m.status_steam_leds,
     parameters: ["hardware.leds.steam.enabled", "hardware.leds.steam.inverted"],
   },
   {
     key: "sensorTemperature",
-    label: m.status_temperature_sensors(),
+    label: m.status_temperature_sensors,
     parameters: ["hardware.sensors.temperature.type"],
   },
   {
     key: "sensorPressure",
-    label: m.status_pressure_sensors(),
+    label: m.status_pressure_sensors,
     parameters: ["hardware.sensors.pressure.enabled"],
   },
   {
     key: "sensorWatertank",
-    label: m.status_water_tank_sensors(),
+    label: m.status_water_tank_sensors,
     parameters: [
       "hardware.sensors.watertank.enabled",
       "hardware.sensors.watertank.mode",
@@ -278,7 +278,7 @@ export const parameterGroups: ParameterGroup[] = [
   },
   {
     key: "sensorScale",
-    label: m.status_scale_sensors(),
+    label: m.status_scale_sensors,
     parameters: [
       "hardware.sensors.scale.enabled",
       "hardware.sensors.scale.type",

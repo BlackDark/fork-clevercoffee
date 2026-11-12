@@ -2,6 +2,12 @@
   import { Button } from "@/components/ui/button";
   import * as Card from "@/components/ui/card";
   import { Coffee, ExternalLink } from "@lucide/svelte";
+  import SelectField from "@/components/SelectField.svelte";
+  import {
+    changeLanguage,
+    currentLanguage,
+    languageOptions,
+  } from "@/lib/language";
   import * as m from "@/paraglide/messages.js";
   const version = APP_VERSION;
 </script>
@@ -12,7 +18,7 @@
     <p>{m.about_subtitle()}</p>
   </div>
 </div>
-<Card.Root class="min-w-0"
+<Card.Root class="min-w-0 mb-6"
   ><Card.Content>
     <Coffee
       size={40}
@@ -52,5 +58,21 @@
         rel="noreferrer">{m.about_community()}</Button
       >
     </div>
+  </Card.Content></Card.Root
+>
+<Card.Root class="min-w-0"
+  ><Card.Header
+    ><Card.Title
+      role="heading"
+      aria-level={2}>{m.about_language()}</Card.Title
+    ><Card.Description>{m.about_language_desc()}</Card.Description></Card.Header
+  ><Card.Content>
+    <SelectField
+      id="ui-language"
+      label={m.about_language()}
+      value={currentLanguage()}
+      options={languageOptions}
+      onchange={changeLanguage}
+    />
   </Card.Content></Card.Root
 >

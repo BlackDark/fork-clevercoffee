@@ -185,7 +185,7 @@
       confirm = true;
     }}
   >
-    {#each [...sections, ...(filter === "system" && unmapped.length ? [{ key: "other", label: m.config_other_device_parameters(), items: unmapped }] : [])] as group}
+    {#each [...sections, ...(filter === "system" && unmapped.length ? [{ key: "other", label: m.config_other_device_parameters, items: unmapped }] : [])] as group}
       <Card.Root class="min-w-0 parameter-panel"
         ><Card.Header
           ><Card.Title
@@ -198,7 +198,7 @@
               class:amber={/power|relay|switch/i.test(group.key)}
               class:teal={/brew|water|maintenance|scale/i.test(group.key)}
               ><Settings2 size={19} /></span
-            >{group.label}
+            >{group.label()}
           </Card.Title><Card.Action
             ><Badge variant="secondary"
               >{group.items.length === 1

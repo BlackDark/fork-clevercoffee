@@ -1,4 +1,3 @@
-import * as m from "@/paraglide/messages.js";
 import type {
   Parameter,
   ParameterTemplate,
@@ -144,10 +143,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: m.status_manual() },
-      { value: 1, label: m.status_automatic() },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.brew.enabled": true },
   },
   {
@@ -284,11 +280,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: m.status_2_load_cells() },
-      { value: 1, label: m.status_1_load_cell() },
-      { value: 2, label: "Bluetooth" },
-    ],
+    options: [{ value: 0 }, { value: 1 }, { value: 2, label: "Bluetooth" }],
     requiredParameters: { "hardware.sensors.scale.enabled": true },
   },
   {
@@ -521,10 +513,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: m.status_low_trigger() },
-      { value: 1, label: m.status_high_trigger() },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
   },
   {
     name: "hardware.relays.valve.trigger_type",
@@ -532,10 +521,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: m.status_low_trigger() },
-      { value: 1, label: m.status_high_trigger() },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
   },
   {
     name: "hardware.relays.pump.trigger_type",
@@ -543,10 +529,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: m.status_low_trigger() },
-      { value: 1, label: m.status_high_trigger() },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
   },
 
   // Hardware - Switch Parameters
@@ -563,10 +546,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: m.status_momentary() },
-      { value: 1, label: m.status_toggle() },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.brew.enabled": true },
   },
   {
@@ -575,10 +555,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: m.status_normally_open() },
-      { value: 1, label: m.status_normally_closed() },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.brew.enabled": true },
   },
   {
@@ -594,10 +571,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: m.status_momentary() },
-      { value: 1, label: m.status_toggle() },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.steam.enabled": true },
   },
   {
@@ -606,10 +580,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: m.status_normally_open() },
-      { value: 1, label: m.status_normally_closed() },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.steam.enabled": true },
   },
   {
@@ -625,10 +596,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: m.status_momentary() },
-      { value: 1, label: m.status_toggle() },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.power.enabled": true },
   },
   {
@@ -637,10 +605,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: m.status_normally_open() },
-      { value: 1, label: m.status_normally_closed() },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.power.enabled": true },
   },
   {
@@ -656,10 +621,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: m.status_momentary() },
-      { value: 1, label: m.status_toggle() },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.hot_water.enabled": true },
   },
   {
@@ -668,10 +630,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: m.status_normally_open() },
-      { value: 1, label: m.status_normally_closed() },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.hot_water.enabled": true },
   },
 
@@ -754,10 +713,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: m.status_normally_open() },
-      { value: 1, label: m.status_normally_closed() },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.sensors.watertank.enabled": true },
   },
   {
@@ -777,12 +733,12 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 5,
     defaultValue: 0,
     options: [
-      { value: 0, label: m.status_standard() },
-      { value: 1, label: m.status_minimal() },
-      { value: 2, label: m.status_temp_only() },
-      { value: 3, label: m.status_scale() },
-      { value: 4, label: m.status_upright() },
-      { value: 5, label: m.status_modern() },
+      { value: 0 },
+      { value: 1 },
+      { value: 2 },
+      { value: 3 },
+      { value: 4 },
+      { value: 5 },
     ],
   },
   {
@@ -800,7 +756,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     defaultValue: 0,
     options: [
       // Matches `Language` in the firmware: 0 English, 1 German, 2 Spanish.
-      { value: 0, label: m.status_english() },
+      { value: 0 },
       { value: 1, label: "Deutsch" },
       { value: 2, label: "Español" },
     ],

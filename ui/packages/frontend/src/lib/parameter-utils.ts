@@ -1,5 +1,4 @@
 import * as m from "@/paraglide/messages.js";
-import { parameterGroups } from "./parameter-groups";
 import { getParameterLabel } from "./parameter-text";
 import type { Parameter } from "./parameter-types";
 
@@ -138,47 +137,4 @@ export function groupParametersByPrefix(
     },
     {} as Record<string, Parameter[]>,
   );
-}
-
-/**
- * Groups parameters by logical groups defined in parameter-groups.ts
- * This provides proper separation (e.g., scale parameters in behavior vs hardware)
- */
-export function groupParametersBySection(
-  parameters: Parameter[],
-): Record<string, Parameter[]> {
-  const visibleParameters = parameters.filter(() => true); // Show all parameters
-
-  const groups: Record<string, Parameter[]> = {};
-
-  // Create a lookup map for parameter names to groups
-  const parameterToGroup = new Map<string, string>();
-  for (const group of parameterGroups) {
-    for (const paramName of group.parameters) {
-      parameterToGroup.set(paramName, group.label);
-    }
-  }
-
-  // Group parameters by their defined logical groups
-  for (const param of visibleParameters) {
-    const groupLabel = parameterToGroup.get(param.name);
-    if (groupLabel) {
-      if (!groups[groupLabel]) {
-        groups[groupLabel] = [];
-      }
-      groups[groupLabel].push(param);
-    } else {
-      // Fallback to prefix-based grouping for parameters not in groups
-      const prefix = param.name.split(".")[0];
-      const fallbackLabel = m.param_fallback_group({
-        prefix: `${prefix.charAt(0).toUpperCase()}${prefix.slice(1)}`,
-      });
-      if (!groups[fallbackLabel]) {
-        groups[fallbackLabel] = [];
-      }
-      groups[fallbackLabel].push(param);
-    }
-  }
-
-  return groups;
 }
