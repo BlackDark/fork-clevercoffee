@@ -38,6 +38,8 @@
   },
   "devDependencies": {
     "@inlang/paraglide-js": "3.2.2",
+    "@inlang/plugin-m-function-matcher": "2.3.0",
+    "@inlang/plugin-message-format": "4.5.0",
     "@playwright/test": "1.65.0",
     "@sveltejs/vite-plugin-svelte": "7.3.1",
     "@testing-library/jest-dom": "7.0.1",
