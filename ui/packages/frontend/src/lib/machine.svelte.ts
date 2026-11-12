@@ -37,7 +37,7 @@ export function createMachine() {
         min: p.min ?? getParameterMetadata(p.name)?.min,
         max: p.max ?? getParameterMetadata(p.name)?.max,
       }));
-      // Metadata supplies labels and dependencies, never writable rows absent from the device.
+      // Metadata fills ranges and dependencies; the device decides which rows exist.
       const enriched = new Map(
         ensureCompleteParameters(server).map((p) => [p.name, p]),
       );
