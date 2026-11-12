@@ -37,6 +37,14 @@ const texts: Record<string, Text> = {
     label: m.param_pid_steam_kp_label,
     help: m.param_pid_steam_kp_help,
   },
+  "safety.emergency_temp": {
+    label: m.param_safety_emergency_temp_label,
+    help: m.param_safety_emergency_temp_help,
+  },
+  "safety.emergency_hysteresis": {
+    label: m.param_safety_emergency_hysteresis_label,
+    help: m.param_safety_emergency_hysteresis_help,
+  },
   TEMP: { label: m.param_TEMP_label },
   "brew.setpoint": {
     label: m.param_brew_setpoint_label,

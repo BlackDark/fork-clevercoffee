@@ -25,11 +25,6 @@ export const ParameterSchema = z.object({
   editable: z.optional(z.boolean()),
 });
 
-export const ParameterHelpSchema = z.object({
-  name: z.string(),
-  helpText: z.string(),
-});
-
 export const ApiResponseSchema = z.object({
   success: z.boolean(),
   message: z.optional(z.string()),
@@ -79,7 +74,6 @@ export const OtaStatusSchema = z.object({
 export type TemperatureData = z.infer<typeof TemperatureDataSchema>;
 export type HistoryData = z.infer<typeof HistoryDataSchema>;
 export type Parameter = z.infer<typeof ParameterSchema>;
-export type ParameterHelp = z.infer<typeof ParameterHelpSchema>;
 export type ApiResponse = z.infer<typeof ApiResponseSchema>;
 export type SteamResponse = z.infer<typeof SteamResponseSchema>;
 export type PidResponse = z.infer<typeof PidResponseSchema>;

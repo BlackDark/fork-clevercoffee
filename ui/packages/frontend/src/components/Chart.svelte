@@ -24,14 +24,14 @@
         ? [
             {},
             {
-              label: "Current",
+              label: m.chart_current(),
               stroke: dark ? "#06b6d4" : "#0891b2",
               width: 2,
               points: { show: false },
               value: (_, v) => (v == null ? "—" : `${v.toFixed(1)} °C`),
             },
             {
-              label: "Target",
+              label: m.chart_target(),
               stroke: dark ? "#a855f7" : "#9333ea",
               width: 2,
               dash: [5, 4],
@@ -42,7 +42,7 @@
         : [
             {},
             {
-              label: "Heater power",
+              label: m.chart_heater_power(),
               stroke: dark ? "#f59e0b" : "#d97706",
               fill: dark ? "#f59e0b20" : "#d9770620",
               width: 2,
@@ -140,8 +140,8 @@
   class="min-w-0"
   role="img"
   aria-label={kind === "temperature"
-    ? "Temperature history chart"
-    : "Heater power history chart"}
+    ? m.chart_temperature_history()
+    : m.chart_heater_power_history()}
   bind:this={container}
 ></div>
 {#if error}<p role="alert">{m.chart_unavailable({ error })}</p>{/if}

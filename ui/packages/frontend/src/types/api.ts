@@ -14,11 +14,6 @@ export interface HistoryData {
   heaterPowers: number[];
 }
 
-export interface ParameterHelpResponse {
-  name: string;
-  helpText: string;
-}
-
 export interface ApiResponse {
   success: boolean;
   message?: string;

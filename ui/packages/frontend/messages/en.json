@@ -457,5 +457,14 @@
   "status_upright": "Upright",
   "status_modern": "Modern",
   "status_english": "English",
-  "chart_unavailable": "Chart unavailable: {error}"
+  "chart_unavailable": "Chart unavailable: {error}",
+  "param_safety_emergency_temp_label": "Emergency Temperature (°C)",
+  "param_safety_emergency_temp_help": "Temperature threshold that triggers emergency stop",
+  "param_safety_emergency_hysteresis_label": "Emergency Hysteresis (°C)",
+  "param_safety_emergency_hysteresis_help": "Temperature drop required to reset emergency counter",
+  "chart_current": "Current",
+  "chart_target": "Target",
+  "chart_heater_power": "Heater power",
+  "chart_temperature_history": "Temperature history chart",
+  "chart_heater_power_history": "Heater power history chart"
 }

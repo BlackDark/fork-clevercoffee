@@ -96,8 +96,7 @@ export const parameterGroups: ParameterGroup[] = [
     key: "scaleParameters",
     label: m.status_scale_parameters(),
     parameters: [
-      // Scale parameters moved to hardware section for better organization
-      // All scale-related parameters now appear only in "Scale Sensors" under hardware
+      // Scale parameters are listed under hardware (Scale Sensors).
     ],
   },
   {
