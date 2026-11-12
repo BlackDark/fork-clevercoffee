@@ -484,6 +484,13 @@ mod tests {
         let pid = arr.iter().find(|p| p["name"] == "pid.enabled").unwrap();
         assert_eq!(pid["type"], 6);
         assert_eq!(pid["value"], false);
+        for p in arr {
+            for gone in ["label", "section", "order", "helpText"] {
+                assert!(p.get(gone).is_none(), "{gone} is UI-only");
+            }
+        }
+        let reboots = arr.iter().filter(|p| p["requiresReboot"] == true).count();
+        assert_eq!(reboots, PARAMS.iter().filter(|p| p.reboot).count());
     }
 
     #[test]
