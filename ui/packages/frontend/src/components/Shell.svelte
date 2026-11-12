@@ -12,6 +12,7 @@
   import System from "../pages/System.svelte";
   import About from "../pages/About.svelte";
   import Diagnostics from "../pages/Diagnostics.svelte";
+  import * as m from "@/paraglide/messages.js";
   const machine = createMachine();
   let route = $state(
     location.hash.slice(1) ||
@@ -22,11 +23,11 @@
   let dark = $state(false);
   let theme = $state("system");
   const links = [
-    { href: "/", label: "Home" },
-    { href: "/config/behavior", label: "Configuration" },
-    { href: "/system", label: "System" },
-    { href: "/diagnostics", label: "Diagnostics" },
-    { href: "/about", label: "About" },
+    { href: "/", label: m.shell_nav_home },
+    { href: "/config/behavior", label: m.shell_nav_configuration },
+    { href: "/system", label: m.shell_nav_system },
+    { href: "/diagnostics", label: m.shell_nav_diagnostics },
+    { href: "/about", label: m.shell_nav_about },
   ];
   onMount(() => {
     const media = matchMedia("(prefers-color-scheme: dark)");
@@ -67,13 +68,13 @@
   // Stays until the machine is awake; the action keeps the toast open (preventDefault).
   $effect(() => {
     if (standby)
-      toast.info("The machine is in standby", {
+      toast.info(m.shell_standby_toast(), {
         id: "standby",
         duration: Number.POSITIVE_INFINITY,
         dismissable: false,
         closeButton: false,
         action: {
-          label: "Wake up",
+          label: m.shell_wake_up(),
           onClick: (event) => {
             event.preventDefault();
             void machine.run("/wake");
@@ -113,7 +114,7 @@
       aria-current={active ? "page" : undefined}
       onclick={() => {
         menuOpen = false;
-      }}>{link.label}</Button
+      }}>{link.label()}</Button
     >
   {/each}
 {/snippet}
@@ -124,7 +125,7 @@
     event.preventDefault();
     document.getElementById("main")?.focus();
   }}
-  class="skip-link">Skip to content</a
+  class="skip-link">{m.shell_skip_to_content()}</a
 >
 <div class="app-layout">
   <header class="topbar">
@@ -140,7 +141,7 @@
       /></a
     >
     <nav
-      aria-label="Main navigation"
+      aria-label={m.shell_main_nav()}
       class="header-nav"
     >
       {@render navLinks()}
@@ -148,15 +149,15 @@
     <div class="header-actions">
       <span
         class="connection-status"
-        aria-label="Device connection"
+        aria-label={m.shell_device_connection()}
         ><span
           class="status-dot"
           class:offline={machine.status.isError}
         ></span>{machine.status.isPending
-          ? "Connecting…"
+          ? m.shell_connecting()
           : machine.status.isError
-            ? "Offline"
-            : "Online"}</span
+            ? m.shell_offline()
+            : m.shell_online()}</span
       >
       <Button
         type="button"
@@ -164,7 +165,7 @@
         size="icon"
         class="icon-btn"
         onclick={toggleTheme}
-        aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
+        aria-label={dark ? m.shell_theme_light() : m.shell_theme_dark()}
         >{#if dark}<Sun size={18} />{:else}<Moon size={18} />{/if}</Button
       >
       <Sheet.Root bind:open={menuOpen}>
@@ -175,19 +176,19 @@
               variant="outline"
               size="icon"
               class="icon-btn menu-button"
-              aria-label="Open navigation menu"><Menu size={20} /></Button
+              aria-label={m.shell_open_menu()}><Menu size={20} /></Button
             >
           {/snippet}
         </Sheet.Trigger>
         <Sheet.Content side="right">
           <Sheet.Header>
-            <Sheet.Title>Menu</Sheet.Title>
+            <Sheet.Title>{m.shell_menu()}</Sheet.Title>
             <Sheet.Description class="sr-only"
-              >Go to another page.</Sheet.Description
+              >{m.shell_menu_description()}</Sheet.Description
             >
           </Sheet.Header>
           <nav
-            aria-label="Main navigation"
+            aria-label={m.shell_main_nav()}
             class="flex flex-col gap-1 px-4"
           >
             {@render navLinks()}
@@ -205,24 +206,25 @@
         variant="destructive"
         class="mb-4"
         ><Alert.Description>
-          Cannot reach the device. Controls may be out of date.
+          {m.shell_device_unreachable()}
         </Alert.Description><Alert.Action
           ><Button
             type="button"
             variant="outline"
             size="sm"
-            onclick={() => machine.status.refetch()}>Retry</Button
+            onclick={() => machine.status.refetch()}>{m.shell_retry()}</Button
           ></Alert.Action
         ></Alert.Root
       >{/if}
     {#if machine.status.data?.backflushReminderDue && route !== "/"}<Alert.Root
         class="mb-4"
         ><Alert.Description>
-          Backflush recommended · {machine.status.data.shotsSinceBackflush} shots
-          since cleaning.
+          {m.shell_backflush_reminder({
+            shots: machine.status.data.shotsSinceBackflush ?? 0,
+          })}
           <a
             class="text-primary underline underline-offset-4"
-            href="#/">View maintenance</a
+            href="#/">{m.shell_view_maintenance()}</a
           >
         </Alert.Description></Alert.Root
       >{/if}
@@ -232,10 +234,12 @@
         filter={route.split("/")[2]}
       />{:else if route === "/system"}<System
       />{:else if route === "/diagnostics"}<Diagnostics
-      />{:else if route === "/about"}<About />{:else}<h1>Page not found</h1>
+      />{:else if route === "/about"}<About />{:else}<h1>
+        {m.shell_page_not_found()}
+      </h1>
       <Button
         href="#/"
-        variant="default">Back to dashboard</Button
+        variant="default">{m.shell_back_to_dashboard()}</Button
       >{/if}
     <footer>CleverCoffee</footer>
   </main>
@@ -251,6 +255,6 @@
     left: "1rem",
   }}
   closeButton
-  closeButtonAriaLabel="Dismiss notification"
+  closeButtonAriaLabel={m.shell_dismiss_notification()}
   richColors
 />

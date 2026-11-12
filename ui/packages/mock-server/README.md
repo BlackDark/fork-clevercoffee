@@ -40,7 +40,6 @@ The server will start on `http://localhost:3001`
 
 - `GET /api/parameters` - Get parameters (supports `?filter=hardware|behavior|other`)
 - `POST /api/parameters` - Update parameters (form data)
-- `GET /api/parameter-help?param=name` - Get parameter help text
 - `GET /api/temperature` - Get current temperature data
 - `GET /api/history` - Get temperature history data
 

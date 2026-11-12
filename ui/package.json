@@ -6,7 +6,7 @@
     "dev": "concurrently 'pnpm run dev:ui' 'pnpm run dev:api'",
     "dev:ui": "pnpm --filter @clevercoffee/frontend dev",
     "dev:api": "pnpm --filter @clevercoffee/mock-server dev",
-    "lint": "biome check . && pnpm --filter @clevercoffee/frontend exec prettier --check \"src/**/*.svelte\"",
+    "lint": "biome check . && pnpm --filter @clevercoffee/frontend exec prettier --check \"src/**/*.svelte\" && pnpm --filter @clevercoffee/frontend lint:i18n",
     "format": "biome check --write . && pnpm --filter @clevercoffee/frontend exec prettier --write \"src/**/*.svelte\"",
     "check": "pnpm lint && pnpm --filter @clevercoffee/frontend check:types && pnpm --filter @clevercoffee/frontend test:run"
   },

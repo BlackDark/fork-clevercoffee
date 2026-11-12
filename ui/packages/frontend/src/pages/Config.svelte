@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as m from "@/paraglide/messages.js";
   import * as Tabs from "@/components/ui/tabs";
   import * as Alert from "@/components/ui/alert";
   import { Skeleton } from "@/components/ui/skeleton";
@@ -19,8 +20,7 @@
   } from "@lucide/svelte";
   import { useMachine } from "@/lib/machine.svelte";
   import { groups2, parameterGroups } from "@/lib/parameter-groups";
-  import { getParameterLabel } from "@/lib/parameter-labels";
-  import { parameterHelpTexts } from "@/lib/parameter-help-texts";
+  import { getParameterHelp, getParameterLabel } from "@/lib/parameter-text";
   import {
     areRequiredParametersMet,
     getMissingRequiredParametersMessage,
@@ -30,13 +30,13 @@
   import ParameterInput from "../components/ParameterInput.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   let { filter = "behavior" }: { filter?: string } = $props();
-  const m = useMachine();
-  const draft = m.draft;
+  const machine = useMachine();
+  const draft = machine.draft;
   let search = $state("");
   let confirm = $state(false);
   let reboot = $state(false);
   const parameters = $derived(
-    (m.parameters.data ?? []).map((p) => ({
+    (machine.parameters.data ?? []).map((p) => ({
       ...p,
       value: draft.edits[p.name] ?? p.value,
     })),
@@ -45,7 +45,8 @@
     parameters.filter(
       (p) =>
         Object.hasOwn(draft.edits, p.name) &&
-        p.value !== m.parameters.data?.find((s) => s.name === p.name)?.value,
+        p.value !==
+          machine.parameters.data?.find((s) => s.name === p.name)?.value,
     ),
   );
   const sections = $derived(
@@ -76,14 +77,19 @@
   function displayValue(p: Parameter, value: unknown) {
     return p.name.includes("password") ? "••••••" : String(value);
   }
+  function categoryLabel(category: string) {
+    if (category === "behavior") return m.config_category_behavior();
+    if (category === "system") return m.config_category_system();
+    return m.config_category_hardware();
+  }
   async function save() {
     const submitted = changes.map((p) => ({ name: p.name, value: p.value }));
     try {
-      await m.save.mutateAsync(submitted);
+      await machine.save.mutateAsync(submitted);
       reboot = submitted.some((p) => parameterRequiresReboot(p.name));
       draft.edits = {};
       confirm = false;
-      toast.success("Parameters saved successfully.");
+      toast.success(m.config_parameters_saved());
     } catch (e) {
       reportError(e);
       confirm = false;
@@ -93,12 +99,12 @@
 
 <div class="page-heading">
   <div>
-    <h1>Configuration</h1>
-    <p>Configure machine behavior, system settings, and hardware.</p>
+    <h1>{m.config_title()}</h1>
+    <p>{m.config_subtitle()}</p>
   </div>
 </div>
 <div class="settings-toolbar">
-  <nav aria-label="Parameter categories">
+  <nav aria-label={m.config_parameter_categories()}>
     <Tabs.Root
       value={filter}
       onValueChange={(value) => {
@@ -110,8 +116,7 @@
     >
       <Tabs.List>
         {#each ["behavior", "system", "hardware"] as category}
-          <Tabs.Trigger value={category}
-            >{category[0].toUpperCase() + category.slice(1)}</Tabs.Trigger
+          <Tabs.Trigger value={category}>{categoryLabel(category)}</Tabs.Trigger
           >
         {/each}
       </Tabs.List>
@@ -123,8 +128,8 @@
       class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
     /><Input
       class="pl-9"
-      aria-label="Search parameters"
-      placeholder="Find a parameter…"
+      aria-label={m.config_search_aria()}
+      placeholder={m.config_search_placeholder()}
       bind:value={search}
     />
   </div>
@@ -133,58 +138,54 @@
     variant="warning"
     class="mb-4"
     ><AlertTriangle size={18} /><Alert.Description class="text-inherit">
-      <span
-        >Incorrect hardware settings can activate the pump, heater, or valve
-        unexpectedly. Check relay, sensor, and switch settings before saving and
-        restarting.</span
-      >
+      <span>{m.config_hardware_warning()}</span>
     </Alert.Description></Alert.Root
   >{/if}
 
 {#if reboot}<Alert.Root class="mb-4"
     ><Alert.Description>
-      Some saved settings need a reboot to take effect.
+      {m.config_reboot_needed()}
     </Alert.Description><Alert.Action class="flex gap-2"
       ><Button
         href="#/system"
         variant="outline"
-        size="sm">Restart in System</Button
+        size="sm">{m.config_restart_in_system()}</Button
       ><Button
         type="button"
         variant="ghost"
         size="sm"
-        onclick={() => (reboot = false)}>Dismiss</Button
+        onclick={() => (reboot = false)}>{m.config_dismiss()}</Button
       ></Alert.Action
     ></Alert.Root
   >{/if}
-{#if m.parameters.isPending}<div
+{#if machine.parameters.isPending}<div
     role="status"
-    aria-label="Loading parameters"
+    aria-label={m.config_loading_parameters()}
     class="grid gap-5"
   >
     <Skeleton class="h-48 rounded-xl" /><Skeleton class="h-48 rounded-xl" />
-  </div>{:else if m.parameters.isError}<Alert.Root
+  </div>{:else if machine.parameters.isError}<Alert.Root
     role="alert"
     variant="destructive"
     class="mb-4"
     ><Alert.Description>
-      {m.parameters.error.message}
+      {machine.parameters.error.message}
     </Alert.Description><Alert.Action
       ><Button
         type="button"
         variant="outline"
         size="sm"
-        onclick={() => m.parameters.refetch()}>Retry</Button
+        onclick={() => machine.parameters.refetch()}>{m.config_retry()}</Button
       ></Alert.Action
     ></Alert.Root
-  >{:else if !groups2[filter]}<p>Unknown parameter category.</p>{:else}
+  >{:else if !groups2[filter]}<p>{m.config_unknown_category()}</p>{:else}
   <form
     onsubmit={(e) => {
       e.preventDefault();
       confirm = true;
     }}
   >
-    {#each [...sections, ...(filter === "system" && unmapped.length ? [{ key: "other", label: "Other device parameters", items: unmapped }] : [])] as group}
+    {#each [...sections, ...(filter === "system" && unmapped.length ? [{ key: "other", label: m.config_other_device_parameters(), items: unmapped }] : [])] as group}
       <Card.Root class="min-w-0 parameter-panel"
         ><Card.Header
           ><Card.Title
@@ -200,9 +201,9 @@
             >{group.label}
           </Card.Title><Card.Action
             ><Badge variant="secondary"
-              >{group.items.length} setting{group.items.length === 1
-                ? ""
-                : "s"}</Badge
+              >{group.items.length === 1
+                ? m.config_setting({ count: group.items.length })
+                : m.config_settings({ count: group.items.length })}</Badge
             ></Card.Action
           ></Card.Header
         ><Card.Content>
@@ -218,12 +219,12 @@
                       parameter.name}{#if Object.hasOwn(draft.edits, parameter.name)}<span
                         class="edited-dot"
                         role="img"
-                        aria-label="Edited"
+                        aria-label={m.config_edited()}
                       ></span>{/if}</Label
                   >
-                  {#if parameterHelpTexts[parameter.name]}<ParameterHint
+                  {#if getParameterHelp(parameter.name)}<ParameterHint
                       id={`help-${parameter.name}`}
-                      text={parameterHelpTexts[parameter.name].replace(
+                      text={(getParameterHelp(parameter.name) ?? "").replace(
                         /<[^>]*>/g,
                         "",
                       )}
@@ -241,7 +242,7 @@
                       {parameter}
                       label={getParameterLabel(parameter.name) ||
                         parameter.name}
-                      disabled={m.save.isPending}
+                      disabled={machine.save.isPending}
                       onchange={(value) => {
                         draft.edits = {
                           ...draft.edits,
@@ -258,14 +259,16 @@
     {#if !sections.length && !(filter === "system" && unmapped.length)}<Alert.Root
         class="mb-4"
         ><Alert.Description>
-          No matching parameters.
+          {m.config_no_matching_parameters()}
         </Alert.Description></Alert.Root
       >{/if}
     <div class="save-bar">
       <span
         >{changes.length
-          ? `${changes.length} unsaved change${changes.length === 1 ? "" : "s"}`
-          : "All changes saved"}</span
+          ? changes.length === 1
+            ? m.config_unsaved_change({ count: changes.length })
+            : m.config_unsaved_changes({ count: changes.length })
+          : m.config_all_changes_saved()}</span
       >
       <div class="flex gap-2">
         <Button
@@ -274,13 +277,13 @@
           onclick={() => {
             draft.edits = {};
           }}
-          disabled={!changes.length || m.save.isPending}
-          ><RotateCcw size={15} />Discard</Button
+          disabled={!changes.length || machine.save.isPending}
+          ><RotateCcw size={15} />{m.config_discard()}</Button
         ><Button
           type="submit"
           variant="default"
-          disabled={!changes.length || m.save.isPending}
-          ><Save size={15} />Review & save</Button
+          disabled={!changes.length || machine.save.isPending}
+          ><Save size={15} />{m.config_review_and_save()}</Button
         >
       </div>
     </div>
@@ -288,18 +291,19 @@
 {/if}
 <ConfirmDialog
   bind:open={confirm}
-  title="Save parameter changes?"
-  description="Only changed settings will be sent to the device."
+  title={m.config_save_confirm_title()}
+  description={m.config_save_confirm_description()}
   confirm={save}
-  busy={m.save.isPending}
-  label="Save changes"
+  busy={machine.save.isPending}
+  label={m.config_save_changes()}
 >
   {#each changes as parameter}<div class="change-row">
       <strong>{getParameterLabel(parameter.name) || parameter.name}</strong
       ><span
         >{displayValue(
           parameter,
-          m.parameters.data?.find((p) => p.name === parameter.name)?.value,
+          machine.parameters.data?.find((p) => p.name === parameter.name)
+            ?.value,
         )} → {displayValue(parameter, parameter.value)}</span
       >
     </div>{/each}

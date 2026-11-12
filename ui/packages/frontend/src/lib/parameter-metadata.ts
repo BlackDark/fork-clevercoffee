@@ -1,6 +1,7 @@
 // Parameter metadata map for efficient lookups
 // This replaces the old array-based parameter definitions
 
+import * as m from "@/paraglide/messages.js";
 import type {
   Parameter,
   ParameterTemplate,
@@ -147,8 +148,8 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "Manual" },
-      { value: 1, label: "Automatic" },
+      { value: 0, label: m.status_manual() },
+      { value: 1, label: m.status_automatic() },
     ],
     requiredParameters: { "hardware.switches.brew.enabled": true },
   },
@@ -287,8 +288,8 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "2 load cells" },
-      { value: 1, label: "1 load cell" },
+      { value: 0, label: m.status_2_load_cells() },
+      { value: 1, label: m.status_1_load_cell() },
       { value: 2, label: "Bluetooth" },
     ],
     requiredParameters: { "hardware.sensors.scale.enabled": true },
@@ -524,8 +525,8 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "Low Trigger" },
-      { value: 1, label: "High Trigger" },
+      { value: 0, label: m.status_low_trigger() },
+      { value: 1, label: m.status_high_trigger() },
     ],
   },
   {
@@ -535,8 +536,8 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "Low Trigger" },
-      { value: 1, label: "High Trigger" },
+      { value: 0, label: m.status_low_trigger() },
+      { value: 1, label: m.status_high_trigger() },
     ],
   },
   {
@@ -546,8 +547,8 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "Low Trigger" },
-      { value: 1, label: "High Trigger" },
+      { value: 0, label: m.status_low_trigger() },
+      { value: 1, label: m.status_high_trigger() },
     ],
   },
 
@@ -566,8 +567,8 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "Momentary" },
-      { value: 1, label: "Toggle" },
+      { value: 0, label: m.status_momentary() },
+      { value: 1, label: m.status_toggle() },
     ],
     requiredParameters: { "hardware.switches.brew.enabled": true },
   },
@@ -578,8 +579,8 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "Normally Open" },
-      { value: 1, label: "Normally Closed" },
+      { value: 0, label: m.status_normally_open() },
+      { value: 1, label: m.status_normally_closed() },
     ],
     requiredParameters: { "hardware.switches.brew.enabled": true },
   },
@@ -597,8 +598,8 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "Momentary" },
-      { value: 1, label: "Toggle" },
+      { value: 0, label: m.status_momentary() },
+      { value: 1, label: m.status_toggle() },
     ],
     requiredParameters: { "hardware.switches.steam.enabled": true },
   },
@@ -609,8 +610,8 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "Normally Open" },
-      { value: 1, label: "Normally Closed" },
+      { value: 0, label: m.status_normally_open() },
+      { value: 1, label: m.status_normally_closed() },
     ],
     requiredParameters: { "hardware.switches.steam.enabled": true },
   },
@@ -628,8 +629,8 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "Momentary" },
-      { value: 1, label: "Toggle" },
+      { value: 0, label: m.status_momentary() },
+      { value: 1, label: m.status_toggle() },
     ],
     requiredParameters: { "hardware.switches.power.enabled": true },
   },
@@ -640,8 +641,8 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "Normally Open" },
-      { value: 1, label: "Normally Closed" },
+      { value: 0, label: m.status_normally_open() },
+      { value: 1, label: m.status_normally_closed() },
     ],
     requiredParameters: { "hardware.switches.power.enabled": true },
   },
@@ -659,8 +660,8 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "Momentary" },
-      { value: 1, label: "Toggle" },
+      { value: 0, label: m.status_momentary() },
+      { value: 1, label: m.status_toggle() },
     ],
     requiredParameters: { "hardware.switches.hot_water.enabled": true },
   },
@@ -671,8 +672,8 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "Normally Open" },
-      { value: 1, label: "Normally Closed" },
+      { value: 0, label: m.status_normally_open() },
+      { value: 1, label: m.status_normally_closed() },
     ],
     requiredParameters: { "hardware.switches.hot_water.enabled": true },
   },
@@ -757,8 +758,8 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "Normally Open" },
-      { value: 1, label: "Normally Closed" },
+      { value: 0, label: m.status_normally_open() },
+      { value: 1, label: m.status_normally_closed() },
     ],
     requiredParameters: { "hardware.sensors.watertank.enabled": true },
   },
@@ -779,12 +780,12 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 5,
     defaultValue: 0,
     options: [
-      { value: 0, label: "Standard" },
-      { value: 1, label: "Minimal" },
-      { value: 2, label: "Temp only" },
-      { value: 3, label: "Scale" },
-      { value: 4, label: "Upright" },
-      { value: 5, label: "Modern" },
+      { value: 0, label: m.status_standard() },
+      { value: 1, label: m.status_minimal() },
+      { value: 2, label: m.status_temp_only() },
+      { value: 3, label: m.status_scale() },
+      { value: 4, label: m.status_upright() },
+      { value: 5, label: m.status_modern() },
     ],
   },
   {
@@ -812,7 +813,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
       // `the_ui_enum_labels_match_the_firmware_discriminants` test now pins
       // every enum in this file against the firmware, so a swapped pair cannot
       // survive a build again.
-      { value: 0, label: "English" },
+      { value: 0, label: m.status_english() },
       { value: 1, label: "Deutsch" },
       { value: 2, label: "Español" },
     ],

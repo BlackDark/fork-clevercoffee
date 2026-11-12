@@ -27,3 +27,4 @@ playwright-report/
 test-results/
 
 .svelte-check/
+src/paraglide/

@@ -1,4 +1,4 @@
-import { parameterLabelsEN } from "./parameter-labels";
+import { getParameterLabel } from "./parameter-text";
 
 /**
  * Parameters whose changes only take effect after a device restart.
@@ -60,7 +60,7 @@ export function parameterRequiresReboot(name: string): boolean {
 }
 
 export function getRebootParameterLabel(name: string): string {
-  return parameterLabelsEN.get(name) ?? name;
+  return getParameterLabel(name);
 }
 
 export function getRebootParameterLabels(names: string[]): string[] {

@@ -28,8 +28,9 @@
     type ChartData,
   } from "@/lib/telemetry";
   import Chart from "../components/Chart.svelte";
+  import * as m from "@/paraglide/messages.js";
   let { dark = false }: { dark?: boolean } = $props();
-  const m = useMachine();
+  const machine = useMachine();
   const history = createQuery(() => ({
     queryKey: ["history"],
     queryFn: async ({ signal }) =>
@@ -46,15 +47,17 @@
   let live = $state<ReturnType<typeof TemperatureDataSchema.parse> | null>(
     null,
   );
-  let stream = $state("Connecting");
+  let stream = $state(m.home_connecting());
   let chart = $state.raw<ChartData>([[], [], [], []]);
   let setpoint = $state<number | undefined>();
   const current = $derived(live ?? initial.data);
   const target = $derived(
-    m.parameters.data?.find((p) => p.name === "brew.setpoint"),
+    machine.parameters.data?.find((p) => p.name === "brew.setpoint"),
   );
-  const shots = $derived(m.status.data?.shotsSinceBackflush ?? 0);
-  const threshold = $derived(m.status.data?.backflushReminderThreshold ?? 50);
+  const shots = $derived(machine.status.data?.shotsSinceBackflush ?? 0);
+  const threshold = $derived(
+    machine.status.data?.backflushReminderThreshold ?? 50,
+  );
   const temperatureChart = $derived([chart[0], chart[1], chart[2]]);
   const heaterChart = $derived([chart[0], chart[3]]);
   $effect(() => {
@@ -63,26 +66,26 @@
   onMount(() => {
     const events = new EventSource(`${SERVER_BASE_URL}/events`);
     events.onopen = () => {
-      stream = "Live";
+      stream = m.home_live();
     };
     events.onerror = () => {
-      stream = "Reconnecting";
+      stream = m.home_reconnecting();
     };
     events.addEventListener("new_temps", (event) => {
       let payload: unknown;
       try {
         payload = JSON.parse(event.data || "null");
       } catch {
-        stream = "Invalid telemetry";
+        stream = m.home_invalid_telemetry();
         return;
       }
       const parsed = TemperatureDataSchema.safeParse(payload);
       if (!parsed.success) {
-        stream = "Invalid telemetry";
+        stream = m.home_invalid_telemetry();
         return;
       }
       live = parsed.data;
-      stream = "Live";
+      stream = m.home_live();
       chart = appendSample(chart, parsed.data);
     });
     return () => events.close();
@@ -91,30 +94,31 @@
     event.preventDefault();
     if (!target) return;
     try {
-      await m.save.mutateAsync([
+      await machine.save.mutateAsync([
         { name: target.name, value: setpoint ?? Number(target.value) },
       ]);
       setpoint = undefined;
-      toast.success("Brew temperature saved");
+      toast.success(m.home_brew_temperature_saved());
     } catch (e) {
       reportError(e);
     }
   }
 </script>
 
-<h1 class="sr-only">Home</h1>
+<h1 class="sr-only">{m.home_title()}</h1>
 
 <div class="home-grid">
   <Card.Root class="min-w-0"
     ><Card.Header
       ><Card.Title
         role="heading"
-        aria-level={2}><Activity size={20} />Machine Status</Card.Title
+        aria-level={2}
+        ><Activity size={20} />{m.home_machine_status()}</Card.Title
       ><Card.Action
         ><Badge variant="secondary"
           ><span
             class="status-dot"
-            class:offline={stream !== "Live"}
+            class:offline={stream !== m.home_live()}
           ></span>{stream}</Badge
         ></Card.Action
       ></Card.Header
@@ -125,7 +129,7 @@
             <Thermometer
               size={18}
               class="temperature-icon"
-            />Current Temperature
+            />{m.home_current_temperature()}
           </div>
           <div class="stat-value">
             {current?.currentTemp.toFixed(2) ?? "—"}<span>°C</span>
@@ -136,7 +140,7 @@
             <Zap
               size={18}
               class="heater-icon"
-            />Current Heater Power
+            />{m.home_current_heater_power()}
           </div>
           <div class="stat-value">
             {current?.heaterPower.toFixed(2) ?? "—"}<span>%</span>
@@ -144,20 +148,22 @@
         </div>
       </div>
       {#if !current && initial.isError}<p role="alert">
-          Temperature unavailable.
+          {m.home_temperature_unavailable()}
         </p>{/if}
       <form
         class="setpoint-form"
         onsubmit={save}
       >
         <div>
-          <Label for="brew-temperature">Setpoint (°C)</Label>
-          <p>Target: {current?.targetTemp.toFixed(1) ?? "—"} °C</p>
+          <Label for="brew-temperature">{m.home_setpoint()}</Label>
+          <p>
+            {m.home_target({ temp: current?.targetTemp.toFixed(1) ?? "—" })}
+          </p>
         </div>
         <div class="setpoint-controls">
           <Input
             class=""
-            aria-label="Brew temperature"
+            aria-label={m.home_brew_temperature()}
             id="brew-temperature"
             type="number"
             step="any"
@@ -172,7 +178,7 @@
           /><Button
             type="submit"
             variant="default"
-            disabled={m.save.isPending || !target}>Save</Button
+            disabled={machine.save.isPending || !target}>{m.home_save()}</Button
           >
         </div>
       </form>
@@ -182,47 +188,51 @@
     ><Card.Header
       ><Card.Title
         role="heading"
-        aria-level={2}><Power size={20} />Machine Functions</Card.Title
+        aria-level={2}
+        ><Power size={20} />{m.home_machine_functions()}</Card.Title
       ></Card.Header
     ><Card.Content>
-      {#each [{ label: "PID heating", route: "/pid", on: m.status.data?.pidEnabled ?? !!m.parameters.data?.find((p) => p.name === "pid.enabled")?.value }, { label: "Steam mode", route: "/steam", on: m.status.data?.steamMode }] as control}
+      {#each [{ label: m.home_pid_heating(), route: "/pid", on: machine.status.data?.pidEnabled ?? !!machine.parameters.data?.find((p) => p.name === "pid.enabled")?.value }, { label: m.home_steam_mode(), route: "/steam", on: machine.status.data?.steamMode }] as control}
         <div class="control-row">
           <div>
             <span>{control.label}</span>
-            <p>{control.on ? "Enabled" : "Disabled"}</p>
+            <p>{control.on ? m.home_enabled() : m.home_disabled()}</p>
           </div>
           <SwitchField
             label={control.label}
             checked={!!control.on}
-            disabled={m.command.isPending ||
-              m.status.isError ||
-              m.status.isPending}
-            onchange={() => m.run(control.route)}
+            disabled={machine.command.isPending ||
+              machine.status.isError ||
+              machine.status.isPending}
+            onchange={() => machine.run(control.route)}
           />
         </div>{/each}
       <div class="control-row">
-        <span>Backflush</span><Button
+        <span>{m.home_backflush()}</span><Button
           type="button"
           variant="outline"
-          disabled={m.command.isPending ||
-            m.status.isError ||
-            m.status.isPending}
-          onclick={() => m.run("/backflush")}>Toggle backflush</Button
+          disabled={machine.command.isPending ||
+            machine.status.isError ||
+            machine.status.isPending}
+          onclick={() => machine.run("/backflush")}
+          >{m.home_toggle_backflush()}</Button
         >
       </div>
-      {#if m.parameters.data?.some((p) => p.name === "hardware.sensors.scale.enabled" && !!p.value)}<div
+      {#if machine.parameters.data?.some((p) => p.name === "hardware.sensors.scale.enabled" && !!p.value)}<div
           class="flex gap-2 mt-4"
         >
           <Button
             type="button"
             variant="outline"
-            disabled={m.command.isPending}
-            onclick={() => m.run("/scale/tare")}>Tare scale</Button
+            disabled={machine.command.isPending}
+            onclick={() => machine.run("/scale/tare")}
+            >{m.home_tare_scale()}</Button
           ><Button
             type="button"
             variant="outline"
-            disabled={m.command.isPending}
-            onclick={() => m.run("/scale/calibration")}>Calibrate scale</Button
+            disabled={machine.command.isPending}
+            onclick={() => machine.run("/scale/calibration")}
+            >{m.home_calibrate_scale()}</Button
           >
         </div>{/if}
     </Card.Content></Card.Root
@@ -231,28 +241,29 @@
     ><Card.Header
       ><Card.Title
         role="heading"
-        aria-level={2}><Droplets size={20} />Maintenance</Card.Title
+        aria-level={2}><Droplets size={20} />{m.home_maintenance()}</Card.Title
       ></Card.Header
     ><Card.Content>
       <div class="maintenance-number">
         {shots}<span> / {threshold}</span>
       </div>
       <p class="text-sm text-muted-foreground mb-3">
-        Shots since last backflush{m.status.data?.backflushReminderDue
-          ? " · Cleaning recommended"
+        {m.home_shots_since_last_backflush()}{machine.status.data
+          ?.backflushReminderDue
+          ? m.home_cleaning_recommended()
           : ""}
       </p>
       <Progress
         max={Math.max(1, threshold)}
         value={shots}
-        aria-label="Shots since backflush"
+        aria-label={m.home_shots_since_backflush()}
       ></Progress><Button
         type="button"
         variant="outline"
         class="mt-4"
-        disabled={m.command.isPending}
-        onclick={() => m.run("/maintenance/reset-backflush-counter")}
-        ><RotateCcw size={15} />Reset counter</Button
+        disabled={machine.command.isPending}
+        onclick={() => machine.run("/maintenance/reset-backflush-counter")}
+        ><RotateCcw size={15} />{m.home_reset_counter()}</Button
       >
     </Card.Content></Card.Root
   >
@@ -265,7 +276,7 @@
         <Thermometer
           size={20}
           class="temperature-icon"
-        />Temperature History
+        />{m.home_temperature_history()}
       </Card.Title></Card.Header
     ><Card.Content>
       {#if history.isError}<Alert.Root
@@ -273,13 +284,13 @@
           variant="destructive"
           class="mb-4"
           ><Alert.Description>
-            History unavailable.
+            {m.home_history_unavailable()}
           </Alert.Description><Alert.Action
             ><Button
               type="button"
               variant="outline"
               size="sm"
-              onclick={() => history.refetch()}>Retry</Button
+              onclick={() => history.refetch()}>{m.home_retry()}</Button
             ></Alert.Action
           ></Alert.Root
         >{/if}<Chart
@@ -297,7 +308,7 @@
         <Zap
           size={20}
           class="heater-icon"
-        />Heater Power History
+        />{m.home_heater_power_history()}
       </Card.Title></Card.Header
     ><Card.Content>
       <Chart

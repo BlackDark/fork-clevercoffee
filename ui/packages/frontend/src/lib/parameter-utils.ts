@@ -1,5 +1,6 @@
+import * as m from "@/paraglide/messages.js";
 import { parameterGroups } from "./parameter-groups";
-import { getParameterLabel } from "./parameter-labels";
+import { getParameterLabel } from "./parameter-text";
 import type { Parameter } from "./parameter-types";
 
 /**
@@ -92,11 +93,14 @@ export function getMissingRequiredParametersMessage(
 
     if (normalizedActualValue !== normalizedExpectedValue) {
       const paramLabel = getParameterLabel(paramName) || paramName;
-      const expectedLabel =
+      missingRequirements.push(
         expectedValue === true || expectedValue === 1
-          ? "enabled"
-          : `set to ${expectedValue}`;
-      missingRequirements.push(`'${paramLabel}' must be ${expectedLabel}`);
+          ? m.param_must_be_enabled({ name: paramLabel })
+          : m.param_must_be_set_to({
+              name: paramLabel,
+              value: String(expectedValue),
+            }),
+      );
     }
   }
 
@@ -105,10 +109,14 @@ export function getMissingRequiredParametersMessage(
   }
 
   if (missingRequirements.length === 1) {
-    return `Enable this by setting: ${missingRequirements[0]}`;
+    return m.param_enable_by_setting({
+      requirements: missingRequirements[0],
+    });
   }
 
-  return `Enable this by setting: ${missingRequirements.join(" and ")}`;
+  return m.param_enable_by_setting({
+    requirements: missingRequirements.join(m.param_and()),
+  });
 }
 
 /**
@@ -162,9 +170,9 @@ export function groupParametersBySection(
     } else {
       // Fallback to prefix-based grouping for parameters not in groups
       const prefix = param.name.split(".")[0];
-      const fallbackLabel = `${prefix.charAt(0).toUpperCase()}${prefix.slice(
-        1,
-      )} Parameters`;
+      const fallbackLabel = m.param_fallback_group({
+        prefix: `${prefix.charAt(0).toUpperCase()}${prefix.slice(1)}`,
+      });
       if (!groups[fallbackLabel]) {
         groups[fallbackLabel] = [];
       }

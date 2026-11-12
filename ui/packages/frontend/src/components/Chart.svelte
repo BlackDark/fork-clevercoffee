@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
+  import * as m from "@/paraglide/messages.js";
   import uPlot from "uplot";
   import "uplot/dist/uPlot.min.css";
   let {
@@ -143,4 +144,4 @@
     : "Heater power history chart"}
   bind:this={container}
 ></div>
-{#if error}<p role="alert">Chart unavailable: {error}</p>{/if}
+{#if error}<p role="alert">{m.chart_unavailable({ error })}</p>{/if}

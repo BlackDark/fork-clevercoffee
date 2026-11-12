@@ -21,20 +21,18 @@
     uploadConfig,
     type DeviceAction,
   } from "@/lib/system-actions";
+  import * as m from "@/paraglide/messages.js";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import Ota from "../components/Ota.svelte";
-  const m = useMachine();
+  const machine = useMachine();
   let action = $state("");
   let busy = $state(false);
   let file = $state<File | null>(null);
   const descriptions: Record<string, string> = {
-    restart: "Restart the device? The browser may disconnect briefly.",
-    "factory-reset":
-      "Erase all saved settings and restart? This cannot be undone.",
-    "wifi-reset":
-      "Erase saved Wi-Fi credentials and restart? You will need to reconnect the machine.",
-    upload:
-      "Restore this configuration? Settings will change and the device may restart.",
+    restart: m.system_restart_confirm(),
+    "factory-reset": m.system_factory_reset_confirm(),
+    "wifi-reset": m.system_wifi_reset_confirm(),
+    upload: m.system_upload_confirm(),
   };
   let open = $state(false);
   function ask(next: string) {
@@ -46,7 +44,7 @@
     try {
       if (action === "upload") {
         toast.success(await uploadConfig(file));
-        await m.parameters.refetch();
+        await machine.parameters.refetch();
       } else {
         toast.success(await postDeviceAction(action as DeviceAction));
       }
@@ -61,8 +59,8 @@
 
 <div class="page-heading">
   <div>
-    <h1>System</h1>
-    <p>Back up your settings, update your device, and keep things running.</p>
+    <h1>{m.system_title()}</h1>
+    <p>{m.system_subtitle()}</p>
   </div>
 </div>
 
@@ -71,8 +69,8 @@
     ><Card.Header
       ><Card.Title
         role="heading"
-        aria-level={2}>Power & standby</Card.Title
-      ><Card.Description>Wake, sleep, or restart the device.</Card.Description
+        aria-level={2}>{m.system_power_standby()}</Card.Title
+      ><Card.Description>{m.system_power_standby_desc()}</Card.Description
       ><Card.Action class="text-muted-foreground"
         ><Power size={20} /></Card.Action
       ></Card.Header
@@ -81,17 +79,20 @@
         <Button
           type="button"
           variant="success"
-          disabled={m.command.isPending}
-          onclick={() => m.run("/wake")}><Power size={16} />Wake up</Button
+          disabled={machine.command.isPending}
+          onclick={() => machine.run("/wake")}
+          ><Power size={16} />{m.system_wake_up()}</Button
         ><Button
           type="button"
           variant="outline"
-          disabled={m.command.isPending}
-          onclick={() => m.run("/sleep")}><Moon size={16} />Sleep</Button
+          disabled={machine.command.isPending}
+          onclick={() => machine.run("/sleep")}
+          ><Moon size={16} />{m.system_sleep()}</Button
         ><Button
           type="button"
           variant="warning"
-          onclick={() => ask("restart")}><RotateCcw size={16} />Restart</Button
+          onclick={() => ask("restart")}
+          ><RotateCcw size={16} />{m.system_restart()}</Button
         >
       </div>
     </Card.Content></Card.Root
@@ -100,8 +101,8 @@
     ><Card.Header
       ><Card.Title
         role="heading"
-        aria-level={2}>Reset options</Card.Title
-      ><Card.Description>These actions erase saved settings.</Card.Description
+        aria-level={2}>{m.system_reset_options()}</Card.Title
+      ><Card.Description>{m.system_reset_options_desc()}</Card.Description
       ><Card.Action class="text-muted-foreground"
         ><TriangleAlert size={20} /></Card.Action
       ></Card.Header
@@ -111,12 +112,12 @@
           type="button"
           variant="warning"
           onclick={() => ask("wifi-reset")}
-          ><Wifi size={16} />Reset Wi-Fi</Button
+          ><Wifi size={16} />{m.system_reset_wifi()}</Button
         ><Button
           type="button"
           variant="destructive"
           onclick={() => ask("factory-reset")}
-          ><TriangleAlert size={16} />Factory reset</Button
+          ><TriangleAlert size={16} />{m.system_factory_reset()}</Button
         >
       </div>
     </Card.Content></Card.Root
@@ -125,8 +126,8 @@
     ><Card.Header
       ><Card.Title
         role="heading"
-        aria-level={2}>Configuration backup</Card.Title
-      ><Card.Description>Download the current configuration.</Card.Description
+        aria-level={2}>{m.system_config_backup()}</Card.Title
+      ><Card.Description>{m.system_config_backup_desc()}</Card.Description
       ><Card.Action class="text-muted-foreground"
         ><Download size={20} /></Card.Action
       ></Card.Header
@@ -135,7 +136,7 @@
         variant="success"
         href={`${API_BASE_URL}/config/download`}
         download="clevercoffee-config.json"
-        ><Download size={16} />Download configuration</Button
+        ><Download size={16} />{m.system_download_configuration()}</Button
       >
     </Card.Content></Card.Root
   >
@@ -143,16 +144,16 @@
     ><Card.Header
       ><Card.Title
         role="heading"
-        aria-level={2}>Restore configuration</Card.Title
+        aria-level={2}>{m.system_restore_configuration()}</Card.Title
       ><Card.Description
-        >Restore settings from a JSON backup (up to 8 KB).</Card.Description
+        >{m.system_restore_configuration_desc()}</Card.Description
       ><Card.Action class="text-muted-foreground"
         ><Upload size={20} /></Card.Action
       ></Card.Header
     ><Card.Content>
       <Label
         class="sr-only"
-        for="config-file">Configuration file</Label
+        for="config-file">{m.system_configuration_file()}</Label
       ><Input
         class="mb-4"
         id="config-file"
@@ -167,7 +168,7 @@
         variant="info"
         onclick={() => ask("upload")}
         disabled={!file || busy}
-        ><Upload size={16} />Restore configuration</Button
+        ><Upload size={16} />{m.system_restore_configuration()}</Button
       >
     </Card.Content></Card.Root
   >
@@ -176,11 +177,11 @@
 <ConfirmDialog
   bind:open
   title={action === "upload"
-    ? "Restore configuration?"
-    : "Confirm device action"}
+    ? m.system_restore_confirm_title()
+    : m.system_confirm_device_action()}
   description={descriptions[action] ?? ""}
   destructive={action.includes("reset")}
   confirm={perform}
   {busy}
-  label="Continue"
+  label={m.system_continue()}
 />

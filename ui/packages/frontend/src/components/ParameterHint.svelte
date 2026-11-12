@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as m from "@/paraglide/messages.js";
   import * as Tooltip from "./ui/tooltip";
   import { Button } from "./ui/button";
   import { Info } from "@lucide/svelte";
@@ -16,7 +17,7 @@
   >
     <Tooltip.Trigger
       type="button"
-      aria-label={unavailable ? "Parameter disabled" : "Parameter help"}
+      aria-label={unavailable ? m.param_disabled() : m.param_help()}
     >
       {#snippet child({ props })}
         <Button
@@ -27,7 +28,9 @@
             ? "border-blue-200 bg-blue-50 text-blue-600 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300"
             : "text-muted-foreground"}
         >
-          <Info size={16} />{#if unavailable}<span>Disabled</span>{/if}
+          <Info size={16} />{#if unavailable}<span
+              >{m.param_disabled_label()}</span
+            >{/if}
         </Button>
       {/snippet}
     </Tooltip.Trigger>
@@ -39,6 +42,6 @@
     sideOffset={6}
     collisionPadding={16}
   >
-    {#if unavailable}<strong>Parameter disabled</strong>{/if}{text}
+    {#if unavailable}<strong>{m.param_disabled()}</strong>{/if}{text}
   </Tooltip.Content>
 </Tooltip.Root>
