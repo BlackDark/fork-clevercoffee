@@ -14,6 +14,7 @@ use sequential_storage::cache::{Cache, Uncached};
 use sequential_storage::map::{MapConfig, MapStorage};
 
 use crate::flash::{self, Region};
+use crate::metrics;
 use crate::shared::{self, RestartKind};
 
 type Key = String<64>;
@@ -101,6 +102,7 @@ impl Store {
                 Ok(()) => written += 1,
                 Err(e) => {
                     warn!("settings: write {} failed: {e:?}", p.key);
+                    metrics::settings_save(false);
                     return;
                 }
             }
@@ -110,6 +112,7 @@ impl Store {
             let b = shots.to_le_bytes();
             if let Err(e) = self.map.store_item(&mut buf, &key(SHOTS_KEY), &&b[..]).await {
                 warn!("settings: write shots failed: {e:?}");
+                metrics::settings_save(false);
                 return;
             }
             self.saved_shots = shots;
@@ -117,6 +120,7 @@ impl Store {
         }
         if written > 0 {
             info!("settings: saved {written} values");
+            metrics::settings_save(true);
         }
     }
 

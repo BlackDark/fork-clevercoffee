@@ -19,7 +19,7 @@ pub mod logring;
 pub use logring::LogRing;
 
 use core::fmt::Write as _;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use cc_api::json::Writer;
 use cc_api::{FormPairs, Live, multipart};
@@ -44,6 +44,9 @@ pub const UPLOAD_TIMEOUT_MS: u64 = 180_000;
 /// the WiFi driver, which allocates its packet buffers from the same heap. A failed
 /// allocation is a panic and a reboot; a 503 is a retry.
 pub const MIN_FREE_HEAP: usize = 8 * 1024;
+
+/// Requests the low-heap gate refused since boot (`/api/metrics`).
+pub static LOW_HEAP_REFUSALS: AtomicU32 = AtomicU32::new(0);
 
 /// The 503 for a full heap: static, it needs no allocation.
 const LOW_MEMORY: &[u8] = br#"{"success":false,"message":"Low on memory, try again"}"#;
@@ -93,6 +96,13 @@ impl OtaError {
 pub trait Backend {
     /// Runs `f` with the current configuration, status and live values.
     fn read<R>(&self, f: impl FnOnce(&Config, &Status, &Live) -> R) -> R;
+    /// The live values alone. The default builds the status too; the firmware skips it.
+    fn live(&self) -> Live {
+        self.read(|_, _, l| *l)
+    }
+    /// Adds the firmware's counters to `live` (`/api/metrics` and the metrics stream;
+    /// the other reads stay cheap).
+    fn load_metrics(&self, _live: &mut Live) {}
     fn history<R>(&self, f: impl FnOnce(&History) -> R) -> R;
     /// The log lines since offset `since` and the offset to ask for next (see
     /// [`LogRing::read_since`]); `None` when the heap cannot spare the copy.
@@ -404,6 +414,16 @@ fn base64_decode<'b>(s: &str, out: &'b mut [u8]) -> Option<&'b str> {
 
 struct Events<'b, B> {
     backend: &'b B,
+    /// `?metrics=1`: send only the health counters each interval, no temperatures.
+    metrics: bool,
+}
+
+/// The live values plus the firmware counters, as `/api/metrics` reports them.
+fn live_metrics<B: Backend>(b: &B) -> Live {
+    let mut live = b.live();
+    b.load_metrics(&mut live);
+    live.low_heap_refusals = LOW_HEAP_REFUSALS.load(Ordering::Relaxed);
+    live
 }
 
 impl<B: Backend> EventSource for Events<'_, B> {
@@ -411,6 +431,13 @@ impl<B: Backend> EventSource for Events<'_, B> {
         writer.write_event("hello", "Connected to CleverCoffee").await?;
         loop {
             self.backend.sleep_ms(EVENT_INTERVAL_MS).await;
+            if self.metrics {
+                let mut m: heapless::String<640> = heapless::String::new();
+                if cc_api::write_metrics(&live_metrics(self.backend), &mut Writer::new(&mut m)).is_ok() {
+                    writer.write_event("metrics", m.as_str()).await?;
+                }
+                continue;
+            }
             let mut s: heapless::String<160> = heapless::String::new();
             let scale = self.backend.read(|cfg, st, _| {
                 let _ = cc_api::write_temperatures(st, &mut Writer::new(&mut s));
@@ -479,6 +506,7 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
 
         // Health stays answerable: it allocates nothing.
         if path != "/api/health" && b.heap_free() < MIN_FREE_HEAP {
+            LOW_HEAP_REFUSALS.fetch_add(1, Ordering::Relaxed);
             reply!(
                 Response::new(
                     StatusCode::new(503),
@@ -509,6 +537,12 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                 let st = b.read(|_, s, _| *s);
                 reply!(json(StatusCode::OK, move |w| {
                     cc_api::write_temperatures(&st, &mut Writer::new(w))
+                }));
+            }
+            ("GET", "/api/metrics") => {
+                let live = live_metrics(b);
+                reply!(json(StatusCode::OK, move |w| {
+                    cc_api::write_metrics(&live, &mut Writer::new(w))
                 }));
             }
             ("GET", "/api/history") => {
@@ -818,17 +852,20 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                         "Too many open event streams"
                     ));
                 };
-                // Boxed: the stream's future (3 KB) is the largest response and would
-                // set the size of every worker's static future. It lives as long as a
-                // UI tab is open.
+                // Boxed: the stream's future (with its metrics buffer) is the largest
+                // response and would set the size of every worker's static future.
+                // It lives as long as a UI tab is open.
                 let connection = request.body_connection.finalize().await?;
                 let write: core::pin::Pin<
                     alloc::boxed::Box<dyn core::future::Future<Output = Result<ResponseSent, W::Error>> + '_>,
                 > = alloc::boxed::Box::pin(async move {
                     let _slot = slot;
-                    EventStream(Events { backend: b })
-                        .write_to(connection, response_writer)
-                        .await
+                    EventStream(Events {
+                        backend: b,
+                        metrics: raw_query.split('&').any(|p| p == "metrics=1"),
+                    })
+                    .write_to(connection, response_writer)
+                    .await
                 });
                 write.await
             }
@@ -888,6 +925,7 @@ pub const ROUTES: &[(&str, &str)] = &[
     ("GET", "/api/health"),
     ("GET", "/api/temperatures"),
     ("GET", "/api/history"),
+    ("GET", "/api/metrics"),
     ("GET", "/api/logs"),
     ("GET", "/api/parameters"),
     ("POST", "/api/parameters"),

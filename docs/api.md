@@ -12,6 +12,7 @@ With `system.auth.enabled`, every route needs HTTP basic auth.
 | GET | `/api/health` | liveness |
 | GET | `/api/temperatures` | `currentTemp`, `targetTemp`, `heaterPower` |
 | GET | `/api/history` | last 30 min of temperature, setpoint and heater power |
+| GET | `/api/metrics` | controller health in one small reply, counts since boot: firmware version, reset reason (esp-hal code), uptime, heap (free, lowest), lowest free stack, requests refused by the low-heap gate (503), control loop (longest tick gap and slowest tick in µs, tick gaps longer than two periods), TSIC (good and bad frames, ms since boot of the last good frame (low 32 bits, 0 before the first)), DS18B20 read errors, settings saves and failures and the last result (0 none, 1 saved, 2 failed), log-ring bytes (wraps after 4 GiB), WiFi state, RSSI and reconnects, MQTT state |
 | GET | `/api/logs` | the newest log lines as text *(new)*; `?since=<X-Log-Next of the last reply>` returns only what is new, a smaller `X-Log-Next` than asked for means the device restarted (a restart that logged more than `since` bytes before the next poll goes unnoticed); about 6 KB, a few minutes of a quiet machine |
 | GET | `/api/parameters` | all parameters with metadata (`?filter=all`; secrets are blanked) |
 | POST | `/api/parameters` | `key=value&…` form or query; all-or-nothing validation |
@@ -23,7 +24,7 @@ With `system.auth.enabled`, every route needs HTTP basic auth.
 | POST | `/api/ota/firmware` | multipart field `firmware`: streams into the inactive slot, restarts |
 | GET | `/api/ota/status` | `status` (`idle`, `uploading`, `complete`, `error`), `progress`, `updateInProgress` |
 | POST | `/api/restart`, `/api/factory-reset`, `/api/wifi-reset` | answered, then executed |
-| GET | `/events` | server-sent events, 1 s: `new_temps`, `weight` *(new)*; at most two streams (one with a Bluetooth scale), then `503` *(new)* |
+| GET | `/events` | server-sent events, 1 s: `new_temps`, `weight` *(new)*; `?metrics=1` sends `hello`, then only `metrics` *(new)*, the `/api/metrics` body each second; at most two streams (one with a Bluetooth scale), then `503` *(new)* |
 | GET | `/ui/…` | the embedded web UI; `/` redirects there |
 | POST | `/api/debug/hang` | `bench` builds only *(new)* |
 

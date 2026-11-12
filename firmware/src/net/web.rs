@@ -16,24 +16,45 @@ use crate::{ota, ui_assets};
 
 pub struct Device;
 
+/// Bytes the heap can still hand out (read before the shared-state lock is taken).
+fn free_heap() -> u32 {
+    let heap = esp_alloc::HEAP.stats();
+    (heap.size - heap.current_usage) as u32
+}
+
+/// The live values with the allocator's and stack monitor's figures; `s` is held.
+fn live_of(s: &shared::Shared, free_heap: u32) -> Live {
+    Live {
+        mqtt_connected: s.net.mqtt_connected,
+        free_heap,
+        min_free_heap: shared::MIN_FREE_HEAP.load(core::sync::atomic::Ordering::Relaxed),
+        min_free_stack: crate::stackmon::last(),
+        wifi_reconnects: s.net.reconnects,
+        ..s.live
+    }
+}
+
 impl Backend for Device {
     fn read<R>(&self, f: impl FnOnce(&Config, &Status, &Live) -> R) -> R {
-        let heap = esp_alloc::HEAP.stats();
+        let free_heap = free_heap();
         shared::with(|s| {
             let st = s.machine.status(&s.cfg);
-            let live = Live {
-                mqtt_connected: s.net.mqtt_connected,
-                free_heap: (heap.size - heap.current_usage) as u32,
-                min_free_heap: shared::MIN_FREE_HEAP.load(core::sync::atomic::Ordering::Relaxed),
-                min_free_stack: crate::stackmon::last(),
-                ..s.live
-            };
+            let live = live_of(s, free_heap);
             f(&s.cfg, &st, &live)
         })
     }
 
+    fn live(&self) -> Live {
+        let free_heap = free_heap();
+        shared::with(|s| live_of(s, free_heap))
+    }
+
     fn history<R>(&self, f: impl FnOnce(&History) -> R) -> R {
         shared::with(|s| f(&s.history))
+    }
+
+    fn load_metrics(&self, live: &mut Live) {
+        crate::metrics::fill(live);
     }
 
     fn logs(&self, since: u64) -> Option<(u64, alloc::vec::Vec<u8>)> {

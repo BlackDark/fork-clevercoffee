@@ -520,6 +520,37 @@ async fn ui_is_served_from_the_firmware() {
     .await;
 }
 
+/// The first complete `event` frame, up to its blank line, if one has arrived.
+fn event_data<'a>(seen: &'a str, event: &str) -> Option<&'a str> {
+    let start = seen.find(&format!("event:{event}\n"))?;
+    let rest = &seen[start..];
+    Some(&rest[..rest.find("\n\n")?])
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn server_sent_events_send_metrics_only_on_request() {
+    with_server(ready(), |port| async move {
+        let mut s = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        s.write_all(b"GET /events?metrics=1 HTTP/1.1\r\nHost: x\r\n\r\n")
+            .await
+            .unwrap();
+        let mut seen = String::new();
+        let mut buf = [0u8; 2048];
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        while event_data(&seen, "metrics").is_none() && tokio::time::Instant::now() < deadline {
+            let n = tokio::time::timeout(Duration::from_secs(1), s.read(&mut buf))
+                .await
+                .unwrap_or(Ok(0))
+                .unwrap();
+            seen.push_str(&String::from_utf8_lossy(&buf[..n]));
+        }
+        let metrics = event_data(&seen, "metrics").unwrap_or_else(|| panic!("no metrics frame: {seen}"));
+        assert!(metrics.contains("\"firmwareVersion\""), "{metrics}");
+        assert!(!seen.contains("event:new_temps"), "{seen}");
+    })
+    .await;
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn server_sent_events() {
     with_server(ready(), |port| async move {
@@ -530,7 +561,7 @@ async fn server_sent_events() {
         let mut seen = String::new();
         let mut buf = [0u8; 1024];
         let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
-        while !seen.contains("event:new_temps") && tokio::time::Instant::now() < deadline {
+        while event_data(&seen, "new_temps").is_none() && tokio::time::Instant::now() < deadline {
             let n = tokio::time::timeout(Duration::from_secs(1), s.read(&mut buf))
                 .await
                 .unwrap_or(Ok(0))
@@ -539,8 +570,12 @@ async fn server_sent_events() {
         }
         assert!(seen.contains("text/event-stream"), "{seen}");
         assert!(seen.contains("event:hello"));
-        assert!(seen.contains("event:new_temps"));
-        assert!(seen.contains("\"targetTemp\":95"));
+        let temps = event_data(&seen, "new_temps").unwrap_or_else(|| panic!("no new_temps frame: {seen}"));
+        assert!(temps.contains("\"targetTemp\":95"), "{temps}");
+        assert!(
+            !seen.contains("event:metrics"),
+            "metrics sent without ?metrics=1: {seen}"
+        );
 
         // The test server allows one stream: a second is turned away, not queued.
         assert_eq!(get(port, "/events").await.status, 503);
@@ -586,6 +621,25 @@ async fn low_heap_answers_503_but_health() {
         assert_eq!(get(port, "/api/health").await.status, 200);
         FAKE_HEAP.with(|h| h.set(None));
         assert_eq!(get(port, "/api/parameters").await.status, 200);
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn metrics_report_health_and_count_heap_refusals() {
+    with_server(ready(), |port| async move {
+        let r = get(port, "/api/metrics").await;
+        assert_eq!(r.status, 200);
+        let before = r.json()["lowHeapRefusals"].as_u64().unwrap();
+        assert!(r.json().get("freeHeap").is_some());
+        assert!(r.json().get("wifiReconnects").is_some());
+        FAKE_HEAP.with(|h| h.set(Some(cc_web::MIN_FREE_HEAP - 1)));
+        assert_eq!(get(port, "/api/metrics").await.status, 503);
+        FAKE_HEAP.with(|h| h.set(None));
+        let after = get(port, "/api/metrics").await.json()["lowHeapRefusals"]
+            .as_u64()
+            .unwrap();
+        assert!(after > before, "{before} -> {after}");
     })
     .await;
 }

@@ -15,6 +15,7 @@ mod control;
 mod display;
 mod flash;
 mod logbuf;
+mod metrics;
 mod net;
 mod ota;
 mod sensors;

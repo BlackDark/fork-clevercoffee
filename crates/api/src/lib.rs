@@ -101,6 +101,26 @@ pub struct Live {
     pub min_free_heap: u32,
     /// Main stack never touched since boot (0: not measured).
     pub min_free_stack: u32,
+    pub wifi_reconnects: u32,
+    /// Requests answered 503 by the low-heap gate since boot.
+    pub low_heap_refusals: u32,
+    pub loop_gap_max_us: u32,
+    pub loop_tick_max_us: u32,
+    pub loop_late_ticks: u32,
+    pub tsic_good_frames: u32,
+    pub tsic_bad_frames: u32,
+    /// Time since boot (ms, low 32 bits) of the last decoded TSIC frame; 0 before the first.
+    pub tsic_last_good_ms: u32,
+    pub ds18b20_read_errors: u32,
+    pub settings_saves: u32,
+    pub settings_save_failures: u32,
+    /// Last settings save: 0 none yet, 1 saved, 2 failed.
+    pub settings_last_save: u32,
+    /// Bytes pushed to the log ring once it exists (wraps after 4 GiB).
+    pub log_bytes: u32,
+    pub firmware_version: &'static str,
+    /// esp-hal's reset reason code (0 when unknown).
+    pub reset_reason: u32,
 }
 
 /// `GET /api/status`. Fields as in the C++, plus a few diagnostics.
@@ -148,6 +168,35 @@ pub fn write_status(st: &Status, cfg: &Config, live: &Live, w: &mut Writer<impl 
     w.kv_int("freeHeap", i64::from(live.free_heap))?;
     w.kv_int("minFreeHeap", i64::from(live.min_free_heap))?;
     w.kv_int("minFreeStack", i64::from(live.min_free_stack))?;
+    w.end_object()
+}
+
+/// `GET /api/metrics`: controller health in one small reply, readable without USB.
+/// Counters count from boot.
+pub fn write_metrics(live: &Live, w: &mut Writer<impl Write>) -> fmt::Result {
+    w.begin_object()?;
+    w.kv_str("firmwareVersion", live.firmware_version)?;
+    w.kv_int("resetReason", i64::from(live.reset_reason))?;
+    w.kv_int("uptime", live.uptime_ms as i64)?;
+    w.kv_int("freeHeap", i64::from(live.free_heap))?;
+    w.kv_int("minFreeHeap", i64::from(live.min_free_heap))?;
+    w.kv_int("minFreeStack", i64::from(live.min_free_stack))?;
+    w.kv_int("lowHeapRefusals", i64::from(live.low_heap_refusals))?;
+    w.kv_int("loopGapMaxUs", i64::from(live.loop_gap_max_us))?;
+    w.kv_int("loopTickMaxUs", i64::from(live.loop_tick_max_us))?;
+    w.kv_int("loopLateTicks", i64::from(live.loop_late_ticks))?;
+    w.kv_int("tsicGoodFrames", i64::from(live.tsic_good_frames))?;
+    w.kv_int("tsicBadFrames", i64::from(live.tsic_bad_frames))?;
+    w.kv_int("tsicLastGoodMs", i64::from(live.tsic_last_good_ms))?;
+    w.kv_int("ds18b20ReadErrors", i64::from(live.ds18b20_read_errors))?;
+    w.kv_int("settingsSaves", i64::from(live.settings_saves))?;
+    w.kv_int("settingsSaveFailures", i64::from(live.settings_save_failures))?;
+    w.kv_int("settingsLastSave", i64::from(live.settings_last_save))?;
+    w.kv_int("logBytes", i64::from(live.log_bytes))?;
+    w.kv_bool("wifiConnected", live.wifi_connected)?;
+    w.kv_int("wifiRssi", i64::from(live.wifi_rssi))?;
+    w.kv_int("wifiReconnects", i64::from(live.wifi_reconnects))?;
+    w.kv_bool("mqttConnected", live.mqtt_connected)?;
     w.end_object()
 }
 
@@ -529,6 +578,48 @@ mod tests {
         assert_eq!(p.next_pair(&mut kb, &mut vb), None);
         let mut b = [0u8; 16];
         assert_eq!(form_value("x=1&value=88.5", "value", &mut b), Some("88.5"));
+    }
+
+    #[test]
+    fn metrics_carry_the_health_counters() {
+        let live = Live {
+            free_heap: 1000,
+            low_heap_refusals: 2,
+            wifi_reconnects: 3,
+            loop_late_ticks: 4,
+            tsic_bad_frames: 5,
+            settings_last_save: 1,
+            firmware_version: "9.9.9",
+            ..Live::default()
+        };
+        let s = render(|w| write_metrics(&live, w));
+        let v: serde_json::Value = serde_json::from_str(&s).unwrap();
+        assert_eq!(v["freeHeap"], 1000);
+        assert_eq!(v["lowHeapRefusals"], 2);
+        assert_eq!(v["wifiReconnects"], 3);
+        assert_eq!(v["loopLateTicks"], 4);
+        assert_eq!(v["tsicBadFrames"], 5);
+        assert_eq!(v["settingsLastSave"], 1);
+        assert_eq!(v["firmwareVersion"], "9.9.9");
+        for k in [
+            "uptime",
+            "minFreeHeap",
+            "minFreeStack",
+            "loopGapMaxUs",
+            "loopTickMaxUs",
+            "tsicGoodFrames",
+            "tsicLastGoodMs",
+            "ds18b20ReadErrors",
+            "settingsSaves",
+            "settingsSaveFailures",
+            "logBytes",
+            "resetReason",
+            "wifiConnected",
+            "wifiRssi",
+            "mqttConnected",
+        ] {
+            assert!(v.get(k).is_some(), "{k}");
+        }
     }
 
     #[test]
