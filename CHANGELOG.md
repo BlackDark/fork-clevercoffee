@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.3.0](https://github.com/BlackDark/clevercoffee-rs/compare/v2.2.0...v2.3.0) (2026-11-12)
+
+
+### Features
+
+* **api:** GET /api/metrics with controller health counters ([#169](https://github.com/BlackDark/clevercoffee-rs/issues/169)) ([1466598](https://github.com/BlackDark/clevercoffee-rs/commit/1466598dfdfdcf43ec9d69232da9c1d9c09822de))
+* **display:** larger IP font on the standard boot banner ([#175](https://github.com/BlackDark/clevercoffee-rs/issues/175)) ([38ff4a2](https://github.com/BlackDark/clevercoffee-rs/commit/38ff4a2ad52a53493ac434201e2df560f71148b8)), closes [#174](https://github.com/BlackDark/clevercoffee-rs/issues/174)
+* **mqtt:** diagnostic sensors for Home Assistant ([#170](https://github.com/BlackDark/clevercoffee-rs/issues/170)) ([ae692d1](https://github.com/BlackDark/clevercoffee-rs/commit/ae692d140d7c8b9317d85531d0616edb089dac2b))
+* **ui:** diagnostics page for controller health ([#171](https://github.com/BlackDark/clevercoffee-rs/issues/171)) ([51a96fe](https://github.com/BlackDark/clevercoffee-rs/commit/51a96fe5d6a1ebfd400ad88ea5246f0489784c09))
+* **ui:** Paraglide i18n with English messages ([#173](https://github.com/BlackDark/clevercoffee-rs/issues/173)) ([fa44d0a](https://github.com/BlackDark/clevercoffee-rs/commit/fa44d0a0c952c34350d43d83e21a1518686c29e8))
+
+
+### Documentation
+
+* **readme:** one centered paragraph per footer line ([#162](https://github.com/BlackDark/clevercoffee-rs/issues/162)) ([39f6cdf](https://github.com/BlackDark/clevercoffee-rs/commit/39f6cdfebdc73bf59816539b5d646ede6b6921a7))
+
 ## [2.2.0](https://github.com/BlackDark/clevercoffee-rs/compare/v2.1.0...v2.2.0) (2026-11-11)
 
 
