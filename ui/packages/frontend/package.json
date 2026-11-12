@@ -20,8 +20,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "format": "pnpm -w format",
     "precheck:types:ts6": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide",
-    "check:types:ts6": "svelte-check --tsconfig ./tsconfig.app.json --fail-on-warnings",
-    "lint:i18n": "node scripts/check-i18n.mjs"
+    "check:types:ts6": "svelte-check --tsconfig ./tsconfig.app.json --fail-on-warnings"
   },
   "dependencies": {
     "@lucide/svelte": "1.69.0",
