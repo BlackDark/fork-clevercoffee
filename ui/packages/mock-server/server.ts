@@ -398,8 +398,19 @@ app.get(
         filteredParams.length
       } parameters`,
     );
-    // Device shape: no section or display name; the UI owns labels and help texts.
-    res.json(filteredParams.map(({ section: _s, displayName: _d, ...p }) => p));
+    // Device shape: only fields write_parameters sends; the UI owns labels and help texts.
+    res.json(
+      filteredParams.map(
+        ({
+          section: _section,
+          displayName: _displayName,
+          position: _position,
+          hasHelpText: _hasHelpText,
+          show: _show,
+          ...param
+        }) => param,
+      ),
+    );
   },
 );
 

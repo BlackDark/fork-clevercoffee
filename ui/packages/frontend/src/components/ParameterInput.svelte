@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Input } from "@/components/ui/input";
   import SelectField from "./SelectField.svelte";
-  import { getOptionLabel } from "@/lib/parameter-text";
+  import { getOptionLabel } from "@/lib/parameter-options";
   import SwitchField from "./SwitchField.svelte";
   import {
     isParameterBoolean,

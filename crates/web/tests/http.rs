@@ -237,6 +237,17 @@ fn ready() -> Config {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn fix_parameter_help_route_is_gone() {
+    with_server(ready(), |port| async move {
+        assert_eq!(
+            get(port, "/api/parameter-help?param=pid.enabled").await.status,
+            404
+        );
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn status_and_reads() {
     with_server(ready(), |port| async move {
         let r = get(port, "/api/status").await;

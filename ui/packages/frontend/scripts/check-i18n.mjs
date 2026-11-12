@@ -2,8 +2,10 @@
 // from Paraglide messages (`{m.key()}`); product names and symbols are allowed.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+import { parse } from "svelte/compiler";
 
-const ROOT = new URL("../src", import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL("../src", import.meta.url));
 const ALLOWED = new Set([
   "CleverCoffee",
   "PID",
@@ -12,6 +14,7 @@ const ALLOWED = new Set([
   "OTA",
   "BrewUI",
 ]);
+const TEXT_ATTRIBUTES = new Set(["aria-label", "title", "placeholder", "alt"]);
 
 function* svelteFiles(dir) {
   for (const name of readdirSync(dir)) {
@@ -22,53 +25,66 @@ function* svelteFiles(dir) {
   }
 }
 
-// Blanks out comments, script and style blocks, keeping offsets for line numbers.
-function blank(src) {
-  return src.replace(
-    /<!--[\s\S]*?-->|<(script|style)\b[\s\S]*?<\/\1>/g,
-    (match) => match.replace(/[^\n]/g, " "),
-  );
-}
-
-function lineOf(src, index) {
-  return src.slice(0, index).split("\n").length;
-}
-
-// Strips `{...}` expressions, innermost first, so nested objects go too.
-function stripExpressions(text) {
-  let prev;
-  do {
-    prev = text;
-    text = text.replace(/\{[^{}]*\}/g, " ");
-  } while (text !== prev);
-  return text;
+// Every node in the template tree. Attribute values are yielded but not entered:
+// they are checked by name in `attributeProblems`.
+function* walk(node) {
+  if (Array.isArray(node)) {
+    for (const child of node) yield* walk(child);
+    return;
+  }
+  if (!node || typeof node !== "object") return;
+  yield node;
+  if (node.type === "Attribute") return;
+  for (const value of Object.values(node)) {
+    if (value && typeof value === "object") yield* walk(value);
+  }
 }
 
 function isEnglish(text) {
-  const words = stripExpressions(text)
+  return text
     .split(/[\s·—–-]+/)
-    .filter((w) => /[A-Za-z]{2,}/.test(w) && !ALLOWED.has(w));
-  return words.length > 0;
+    .some((w) => /[A-Za-z]{2,}/.test(w) && !ALLOWED.has(w));
+}
+
+// String literals inside a JS expression, e.g. `{c ? "Open" : m.x()}`.
+function* stringLiterals(node) {
+  for (const n of walk(node)) {
+    if (n.type === "Literal" && typeof n.value === "string") yield n.value;
+  }
+}
+
+function attributeProblems(attribute) {
+  if (!TEXT_ATTRIBUTES.has(attribute.name) || attribute.value === true)
+    return [];
+  const parts = Array.isArray(attribute.value)
+    ? attribute.value
+    : [attribute.value];
+  const found = [];
+  for (const part of parts) {
+    if (part.type === "Text" && isEnglish(part.data)) found.push(part.data);
+    if (part.type === "ExpressionTag") {
+      // Lowercase single words are comparison keys (`action === "upload"`), not text.
+      for (const literal of stringLiterals(part.expression)) {
+        if (/^[A-Z]|\s/.test(literal) && isEnglish(literal))
+          found.push(literal);
+      }
+    }
+  }
+  return found.map((text) => `${attribute.name} "${text.trim().slice(0, 60)}"`);
 }
 
 const problems = [];
 for (const file of svelteFiles(ROOT)) {
-  const src = blank(readFileSync(file, "utf8"));
-  for (const match of src.matchAll(/(?<!=)>([^<>]*)</g)) {
-    const text = match[1].trim();
-    if (text && isEnglish(text)) {
-      problems.push(
-        `${relative(ROOT, file)}:${lineOf(src, match.index)}: text "${text.slice(0, 60)}"`,
-      );
-    }
-  }
-  for (const match of src.matchAll(
-    /\b(aria-label|title|placeholder|alt)=(["'])([^"'{}]*)\2/g,
-  )) {
-    if (isEnglish(match[3])) {
-      problems.push(
-        `${relative(ROOT, file)}:${lineOf(src, match.index)}: ${match[1]} "${match[3].slice(0, 60)}"`,
-      );
+  const src = readFileSync(file, "utf8");
+  const where = (node) =>
+    `${relative(ROOT, file)}:${src.slice(0, node.start).split("\n").length}`;
+  for (const node of walk(parse(src, { modern: true }).fragment)) {
+    if (node.type === "Text" && isEnglish(node.data)) {
+      problems.push(`${where(node)}: text "${node.data.trim().slice(0, 60)}"`);
+    } else if (node.type === "Attribute") {
+      for (const message of attributeProblems(node)) {
+        problems.push(`${where(node)}: ${message}`);
+      }
     }
   }
 }
