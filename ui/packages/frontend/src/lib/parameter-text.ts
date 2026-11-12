@@ -421,7 +421,12 @@ const optionTexts: Record<string, Record<number, () => string>> = {
     4: m.status_upright,
     5: m.status_modern,
   },
-  "display.language": { 0: m.status_english },
+  // Endonyms, like the device's own names for them.
+  "display.language": {
+    0: m.status_english,
+    1: () => "Deutsch",
+    2: () => "Español",
+  },
   "hardware.sensors.scale.type": {
     0: m.status_2_load_cells,
     1: m.status_1_load_cell,

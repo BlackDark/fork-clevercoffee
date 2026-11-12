@@ -313,7 +313,6 @@
   "param_must_be_set_to": "'{name}' must be set to {value}",
   "param_enable_by_setting": "Enable this by setting: {requirements}",
   "param_and": " and ",
-  "param_fallback_group": "{prefix} Parameters",
   "param_unknown_device_parameter": "Unknown device parameter: {name}",
   "param_enter_finite_number": "{name}: enter a finite number.",
   "param_enter_value_between": "{name}: enter a value between {min} and {max}.",

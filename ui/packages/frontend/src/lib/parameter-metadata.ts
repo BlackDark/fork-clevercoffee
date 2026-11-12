@@ -488,8 +488,8 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "SH1106" },
-      { value: 1, label: "SSD1306" },
+      { value: 0, label: "SSD1306" },
+      { value: 1, label: "SH1106" },
     ],
     requiredParameters: { "hardware.oled.enabled": true },
   },
@@ -689,7 +689,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "TSIC306" },
+      { value: 0, label: "TSIC 306" },
       { value: 1, label: "Dallas DS18B20" },
     ],
   },

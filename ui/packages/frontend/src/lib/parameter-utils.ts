@@ -117,24 +117,3 @@ export function getMissingRequiredParametersMessage(
     requirements: missingRequirements.join(m.param_and()),
   });
 }
-
-/**
- * Groups parameters by prefix (e.g., "pid", "brew", "hardware") with conditional filtering
- */
-export function groupParametersByPrefix(
-  parameters: Parameter[],
-): Record<string, Parameter[]> {
-  const visibleParameters = parameters.filter(() => true); // Show all parameters
-
-  return visibleParameters.reduce(
-    (groups, param) => {
-      const prefix = param.name.split(".")[0];
-      if (!groups[prefix]) {
-        groups[prefix] = [];
-      }
-      groups[prefix].push(param);
-      return groups;
-    },
-    {} as Record<string, Parameter[]>,
-  );
-}
