@@ -32,6 +32,6 @@ Changed: `/api/ota/filesystem` and `/api/ota/url` answer `410 Gone` (the UI is i
 
 ## MQTT
 
-Topics: `<mqtt.topic><hostname>/<name>` (state), `…/<name>/set` (command), `…/status` (`online`, retained; last will `offline`). Values publish only when they change, every 5 s (500 ms during a shot, 10 s in standby); with nothing to publish the client pings within half the 30 s keep-alive. Home Assistant discovery under `<mqtt.hassio.prefix>/<component>/clevercoffee-<hostname>/<name>/config`, re-sent every 5 min. Entity list: `cc_mqtt::ENTITIES`.
+Topics: `<mqtt.topic><hostname>/<name>` (state), `…/<name>/set` (command), `…/status` (`online`, retained; last will `offline`). Values publish only when they change, every 5 s (500 ms during a shot, 10 s in standby); with nothing to publish the client pings within half the 30 s keep-alive. Home Assistant discovery under `<mqtt.hassio.prefix>/<component>/clevercoffee-<hostname>/<name>/config`, re-sent every 5 min. Entity list: `cc_mqtt::ENTITIES`. Diagnostic sensors (`freeHeap`, `minFreeHeap` in KiB, `uptimeMinutes`, `wifiRssi`, `tsicBadFrames`, `ds18b20ReadErrors`) are in the diagnostic category and publish once a minute, only when the shown value changed; `wifiRssi` and the two error counters are disabled by default in Home Assistant.
 
 MQTT is v5 only (`rust-mqtt`); brokers from the last decade all speak it.

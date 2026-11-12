@@ -72,6 +72,23 @@ pub fn log_line(bytes: usize) {
     LOG_BYTES.fetch_add(bytes as u32, Relaxed);
 }
 
+/// The values `/api/metrics` reports, as of now. The MQTT diagnostics use the same.
+#[cfg(feature = "mqtt")]
+pub fn live_now() -> Live {
+    use crate::shared;
+    let heap = esp_alloc::HEAP.stats();
+    let mut live = shared::with(|s| Live {
+        mqtt_connected: s.net.mqtt_connected,
+        wifi_reconnects: s.net.reconnects,
+        ..s.live
+    });
+    live.free_heap = (heap.size - heap.current_usage) as u32;
+    live.min_free_heap = shared::MIN_FREE_HEAP.load(Relaxed);
+    live.min_free_stack = crate::stackmon::last();
+    fill(&mut live);
+    live
+}
+
 /// Copies the counters into the reply. Reads only: no formatting, no allocation.
 pub fn fill(live: &mut Live) {
     live.loop_gap_max_us = LOOP_GAP_MAX_US.load(Relaxed);

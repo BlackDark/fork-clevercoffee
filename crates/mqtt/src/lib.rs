@@ -18,6 +18,7 @@ pub use keepalive::KeepAlive;
 
 use core::fmt::{self, Write};
 
+use cc_api::Live;
 use cc_api::json::Writer;
 use cc_core::config::{self, Config, ScaleType};
 use cc_core::{Command, Status};
@@ -76,11 +77,23 @@ pub enum Action {
     Calibrate,
 }
 
+/// Controller health from [`cc_api::Live`], published by the diagnostics timer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Diag {
+    FreeHeapKib,
+    MinFreeHeapKib,
+    UptimeMinutes,
+    WifiRssi,
+    TsicBadFrames,
+    Ds18b20ReadErrors,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
     Param(&'static str),
     Action(Action),
     Reading(Reading),
+    Diagnostic(Diag),
 }
 
 /// Home Assistant presentation.
@@ -100,6 +113,12 @@ pub enum Ha {
         class: &'static str,
     },
     BinarySensor(&'static str),
+    /// A sensor in the diagnostic category; `enabled` is its default in Home Assistant.
+    Diagnostic {
+        name: &'static str,
+        unit: &'static str,
+        enabled: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -131,6 +150,14 @@ const fn reading(topic: &'static str, r: Reading, needs: Needs, ha: Ha) -> Entit
 }
 const fn sensor(name: &'static str, unit: &'static str, class: &'static str) -> Ha {
     Ha::Sensor { name, unit, class }
+}
+const fn diagnostic(topic: &'static str, d: Diag, ha: Ha) -> Entity {
+    Entity {
+        topic,
+        source: Source::Diagnostic(d),
+        needs: Needs::Always,
+        ha,
+    }
 }
 
 use Needs::{Always, BrewSwitch, DualScale, Pressure, Scale, WaterTank};
@@ -342,6 +369,60 @@ pub static ENTITIES: &[Entity] = &[
         WaterTank,
         Ha::BinarySensor("Water Tank Full"),
     ),
+    diagnostic(
+        "freeHeap",
+        Diag::FreeHeapKib,
+        Ha::Diagnostic {
+            name: "Free heap",
+            unit: "KiB",
+            enabled: true,
+        },
+    ),
+    diagnostic(
+        "minFreeHeap",
+        Diag::MinFreeHeapKib,
+        Ha::Diagnostic {
+            name: "Lowest free heap",
+            unit: "KiB",
+            enabled: true,
+        },
+    ),
+    diagnostic(
+        "uptimeMinutes",
+        Diag::UptimeMinutes,
+        Ha::Diagnostic {
+            name: "Uptime",
+            unit: "min",
+            enabled: true,
+        },
+    ),
+    diagnostic(
+        "wifiRssi",
+        Diag::WifiRssi,
+        Ha::Diagnostic {
+            name: "WiFi signal",
+            unit: "dBm",
+            enabled: false,
+        },
+    ),
+    diagnostic(
+        "tsicBadFrames",
+        Diag::TsicBadFrames,
+        Ha::Diagnostic {
+            name: "TSIC bad frames",
+            unit: "",
+            enabled: false,
+        },
+    ),
+    diagnostic(
+        "ds18b20ReadErrors",
+        Diag::Ds18b20ReadErrors,
+        Ha::Diagnostic {
+            name: "DS18B20 read errors",
+            unit: "",
+            enabled: false,
+        },
+    ),
 ];
 
 /// Publishing interval while a shot runs, normally, and in standby.
@@ -350,6 +431,8 @@ pub const INTERVAL_MS: u64 = 5_000;
 pub const INTERVAL_STANDBY_MS: u64 = 10_000;
 /// Discovery is re-sent this often (Home Assistant restarts lose it otherwise).
 pub const DISCOVERY_INTERVAL_MS: u64 = 5 * 60 * 1000;
+/// Diagnostics are published this often, and only when their shown value changed.
+pub const DIAGNOSTICS_INTERVAL_MS: u64 = 60 * 1000;
 
 pub fn interval_ms(st: &Status) -> u64 {
     if st.state.is_brew_active() {
@@ -371,9 +454,17 @@ pub fn topic(cfg: &Config, name: &str, suffix: Option<&str>, out: &mut impl Writ
 }
 
 /// The state payload of an entity. Params use the C++ format (`1`/`0`, `%d`,
-/// `%.2f`), readings `%.2f`, binary sensors `ON`/`OFF`.
-pub fn payload(e: &Entity, cfg: &Config, st: &Status, out: &mut impl Write) -> fmt::Result {
+/// `%.2f`), readings `%.2f`, binary sensors `ON`/`OFF`, diagnostics plain integers.
+pub fn payload(e: &Entity, cfg: &Config, st: &Status, live: &Live, out: &mut impl Write) -> fmt::Result {
     match e.source {
+        Source::Diagnostic(d) => match d {
+            Diag::FreeHeapKib => write!(out, "{}", live.free_heap / 1024),
+            Diag::MinFreeHeapKib => write!(out, "{}", live.min_free_heap / 1024),
+            Diag::UptimeMinutes => write!(out, "{}", live.uptime_ms / 60_000),
+            Diag::WifiRssi => write!(out, "{}", live.wifi_rssi),
+            Diag::TsicBadFrames => write!(out, "{}", live.tsic_bad_frames),
+            Diag::Ds18b20ReadErrors => write!(out, "{}", live.ds18b20_read_errors),
+        },
         Source::Param(key) => match config::find(key) {
             Some(i) => cfg.format_value(i, out),
             None => Ok(()),
@@ -451,7 +542,7 @@ pub fn parse_incoming<'a>(cfg: &Config, topic: &str, payload: &'a str) -> Option
         Source::Action(Action::Calibrate) => {
             on()?.then_some(Incoming::Command(Command::ToggleScaleCalibration))
         }
-        Source::Reading(_) => None,
+        Source::Reading(_) | Source::Diagnostic(_) => None,
     }
 }
 
@@ -462,7 +553,7 @@ pub fn ha_component(ha: &Ha) -> Option<&'static str> {
         Ha::Switch(_) => "switch",
         Ha::Button(_) => "button",
         Ha::Number { .. } => "number",
-        Ha::Sensor { .. } => "sensor",
+        Ha::Sensor { .. } | Ha::Diagnostic { .. } => "sensor",
         Ha::BinarySensor(_) => "binary_sensor",
     })
 }
@@ -488,7 +579,7 @@ pub fn discovery_payload(cfg: &Config, e: &Entity, w: &mut Writer<impl Write>) -
         let (name, writable) = match e.ha {
             Ha::Switch(n) | Ha::Button(n) => (n, true),
             Ha::Number { name, .. } => (name, true),
-            Ha::Sensor { name, .. } | Ha::BinarySensor(name) => (name, false),
+            Ha::Sensor { name, .. } | Ha::BinarySensor(name) | Ha::Diagnostic { name, .. } => (name, false),
             Ha::None => unreachable!(),
         };
         w.kv_str("name", name)?;
@@ -534,6 +625,15 @@ pub fn discovery_payload(cfg: &Config, e: &Entity, w: &mut Writer<impl Write>) -
                 }
                 if !class.is_empty() {
                     w.kv_str("device_class", class)?;
+                }
+            }
+            Ha::Diagnostic { unit, enabled, .. } => {
+                if !unit.is_empty() {
+                    w.kv_str("unit_of_measurement", unit)?;
+                }
+                w.kv_str("entity_category", "diagnostic")?;
+                if !enabled {
+                    w.kv_bool("enabled_by_default", false)?;
                 }
             }
             Ha::BinarySensor(_) => {
@@ -706,6 +806,53 @@ mod tests {
     }
 
     #[test]
+    fn diagnostics_publish_shown_units() {
+        let c = cfg();
+        let m = cc_core::Machine::new(&c, 0, 0);
+        let st = m.status(&c);
+        let live = Live {
+            free_heap: 68_704,
+            min_free_heap: 58_504,
+            uptime_ms: 3_600_000,
+            wifi_rssi: -49,
+            tsic_bad_frames: 7,
+            ds18b20_read_errors: 12,
+            ..Live::default()
+        };
+        let get = |name: &str| {
+            let e = ENTITIES.iter().find(|e| e.topic == name).unwrap();
+            let mut s = String::new();
+            payload(e, &c, &st, &live, &mut s).unwrap();
+            s
+        };
+        assert_eq!(get("freeHeap"), "67");
+        assert_eq!(get("minFreeHeap"), "57");
+        assert_eq!(get("uptimeMinutes"), "60");
+        assert_eq!(get("wifiRssi"), "-49");
+        assert_eq!(get("tsicBadFrames"), "7");
+        assert_eq!(get("ds18b20ReadErrors"), "12");
+    }
+
+    #[test]
+    fn diagnostics_are_a_disabled_by_default_category() {
+        let c = cfg();
+        let discovery = |topic: &str| {
+            let e = ENTITIES.iter().find(|e| e.topic == topic).unwrap();
+            let mut w = Writer::new(String::new());
+            discovery_payload(&c, e, &mut w).unwrap().unwrap();
+            serde_json::from_str::<serde_json::Value>(&w.into_inner()).unwrap()
+        };
+        let heap = discovery("freeHeap");
+        assert_eq!(heap["entity_category"], "diagnostic");
+        assert_eq!(heap["unit_of_measurement"], "KiB");
+        assert!(heap.get("enabled_by_default").is_none());
+        assert!(heap.get("command_topic").is_none());
+        let rssi = discovery("wifiRssi");
+        assert_eq!(rssi["enabled_by_default"], false);
+        assert_eq!(rssi["state_topic"], "custom/kitchen/silvia/wifiRssi");
+    }
+
+    #[test]
     fn payloads_use_the_cpp_formats() {
         let c = cfg();
         let m = cc_core::Machine::new(&c, 0, 0);
@@ -713,7 +860,7 @@ mod tests {
         let get = |name: &str| {
             let e = ENTITIES.iter().find(|e| e.topic == name).unwrap();
             let mut s = String::new();
-            payload(e, &c, &st, &mut s).unwrap();
+            payload(e, &c, &st, &Live::default(), &mut s).unwrap();
             s
         };
         assert_eq!(get("pidON"), "0");
