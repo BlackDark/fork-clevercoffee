@@ -11,6 +11,7 @@
   import { Upload, HardDrive, TriangleAlert, RefreshCw } from "@lucide/svelte";
   import { apiJsonFetch } from "@/lib/api-config";
   import { ApiResponseSchema, OtaStatusSchema } from "@/lib/schemas";
+  import * as m from "@/paraglide/messages.js";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   let file = $state<File | null>(null);
   let open = $state(false);
@@ -24,28 +25,22 @@
   const upload = createMutation(() => ({
     mutationFn: async () => {
       const latest = await status.refetch();
-      if (latest.error || !latest.data)
-        throw new Error(
-          "Cannot verify device update status. Try again when connected.",
-        );
+      if (latest.error || !latest.data) throw new Error(m.ota_cannot_verify());
       if (latest.data.updateInProgress)
-        throw new Error("An update is already running.");
+        throw new Error(m.ota_update_already_running());
       if (!file || file.size === 0 || !/\.bin$/i.test(file.name))
-        throw new Error("Select a nonempty .bin firmware file.");
+        throw new Error(m.ota_select_bin());
       const body = new FormData();
       body.append("firmware", file);
       const result = ApiResponseSchema.parse(
         await apiJsonFetch("/ota/firmware", { method: "POST", body }, 180000),
       );
       if (!result.success)
-        throw new Error(result.message || "Device refused the update");
+        throw new Error(result.message || m.ota_device_refused());
       return result;
     },
     onSuccess: async (result) => {
-      toast.success(
-        result.message ||
-          "Update accepted. Watch device status for completion.",
-      );
+      toast.success(result.message || m.ota_update_accepted());
       await status.refetch();
     },
   }));
@@ -65,10 +60,9 @@
   ><Card.Header
     ><Card.Title
       role="heading"
-      aria-level={2}>Firmware update</Card.Title
+      aria-level={2}>{m.ota_firmware_update()}</Card.Title
     ><Card.Description>
-      The firmware image includes this web interface. The device will restart
-      after a successful update.
+      {m.ota_firmware_update_desc()}
     </Card.Description><Card.Action class="text-muted-foreground"
       ><HardDrive size={20} /></Card.Action
     ></Card.Header
@@ -77,15 +71,14 @@
       variant="warning"
       class="mb-4"
       ><TriangleAlert size={18} /><Alert.Description class="text-inherit">
-        Keep the device powered throughout the update. Updates may be refused
-        while brewing or steaming.
+        {m.ota_keep_powered()}
       </Alert.Description></Alert.Root
     >
     <div class="max-w-sm">
       <Label
         for="ota-file"
         class="font-medium flex gap-2 items-center mb-3"
-        ><Upload size={17} />Firmware file (.bin)</Label
+        ><Upload size={17} />{m.ota_firmware_file()}</Label
       ><Input
         id="ota-file"
         type="file"
@@ -99,8 +92,8 @@
         disabled={!file || busy || status.isError || status.isPending}
         onclick={() => (open = true)}
         ><Upload size={16} />{upload.isPending
-          ? "Updating…"
-          : "Upload update"}</Button
+          ? m.ota_updating()
+          : m.ota_upload_update()}</Button
       >
     </div>
     {#if status.isError}<Alert.Root
@@ -108,14 +101,14 @@
         variant="destructive"
         class="mb-4"
         ><Alert.Description>
-          Update status unavailable.
+          {m.ota_status_unavailable()}
         </Alert.Description><Alert.Action
           ><Button
             type="button"
             variant="outline"
             size="sm"
             onclick={() => status.refetch()}
-            ><RefreshCw size={16} />Retry</Button
+            ><RefreshCw size={16} />{m.ota_retry()}</Button
           ></Alert.Action
         ></Alert.Root
       >{/if}
@@ -124,12 +117,12 @@
         role="status"
       >
         <p>
-          {status.data?.message || status.data?.status || "Uploading…"}
+          {status.data?.message || status.data?.status || m.ota_uploading()}
         </p>
         <Progress
           max={100}
           value={status.data?.progress ?? 0}
-          aria-label="Device update progress"
+          aria-label={m.ota_progress()}
         ></Progress>{#if status.data?.error}<p class="text-red-600">
             {status.data.error}
           </p>{/if}
@@ -138,9 +131,9 @@
 >
 <ConfirmDialog
   bind:open
-  title="Install firmware update?"
-  description={`The device will install ${file?.name} and restart. Do not disconnect power.`}
+  title={m.ota_install_title()}
+  description={m.ota_install_description({ name: file?.name ?? "" })}
   confirm={run}
   busy={upload.isPending}
-  label="Install update"
+  label={m.ota_install_update()}
 />

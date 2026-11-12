@@ -1,3 +1,4 @@
+import * as m from "@/paraglide/messages.js";
 import { apiFetch } from "./api-config";
 import { ConfigUploadResponseSchema } from "./schemas";
 
@@ -12,7 +13,8 @@ export async function postDeviceAction(action: DeviceAction): Promise<string> {
     signal: AbortSignal.timeout(15000),
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(`HTTP ${response.status}: ${text}`);
+  if (!response.ok)
+    throw new Error(m.action_http_error({ status: response.status, text }));
   let result: unknown;
   try {
     result = JSON.parse(text);
@@ -25,8 +27,8 @@ export async function postDeviceAction(action: DeviceAction): Promise<string> {
     "success" in result &&
     result.success === false
   )
-    throw new Error("Device refused the action");
-  return "Request accepted. The device may disconnect while restarting.";
+    throw new Error(m.action_device_refused());
+  return m.action_request_accepted();
 }
 
 /** Uploads a settings backup; resolves with the message to show. */
@@ -37,20 +39,26 @@ export async function uploadConfig(file: File | null): Promise<string> {
     file.size > MAX_CONFIG_BYTES ||
     !file.name.toLowerCase().endsWith(".json")
   )
-    throw new Error("Choose a nonempty JSON file up to 8 KB.");
+    throw new Error(m.action_choose_json());
   const content = await file.text();
-  const parsed: unknown = JSON.parse(content);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error(m.action_config_invalid_json());
+  }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-    throw new Error("Configuration must be a JSON object.");
+    throw new Error(m.action_config_must_be_object());
   const response = await apiFetch("/config/upload", {
     method: "POST",
     body: content,
     signal: AbortSignal.timeout(30000),
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(`HTTP ${response.status}: ${text}`);
+  if (!response.ok)
+    throw new Error(m.action_http_error({ status: response.status, text }));
   const invalid = new Error(
-    `Invalid configuration upload response (HTTP ${response.status}).`,
+    m.action_invalid_upload_response({ status: response.status }),
   );
   let payload: unknown;
   try {
@@ -61,8 +69,6 @@ export async function uploadConfig(file: File | null): Promise<string> {
   const result = ConfigUploadResponseSchema.safeParse(payload);
   if (!result.success) throw invalid;
   if (!result.data.success)
-    throw new Error(result.data.message || "Configuration upload failed");
-  return (
-    result.data.message || "Configuration restored. The device may restart."
-  );
+    throw new Error(result.data.message || m.action_upload_failed());
+  return result.data.message || m.action_config_restored();
 }

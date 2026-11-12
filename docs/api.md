@@ -14,9 +14,8 @@ With `system.auth.enabled`, every route needs HTTP basic auth.
 | GET | `/api/history` | last 30 min of temperature, setpoint and heater power |
 | GET | `/api/metrics` | controller health in one small reply, counts since boot: firmware version, reset reason (esp-hal code), uptime, heap (free, lowest), lowest free stack, requests refused by the low-heap gate (503), control loop (longest tick gap and slowest tick in µs, tick gaps longer than two periods), TSIC (good and bad frames, ms since boot of the last good frame (low 32 bits, 0 before the first)), DS18B20 read errors, settings saves and failures and the last result (0 none, 1 saved, 2 failed), log-ring bytes (wraps after 4 GiB), WiFi state, RSSI and reconnects, MQTT state |
 | GET | `/api/logs` | the newest log lines as text *(new)*; `?since=<X-Log-Next of the last reply>` returns only what is new, a smaller `X-Log-Next` than asked for means the device restarted (a restart that logged more than `since` bytes before the next poll goes unnoticed); about 6 KB, a few minutes of a quiet machine |
-| GET | `/api/parameters` | all parameters with metadata (`?filter=all`; secrets are blanked) |
-| POST | `/api/parameters` | `key=value&…` form or query; all-or-nothing validation |
-| GET | `/api/parameter-help?param=<key>` | help text |
+| GET | `/api/parameters` | all parameters: name, type, value, default, limits or options; `requiresReboot` appears only when `true` (`?filter=all`; secrets are blanked); labels and help texts are the UI's; option `label` is the wire name MQTT and provisioning accept |
+| POST | `/api/parameters` | `key=value&…` form or query; all-or-nothing validation. Enum values: send the number (canonical, stable); the option label is accepted too (`Automatic`, case-insensitive) |
 | GET | `/api/config`, `/api/config/download` | nested config file |
 | POST | `/api/config/upload` | import a config file (multipart or JSON, ≤ 16 KB, all-or-nothing) |
 | POST | `/api/setpoint`, `/api/wake`, `/api/sleep`, `/api/steam`, `/api/pid`, `/api/backflush` | commands |

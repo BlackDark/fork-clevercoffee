@@ -585,20 +585,6 @@ impl<B: Backend> PathRouterService for Api<'_, B> {
                     cc_api::write_parameters(&cfg, &mut Writer::new(w))
                 }));
             }
-            ("GET", "/api/parameter-help") => {
-                let mut v = [0u8; 96];
-                let Some(key) = cc_api::form_value(raw_query, "param", &mut v) else {
-                    reply!(message(StatusCode::new(422), false, "parameter is missing"));
-                };
-                if cc_core::config::find(key).is_none() {
-                    reply!(message(StatusCode::NOT_FOUND, false, "parameter not found"));
-                }
-                let mut key_owned: heapless::String<96> = heapless::String::new();
-                let _ = key_owned.push_str(key);
-                reply!(json(StatusCode::OK, move |w| {
-                    cc_api::write_parameter_help(&key_owned, &mut Writer::new(w)).unwrap_or(Ok(()))
-                }));
-            }
             ("GET", "/api/config" | "/api/config/download") => {
                 let cfg = alloc::boxed::Box::new(b.read(|c, _, _| c.clone()));
                 let download = path.ends_with("download");
@@ -929,7 +915,6 @@ pub const ROUTES: &[(&str, &str)] = &[
     ("GET", "/api/logs"),
     ("GET", "/api/parameters"),
     ("POST", "/api/parameters"),
-    ("GET", "/api/parameter-help"),
     ("GET", "/api/config"),
     ("GET", "/api/config/download"),
     ("POST", "/api/config/upload"),

@@ -37,6 +37,7 @@ The C++ firmware v1.3.4 and its tests were the specification. Porting them line 
 | TSIC bits were timed in a GPIO interrupt (C++ `ZACwire` library); with WiFi and the control loop running about a quarter of the frames were lost and some decoded to a wrong value that passed parity (50–99 °C among 56 °C readings). | The RMT peripheral measures the pulses in hardware, one reception per frame: on the bench 0 parity and framing errors in 10 min and under HTTP load, bit margin 25 µs (`fix_tsic_decodes_an_rmt_capture`, `rejects_incomplete_captures`). About 1 frame in 120 ends in an RMT `ReceiverError` and is lost (the 10 s log line counts it). A median of three frames (`SpikeFilter`) stays as defence. |
 | Unlimited server-sent event streams (AsyncWebServer). | Two (one with a Bluetooth scale); a further `/events` gets 503 and the UI polls (ADR 0008, `server_sent_events`). |
 | MQTT 3.1.1. | MQTT 5. |
+| Parameter labels and help texts from the firmware (`/api/parameter-help`, `label`/`helpText` in `/api/parameters`). | The UI owns them (Paraglide, ADR 0009); the route is gone. |
 
 ## Display
 

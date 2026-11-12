@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as m from "@/paraglide/messages.js";
   import * as Select from "./ui/select";
   let {
     id,
@@ -28,7 +29,7 @@
     aria-label={label}
     class="w-full"
   >
-    <Select.Value placeholder="Select an option" />
+    <Select.Value placeholder={m.select_an_option()} />
   </Select.Trigger>
   <Select.Content
     sideOffset={4}

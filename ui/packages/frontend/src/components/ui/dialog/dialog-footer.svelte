@@ -3,6 +3,7 @@
   import { Button } from "@/components/ui/button/index.js";
   import { cn, type WithElementRef } from "@/lib/utils.js";
   import type { HTMLAttributes } from "svelte/elements";
+  import * as m from "@/paraglide/messages.js";
 
   let {
     ref = $bindable(null),
@@ -30,7 +31,7 @@
       {#snippet child({ props })}
         <Button
           variant="outline"
-          {...props}>Close</Button
+          {...props}>{m.ui_close()}</Button
         >
       {/snippet}
     </DialogPrimitive.Close>

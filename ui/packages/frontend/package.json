@@ -5,17 +5,21 @@
   "type": "module",
   "scripts": {
     "dev": "vite --mode mock --host 0.0.0.0",
+    "prebuild": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide",
     "build": "pnpm check:types && vite --mode production build",
     "postbuild": "rimraf -g \"dist/**/*.html\" \"dist/**/*.js\" \"dist/**/*.css\"",
     "lint": "pnpm -w lint",
+    "precheck:types": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide",
     "check:types": "rimraf .svelte-check && svelte-check --tsconfig ./tsconfig.app.json --fail-on-warnings --tsgo",
     "tsc": "pnpm check:types",
     "check": "pnpm lint && pnpm check:types && pnpm test:run",
     "test": "vitest",
+    "pretest:run": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide",
     "test:run": "vitest run",
     "test:e2e": "playwright test",
     "preview": "vite preview --host 0.0.0.0",
     "format": "pnpm -w format",
+    "precheck:types:ts6": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide",
     "check:types:ts6": "svelte-check --tsconfig ./tsconfig.app.json --fail-on-warnings"
   },
   "dependencies": {
@@ -33,6 +37,9 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@inlang/paraglide-js": "3.2.2",
+    "@inlang/plugin-m-function-matcher": "2.3.0",
+    "@inlang/plugin-message-format": "4.5.0",
     "@playwright/test": "1.65.0",
     "@sveltejs/vite-plugin-svelte": "7.3.1",
     "@testing-library/jest-dom": "7.0.1",

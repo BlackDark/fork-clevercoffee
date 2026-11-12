@@ -18,19 +18,15 @@ use cc_core::history::History;
 use cc_core::state::State;
 use json::Writer;
 
-/// `GET /api/parameters`: every parameter with metadata, as the UI's
-/// `ServerParameter` expects (`name`, `label`, `section`, `order`, `helpText`, `type`,
-/// `value`, `default`, and `min`/`max` or `options`). Secrets are never sent back.
+/// `GET /api/parameters`: every parameter as the UI's `ServerParameter` expects
+/// (`name`, `type`, `value`, `default`, and `min`/`max` or `options`). The UI owns
+/// labels and help texts. Secrets are never sent back.
 pub fn write_parameters(cfg: &Config, w: &mut Writer<impl Write>) -> fmt::Result {
     let defaults = Config::default();
     w.begin_array()?;
     for (i, p) in PARAMS.iter().enumerate() {
         w.begin_object()?;
         w.kv_str("name", p.key)?;
-        w.kv_str("label", p.label)?;
-        w.kv_int("section", i64::from(p.section))?;
-        w.kv_int("order", i64::from(p.order))?;
-        w.kv_str("helpText", p.help)?;
         w.kv_int("type", i64::from(p.kind.ui_type()))?;
         if p.reboot {
             w.kv_bool("requiresReboot", true)?;
@@ -77,17 +73,6 @@ fn write_value(w: &mut Writer<impl Write>, v: Value<'_>) -> fmt::Result {
         Value::Double(d) => w.num(d),
         Value::Text(t) => w.str(t),
     }
-}
-
-/// `GET /api/parameter-help?param=...`.
-pub fn write_parameter_help(key: &str, w: &mut Writer<impl Write>) -> Option<fmt::Result> {
-    let p = PARAMS.iter().find(|p| p.key == key)?;
-    Some((|| {
-        w.begin_object()?;
-        w.kv_str("name", p.key)?;
-        w.kv_str("helpText", p.help)?;
-        w.end_object()
-    })())
 }
 
 /// Extra live values the core does not own.
@@ -499,6 +484,13 @@ mod tests {
         let pid = arr.iter().find(|p| p["name"] == "pid.enabled").unwrap();
         assert_eq!(pid["type"], 6);
         assert_eq!(pid["value"], false);
+        for p in arr {
+            for gone in ["label", "section", "order", "helpText"] {
+                assert!(p.get(gone).is_none(), "{gone} is UI-only");
+            }
+        }
+        let reboots = arr.iter().filter(|p| p["requiresReboot"] == true).count();
+        assert_eq!(reboots, PARAMS.iter().filter(|p| p.reboot).count());
     }
 
     #[test]

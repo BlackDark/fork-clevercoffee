@@ -15,7 +15,6 @@ export const API_ROUTES = {
   CONFIG: "/config",
   CONFIG_DOWNLOAD: "/config/download",
   PARAMETERS: "/parameters",
-  PARAMETER_HELP: "/parameter-help",
 
   // Status & Telemetry
   STATUS: "/status",

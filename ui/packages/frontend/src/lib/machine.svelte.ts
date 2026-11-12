@@ -5,6 +5,7 @@ import {
 } from "@tanstack/svelte-query";
 import { getContext, setContext } from "svelte";
 import { toast } from "svelte-sonner";
+import * as m from "@/paraglide/messages.js";
 import { apiJsonFetch } from "./api-config";
 import { reportError } from "./notify";
 import {
@@ -36,7 +37,7 @@ export function createMachine() {
         min: p.min ?? getParameterMetadata(p.name)?.min,
         max: p.max ?? getParameterMetadata(p.name)?.max,
       }));
-      // Metadata supplies labels and dependencies, never writable rows absent from the device.
+      // Metadata fills ranges and dependencies; the device decides which rows exist.
       const enriched = new Map(
         ensureCompleteParameters(server).map((p) => [p.name, p]),
       );
@@ -64,7 +65,7 @@ export function createMachine() {
         }),
       );
       if (!result.success)
-        throw new Error(result.message || "Saving parameters failed");
+        throw new Error(result.message || m.error_saving_parameters_failed());
     },
     onSuccess: async () => {
       await Promise.all([
@@ -78,7 +79,7 @@ export function createMachine() {
       const data = await apiJsonFetch(route, { method: "POST" });
       const result = CommandResponseSchema.parse(data);
       if ("success" in result && !result.success)
-        throw new Error(result.message || "Command refused by device");
+        throw new Error(result.message || m.error_command_refused_by_device());
       if (
         route === API_ROUTES.STEAM ||
         route === API_ROUTES.BACKFLUSH ||
@@ -116,7 +117,7 @@ export function createMachine() {
   async function run(route: string) {
     try {
       await command.mutateAsync(route);
-      toast.success("Device updated");
+      toast.success(m.toast_device_updated());
     } catch (e) {
       reportError(e);
     }

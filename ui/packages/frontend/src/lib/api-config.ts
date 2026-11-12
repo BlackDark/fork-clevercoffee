@@ -1,3 +1,5 @@
+import * as m from "@/paraglide/messages.js";
+
 export const SERVER_BASE_URL = import.meta.env.VITE_SERVER_ENDPOINT || "";
 export const API_BASE_URL = `${SERVER_BASE_URL}${import.meta.env.VITE_API_PATH || "/api"}`;
 export const isMockMode = import.meta.env.VITE_MOCK_MODE === "true";
@@ -39,8 +41,12 @@ export async function apiJsonFetch<T = unknown>(
         ? String(data.message)
         : data && typeof data === "object" && "error" in data
           ? String(data.error)
-          : response.statusText;
-    throw new Error(`HTTP ${response.status}: ${message}`);
+          : undefined;
+    throw new Error(
+      message
+        ? m.action_http_error({ status: response.status, text: message })
+        : m.action_http_status({ status: response.status }),
+    );
   }
   return data as T;
 }

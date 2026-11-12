@@ -4,13 +4,11 @@
 // === API Configuration ===
 export * from "./api-config";
 export * from "./parameter-groups";
-// === Supporting Data ===
-// Help texts and grouping
-export * from "./parameter-help-texts";
-// Labels for internationalization
-export * from "./parameter-labels";
 // Parameter metadata and data
 export * from "./parameter-metadata";
+// === Supporting Data ===
+// Parameter labels and help texts (English messages)
+export * from "./parameter-text";
 // === Core Parameter System ===
 // Types and constants
 export * from "./parameter-types";

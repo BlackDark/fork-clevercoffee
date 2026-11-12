@@ -3,6 +3,7 @@
   import { Button } from "./ui/button";
   import { X, Check } from "@lucide/svelte";
   import type { Snippet } from "svelte";
+  import * as m from "@/paraglide/messages.js";
   let {
     open = $bindable(false),
     title,
@@ -10,7 +11,7 @@
     children,
     confirm,
     busy = false,
-    label = "Confirm",
+    label = m.confirm_label(),
     destructive = false,
   }: {
     open?: boolean;
@@ -49,12 +50,13 @@
         disabled={busy}
         onclick={() => {
           open = false;
-        }}><X size={16} />Cancel</Button
+        }}><X size={16} />{m.confirm_cancel()}</Button
       >
       <Button
         variant={destructive ? "destructive" : "default"}
         disabled={busy}
-        onclick={confirm}><Check size={16} />{busy ? "Working…" : label}</Button
+        onclick={confirm}
+        ><Check size={16} />{busy ? m.confirm_working() : label}</Button
       >
     </Dialog.Footer>
   </Dialog.Content>

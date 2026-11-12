@@ -1,6 +1,3 @@
-// Parameter metadata map for efficient lookups
-// This replaces the old array-based parameter definitions
-
 import type {
   Parameter,
   ParameterTemplate,
@@ -146,10 +143,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: "Manual" },
-      { value: 1, label: "Automatic" },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.brew.enabled": true },
   },
   {
@@ -286,11 +280,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: "2 load cells" },
-      { value: 1, label: "1 load cell" },
-      { value: 2, label: "Bluetooth" },
-    ],
+    options: [{ value: 0 }, { value: 1 }, { value: 2, label: "Bluetooth" }],
     requiredParameters: { "hardware.sensors.scale.enabled": true },
   },
   {
@@ -498,8 +488,8 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "SH1106" },
-      { value: 1, label: "SSD1306" },
+      { value: 0, label: "SSD1306" },
+      { value: 1, label: "SH1106" },
     ],
     requiredParameters: { "hardware.oled.enabled": true },
   },
@@ -523,10 +513,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: "Low Trigger" },
-      { value: 1, label: "High Trigger" },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
   },
   {
     name: "hardware.relays.valve.trigger_type",
@@ -534,10 +521,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: "Low Trigger" },
-      { value: 1, label: "High Trigger" },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
   },
   {
     name: "hardware.relays.pump.trigger_type",
@@ -545,10 +529,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: "Low Trigger" },
-      { value: 1, label: "High Trigger" },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
   },
 
   // Hardware - Switch Parameters
@@ -565,10 +546,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: "Momentary" },
-      { value: 1, label: "Toggle" },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.brew.enabled": true },
   },
   {
@@ -577,10 +555,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: "Normally Open" },
-      { value: 1, label: "Normally Closed" },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.brew.enabled": true },
   },
   {
@@ -596,10 +571,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: "Momentary" },
-      { value: 1, label: "Toggle" },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.steam.enabled": true },
   },
   {
@@ -608,10 +580,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: "Normally Open" },
-      { value: 1, label: "Normally Closed" },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.steam.enabled": true },
   },
   {
@@ -627,10 +596,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: "Momentary" },
-      { value: 1, label: "Toggle" },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.power.enabled": true },
   },
   {
@@ -639,10 +605,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: "Normally Open" },
-      { value: 1, label: "Normally Closed" },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.power.enabled": true },
   },
   {
@@ -658,10 +621,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: "Momentary" },
-      { value: 1, label: "Toggle" },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.hot_water.enabled": true },
   },
   {
@@ -670,10 +630,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: "Normally Open" },
-      { value: 1, label: "Normally Closed" },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.switches.hot_water.enabled": true },
   },
 
@@ -732,7 +689,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 1,
     defaultValue: 0,
     options: [
-      { value: 0, label: "TSIC306" },
+      { value: 0, label: "TSIC 306" },
       { value: 1, label: "Dallas DS18B20" },
     ],
   },
@@ -756,10 +713,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 1,
     defaultValue: 0,
-    options: [
-      { value: 0, label: "Normally Open" },
-      { value: 1, label: "Normally Closed" },
-    ],
+    options: [{ value: 0 }, { value: 1 }],
     requiredParameters: { "hardware.sensors.watertank.enabled": true },
   },
   {
@@ -779,12 +733,12 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 5,
     defaultValue: 0,
     options: [
-      { value: 0, label: "Standard" },
-      { value: 1, label: "Minimal" },
-      { value: 2, label: "Temp only" },
-      { value: 3, label: "Scale" },
-      { value: 4, label: "Upright" },
-      { value: 5, label: "Modern" },
+      { value: 0 },
+      { value: 1 },
+      { value: 2 },
+      { value: 3 },
+      { value: 4 },
+      { value: 5 },
     ],
   },
   {
@@ -801,18 +755,8 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 2,
     defaultValue: 0,
     options: [
-      // `cc_domain::system::Language` (process/defaults.h:196-200 in the C++):
-      // ENGLISH = 0, GERMAN = 1, SPANISH = 2.
-      //
-      // **These two labels were swapped.** The table said 0 = Deutsch and
-      // 1 = English, so choosing "English" in the UI wrote 1 — which the firmware
-      // reads as German. The report was "I set the language to English in the UI
-      // and the OLED comes up German", which is exactly right and was not a
-      // display bug at all. `cc-config`'s
-      // `the_ui_enum_labels_match_the_firmware_discriminants` test now pins
-      // every enum in this file against the firmware, so a swapped pair cannot
-      // survive a build again.
-      { value: 0, label: "English" },
+      // Matches `Language` in the firmware: 0 English, 1 German, 2 Spanish.
+      { value: 0 },
       { value: 1, label: "Deutsch" },
       { value: 2, label: "Español" },
     ],

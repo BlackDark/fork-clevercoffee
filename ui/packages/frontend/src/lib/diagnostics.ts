@@ -1,3 +1,5 @@
+import * as m from "@/paraglide/messages.js";
+
 /** Formatting and timing for the Diagnostics page. */
 
 /** Delay before reopening the metrics stream after the device refused it. */
@@ -24,15 +26,16 @@ export function formatKiB(bytes: number): string {
 
 /** The device reports 0 until its first stack scan. */
 export function formatStack(bytes: number): string {
-  return bytes === 0 ? "not measured" : formatKiB(bytes);
+  return bytes === 0 ? m.format_not_measured() : formatKiB(bytes);
 }
 
 export function formatMicros(us: number): string {
   return us >= 1000 ? `${(us / 1000).toFixed(1)} ms` : `${us} µs`;
 }
 
-const SAVE_RESULTS = ["none yet", "saved", "failed"] as const;
-
 export function saveResultName(code: number): string {
-  return SAVE_RESULTS[code] ?? "unknown";
+  return (
+    [m.status_none_yet(), m.status_saved(), m.status_failed()][code] ??
+    m.status_unknown()
+  );
 }

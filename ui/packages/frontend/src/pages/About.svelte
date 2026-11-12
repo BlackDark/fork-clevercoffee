@@ -2,16 +2,23 @@
   import { Button } from "@/components/ui/button";
   import * as Card from "@/components/ui/card";
   import { Coffee, ExternalLink } from "@lucide/svelte";
+  import SelectField from "@/components/SelectField.svelte";
+  import {
+    changeLanguage,
+    currentLanguage,
+    languageOptions,
+  } from "@/lib/language";
+  import * as m from "@/paraglide/messages.js";
   const version = APP_VERSION;
 </script>
 
 <div class="page-heading">
   <div>
-    <h1>About CleverCoffee</h1>
-    <p>CleverCoffee firmware and BrewUI.</p>
+    <h1>{m.about_title()}</h1>
+    <p>{m.about_subtitle()}</p>
   </div>
 </div>
-<Card.Root class="min-w-0"
+<Card.Root class="min-w-0 mb-6"
   ><Card.Content>
     <Coffee
       size={40}
@@ -20,15 +27,13 @@
     <Card.Title
       role="heading"
       aria-level={2}
-      class="text-2xl mb-3">Better control. Better coffee.</Card.Title
+      class="text-2xl mb-3">{m.about_tagline()}</Card.Title
     >
     <p class="text-muted-foreground leading-relaxed">
-      CleverCoffee brings precise temperature control and thoughtful machine
-      management to your espresso ritual. BrewUI puts live telemetry,
-      configuration, maintenance, and updates in one place.
+      {m.about_body()}
     </p>
     <div class="change-row my-6">
-      <span>UI version</span><strong>{version}</strong>
+      <span>{m.about_ui_version()}</span><strong>{version}</strong>
     </div>
     <div class="flex flex-wrap gap-3">
       <Button
@@ -40,18 +45,34 @@
         variant="outline"
         href="https://github.com/BlackDark/clevercoffee-rs"
         target="_blank"
-        rel="noreferrer">This project</Button
+        rel="noreferrer">{m.about_this_project()}</Button
       ><Button
         variant="outline"
         href="https://github.com/rancilio-pid/clevercoffee"
         target="_blank"
-        rel="noreferrer">Upstream</Button
+        rel="noreferrer">{m.about_upstream()}</Button
       ><Button
         variant="outline"
         href="https://discord.gg/Kq5RFznuU4"
         target="_blank"
-        rel="noreferrer">Community</Button
+        rel="noreferrer">{m.about_community()}</Button
       >
     </div>
+  </Card.Content></Card.Root
+>
+<Card.Root class="min-w-0"
+  ><Card.Header
+    ><Card.Title
+      role="heading"
+      aria-level={2}>{m.about_language()}</Card.Title
+    ><Card.Description>{m.about_language_desc()}</Card.Description></Card.Header
+  ><Card.Content>
+    <SelectField
+      id="ui-language"
+      label={m.about_language()}
+      value={currentLanguage()}
+      options={languageOptions}
+      onchange={changeLanguage}
+    />
   </Card.Content></Card.Root
 >

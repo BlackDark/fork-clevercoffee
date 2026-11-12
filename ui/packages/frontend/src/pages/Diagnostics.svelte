@@ -15,8 +15,9 @@
   } from "@/lib/diagnostics";
   import { API_ROUTES } from "@/lib/routes";
   import { MetricsSchema, type Metrics } from "@/lib/schemas";
+  import * as m from "@/paraglide/messages.js";
 
-  let m = $state<Metrics | null>(null);
+  let metrics = $state<Metrics | null>(null);
   let stream = $state<"connecting" | "reconnecting" | "live" | "invalid">(
     "connecting",
   );
@@ -53,7 +54,7 @@
           stream = "invalid";
           return;
         }
-        m = parsed.data;
+        metrics = parsed.data;
         stream = "live";
       });
     };
@@ -73,8 +74,8 @@
 {/snippet}
 
 <div class="page-heading">
-  <h1>Diagnostics</h1>
-  <p>Controller health since boot, pushed every second while open.</p>
+  <h1>{m.diag_title()}</h1>
+  <p>{m.diag_subtitle()}</p>
 </div>
 
 {#if stream === "reconnecting"}
@@ -83,7 +84,9 @@
     variant="warning"
     class="mb-4"
     ><AlertTriangle size={18} /><Alert.Description class="text-inherit"
-      >No stream from the device. Retrying every {RECONNECT_MS / 1000} s.</Alert.Description
+      >{m.diag_stream_retrying({
+        seconds: RECONNECT_MS / 1000,
+      })}</Alert.Description
     ></Alert.Root
   >
 {:else if stream === "invalid"}
@@ -92,95 +95,43 @@
     variant="destructive"
     class="mb-4"
     ><Info size={18} /><Alert.Description
-      >Invalid metrics from the device.</Alert.Description
+      >{m.diag_invalid_metrics()}</Alert.Description
     ></Alert.Root
   >
 {/if}
 
-{#if m}
+{#if metrics}
   <div class="grid gap-4 md:grid-cols-2">
     <Card.Root class="min-w-0">
       <Card.Header>
         <Card.Title
           role="heading"
-          aria-level={2}>Device</Card.Title
+          aria-level={2}>{m.diag_device()}</Card.Title
         >
-        <Card.Description>Firmware, boot and link state.</Card.Description>
+        <Card.Description>{m.diag_device_description()}</Card.Description>
         <Card.Action class="text-muted-foreground"
           ><Activity size={20} /></Card.Action
         >
       </Card.Header>
       <Card.Content>
         <dl>
-          {@render row("Firmware", m.firmwareVersion)}
-          {@render row("Uptime", formatUptime(m.uptime))}
-          {@render row("Reset reason (esp-hal code)", String(m.resetReason))}
+          {@render row(m.diag_firmware(), metrics.firmwareVersion)}
+          {@render row(m.diag_uptime(), formatUptime(metrics.uptime))}
+          {@render row(m.diag_reset_reason(), String(metrics.resetReason))}
           {@render row(
-            "WiFi",
-            m.wifiConnected ? `connected, ${m.wifiRssi} dBm` : "down",
+            m.diag_wifi(),
+            metrics.wifiConnected
+              ? m.diag_wifi_connected({ rssi: metrics.wifiRssi })
+              : m.diag_wifi_down(),
           )}
-          {@render row("WiFi reconnects", String(m.wifiReconnects))}
-          {@render row("MQTT", m.mqttConnected ? "connected" : "not connected")}
-        </dl>
-      </Card.Content>
-    </Card.Root>
-
-    <Card.Root class="min-w-0">
-      <Card.Header>
-        <Card.Title
-          role="heading"
-          aria-level={2}>Memory</Card.Title
-        >
-        <Card.Description
-          >Heap and stack; refusals when heap runs low.</Card.Description
-        >
-      </Card.Header>
-      <Card.Content>
-        <dl>
-          {@render row("Free heap", formatKiB(m.freeHeap))}
-          {@render row("Lowest free heap", formatKiB(m.minFreeHeap))}
-          {@render row("Lowest free stack", formatStack(m.minFreeStack))}
-          {@render row("Low-heap refusals (503)", String(m.lowHeapRefusals))}
-        </dl>
-      </Card.Content>
-    </Card.Root>
-
-    <Card.Root class="min-w-0">
-      <Card.Header>
-        <Card.Title
-          role="heading"
-          aria-level={2}>Control loop</Card.Title
-        >
-        <Card.Description
-          >Tick timing; a late tick is a gap over 20 ms.</Card.Description
-        >
-      </Card.Header>
-      <Card.Content>
-        <dl>
-          {@render row("Longest gap", formatMicros(m.loopGapMaxUs))}
-          {@render row("Slowest tick", formatMicros(m.loopTickMaxUs))}
-          {@render row("Late ticks", String(m.loopLateTicks))}
-        </dl>
-      </Card.Content>
-    </Card.Root>
-
-    <Card.Root class="min-w-0">
-      <Card.Header>
-        <Card.Title
-          role="heading"
-          aria-level={2}>Sensors</Card.Title
-        >
-        <Card.Description>Frames and read errors since boot.</Card.Description>
-      </Card.Header>
-      <Card.Content>
-        <dl>
-          {@render row("TSIC good frames", String(m.tsicGoodFrames))}
-          {@render row("TSIC bad frames", String(m.tsicBadFrames))}
           {@render row(
-            "TSIC last good (uptime)",
-            m.tsicLastGoodMs ? `${formatUptime(m.tsicLastGoodMs)}` : "never",
+            m.diag_wifi_reconnects(),
+            String(metrics.wifiReconnects),
           )}
-          {@render row("DS18B20 read errors", String(m.ds18b20ReadErrors))}
+          {@render row(
+            m.diag_mqtt(),
+            metrics.mqttConnected ? m.diag_connected() : m.diag_not_connected(),
+          )}
         </dl>
       </Card.Content>
     </Card.Root>
@@ -189,20 +140,105 @@
       <Card.Header>
         <Card.Title
           role="heading"
-          aria-level={2}>Settings and log</Card.Title
+          aria-level={2}>{m.diag_memory()}</Card.Title
         >
-        <Card.Description>Saves to flash and the log ring.</Card.Description>
+        <Card.Description>{m.diag_memory_description()}</Card.Description>
       </Card.Header>
       <Card.Content>
         <dl>
-          {@render row("Saves", String(m.settingsSaves))}
-          {@render row("Save failures", String(m.settingsSaveFailures))}
-          {@render row("Last save", saveResultName(m.settingsLastSave))}
-          {@render row("Log bytes", String(m.logBytes))}
+          {@render row(m.diag_free_heap(), formatKiB(metrics.freeHeap))}
+          {@render row(
+            m.diag_lowest_free_heap(),
+            formatKiB(metrics.minFreeHeap),
+          )}
+          {@render row(
+            m.diag_lowest_free_stack(),
+            formatStack(metrics.minFreeStack),
+          )}
+          {@render row(
+            m.diag_low_heap_refusals(),
+            String(metrics.lowHeapRefusals),
+          )}
+        </dl>
+      </Card.Content>
+    </Card.Root>
+
+    <Card.Root class="min-w-0">
+      <Card.Header>
+        <Card.Title
+          role="heading"
+          aria-level={2}>{m.diag_control_loop()}</Card.Title
+        >
+        <Card.Description>{m.diag_control_loop_description()}</Card.Description>
+      </Card.Header>
+      <Card.Content>
+        <dl>
+          {@render row(
+            m.diag_longest_gap(),
+            formatMicros(metrics.loopGapMaxUs),
+          )}
+          {@render row(
+            m.diag_slowest_tick(),
+            formatMicros(metrics.loopTickMaxUs),
+          )}
+          {@render row(m.diag_late_ticks(), String(metrics.loopLateTicks))}
+        </dl>
+      </Card.Content>
+    </Card.Root>
+
+    <Card.Root class="min-w-0">
+      <Card.Header>
+        <Card.Title
+          role="heading"
+          aria-level={2}>{m.diag_sensors()}</Card.Title
+        >
+        <Card.Description>{m.diag_sensors_description()}</Card.Description>
+      </Card.Header>
+      <Card.Content>
+        <dl>
+          {@render row(
+            m.diag_tsic_good_frames(),
+            String(metrics.tsicGoodFrames),
+          )}
+          {@render row(m.diag_tsic_bad_frames(), String(metrics.tsicBadFrames))}
+          {@render row(
+            m.diag_tsic_last_good(),
+            metrics.tsicLastGoodMs
+              ? `${formatUptime(metrics.tsicLastGoodMs)}`
+              : m.diag_never(),
+          )}
+          {@render row(
+            m.diag_ds18b20_read_errors(),
+            String(metrics.ds18b20ReadErrors),
+          )}
+        </dl>
+      </Card.Content>
+    </Card.Root>
+
+    <Card.Root class="min-w-0">
+      <Card.Header>
+        <Card.Title
+          role="heading"
+          aria-level={2}>{m.diag_settings_and_log()}</Card.Title
+        >
+        <Card.Description>{m.diag_settings_description()}</Card.Description>
+      </Card.Header>
+      <Card.Content>
+        <dl>
+          {@render row(m.diag_saves(), String(metrics.settingsSaves))}
+          {@render row(
+            m.diag_save_failures(),
+            String(metrics.settingsSaveFailures),
+          )}
+          {@render row(
+            m.diag_last_save(),
+            saveResultName(metrics.settingsLastSave),
+          )}
+          {@render row(m.diag_log_bytes(), String(metrics.logBytes))}
         </dl>
         <a
           class="mt-3 inline-block text-sm underline"
-          href={`${API_BASE_URL}${API_ROUTES.LOGS}`}>Open the log</a
+          href={`${API_BASE_URL}${API_ROUTES.LOGS}`}>{m.diag_open_the_log()}</a
         >
       </Card.Content>
     </Card.Root>
@@ -210,7 +246,7 @@
 {:else}
   <div
     role="status"
-    aria-label="Loading diagnostics"
+    aria-label={m.diag_loading()}
     class="grid gap-5 md:grid-cols-2"
   >
     <Skeleton class="h-48 rounded-xl" /><Skeleton class="h-48 rounded-xl" />

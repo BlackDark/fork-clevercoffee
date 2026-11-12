@@ -107,9 +107,6 @@ interface ConfigFile {
 }
 
 // Request type extensions
-interface ParameterHelpQuery {
-  param?: string;
-}
 
 interface ParametersQuery {
   filter?: "hardware" | "behavior" | "other";
@@ -401,7 +398,19 @@ app.get(
         filteredParams.length
       } parameters`,
     );
-    res.json(filteredParams);
+    // Device shape: only fields write_parameters sends; the UI owns labels and help texts.
+    res.json(
+      filteredParams.map(
+        ({
+          section: _section,
+          displayName: _displayName,
+          position: _position,
+          hasHelpText: _hasHelpText,
+          show: _show,
+          ...param
+        }) => param,
+      ),
+    );
   },
 );
 
@@ -459,47 +468,6 @@ app.post(
       success: !hasErrors,
       message: hasErrors ? "Partial Success" : "OK",
     });
-  },
-);
-
-app.get(
-  "/api/parameter-help",
-  simulateAuth,
-  (
-    req: Request<
-      Record<string, never>,
-      { name: string; helpText: string } | { error: string },
-      Record<string, never>,
-      ParameterHelpQuery
-    >,
-    res: Response,
-  ): void => {
-    const paramName = req.query.param;
-
-    if (!paramName) {
-      res.status(422).json({ error: "parameter is missing" });
-      return;
-    }
-
-    const param = mockState.parameters.find((p) => p.name === paramName);
-
-    if (!param) {
-      res.status(404).json({ error: "parameter not found" });
-      return;
-    }
-
-    const helpText = `This is help text for ${
-      param.displayName || paramName
-    }. This parameter controls ${
-      paramName.includes("pid")
-        ? "PID controller behavior"
-        : paramName.includes("temp")
-          ? "temperature settings"
-          : "system behavior"
-    }.`;
-
-    console.log(`Help requested for parameter: ${paramName}`);
-    res.json({ name: paramName, helpText });
   },
 );
 
@@ -1087,7 +1055,6 @@ if (fs.existsSync(uiDistPath)) {
         <li>POST /api/scale/calibration - Start scale calibration</li>
         <li>GET /api/parameters - Get parameters</li>
         <li>POST /api/parameters - Update parameters</li>
-        <li>GET /api/parameter-help?param=name - Get parameter help</li>
         <li>GET /api/temperature - Get current temperature</li>
         <li>GET /api/history - Get temperature history</li>
         <li>POST /api/wifi-reset - Reset WiFi settings</li>

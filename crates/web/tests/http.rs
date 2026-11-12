@@ -237,6 +237,17 @@ fn ready() -> Config {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn fix_parameter_help_route_is_gone() {
+    with_server(ready(), |port| async move {
+        assert_eq!(
+            get(port, "/api/parameter-help?param=pid.enabled").await.status,
+            404
+        );
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn status_and_reads() {
     with_server(ready(), |port| async move {
         let r = get(port, "/api/status").await;
@@ -253,11 +264,6 @@ async fn status_and_reads() {
         assert_eq!(get(port, "/api/health").await.status, 200);
         assert_eq!(get(port, "/api/temperatures").await.json()["targetTemp"], 95);
         assert!(get(port, "/api/history").await.json()["currentTemps"].is_array());
-
-        let r = get(port, "/api/parameter-help?param=brew.setpoint").await;
-        assert_eq!(r.json()["name"], "brew.setpoint");
-        assert_eq!(get(port, "/api/parameter-help?param=nope").await.status, 404);
-        assert_eq!(get(port, "/api/parameter-help").await.status, 422);
 
         let r = get(port, "/api/config/download").await;
         assert_eq!(r.status, 200);
@@ -286,7 +292,7 @@ async fn windowed_json_body_is_complete() {
     with_server(ready(), |port| async move {
         let r = get(port, "/api/parameters?filter=all").await;
         assert_eq!(r.status, 200);
-        assert!(r.body.len() > 3 * 4096, "{} bytes", r.body.len());
+        assert!(r.body.len() > 2 * 4096, "{} bytes", r.body.len());
         let length: usize = r.header("Content-Length").unwrap().parse().unwrap();
         assert_eq!(r.body.len(), length);
         assert_eq!(r.json().as_array().unwrap().len(), cc_core::config::PARAMS.len());

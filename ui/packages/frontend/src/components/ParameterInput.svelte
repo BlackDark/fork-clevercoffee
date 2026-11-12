@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Input } from "@/components/ui/input";
   import SelectField from "./SelectField.svelte";
+  import { getOptionLabel } from "@/lib/parameter-options";
   import SwitchField from "./SwitchField.svelte";
   import {
     isParameterBoolean,
@@ -37,7 +38,10 @@
     value={String(parameter.value)}
     options={(parameter.options ?? []).map((option) => ({
       value: String(option.value),
-      label: option.label,
+      label:
+        getOptionLabel(parameter.name, option.value) ??
+        option.label ??
+        String(option.value),
     }))}
     {disabled}
     onchange={(value) => onchange(Number(value))}
