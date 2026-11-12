@@ -22,6 +22,7 @@ export const API_ROUTES = {
   HEALTH: "/health",
   TEMPERATURES: "/temperatures",
   HISTORY: "/history",
+  LOGS: "/logs",
 
   // Scale
   SCALE_TARE: "/scale/tare",
